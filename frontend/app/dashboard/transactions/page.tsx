@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import apiClient from '@/lib/api-client'
+import apiClient, { hasStoredSession } from '@/lib/api-client'
 import TransactionForm from '@/components/TransactionForm'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
@@ -577,8 +577,7 @@ export default function TransactionsPage() {
   }, [currentMonth])
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) { router.push('/auth/login'); return }
+    if (!hasStoredSession()) { router.push('/auth/login'); return }
     let active = true
     fetchData(() => active)
     return () => { active = false }

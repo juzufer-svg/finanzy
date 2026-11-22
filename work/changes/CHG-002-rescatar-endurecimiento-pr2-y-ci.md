@@ -1,6 +1,6 @@
 # CHG-002 — Rescatar el endurecimiento útil del PR #2 y activar CI
 
-- **Estado:** listo-para-aprobar
+- **Estado:** aprobado y fusionado (PR #5, 2026-11-22)
 - **Fecha:** 2026-11-22 · **Solicitante:** dueño del proyecto
 - **Riesgo:** alto (seguridad, configuración, contrato de usuario) · modo `completo`
 

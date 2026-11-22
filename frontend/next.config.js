@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 
-// Backend URL - interno (server-to-server, sin CORS)
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-
 const isDev = process.env.NODE_ENV !== "production";
 
 // Content-Security-Policy: solo se permite cargar recursos del propio dominio,
@@ -36,15 +33,8 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  // Proxy todas las llamadas /api/v1/* al backend FastAPI (server-side, sin CORS)
-  async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${BACKEND_URL}/api/v1/:path*`,
-      },
-    ];
-  },
+  // Las llamadas /api/v1/* las atiende el proxy app/api/v1/[...path]/route.ts, que
+  // añade la sesión desde la cookie HttpOnly (ADR-005). Usa la variable BACKEND_URL.
 };
 
 module.exports = nextConfig;

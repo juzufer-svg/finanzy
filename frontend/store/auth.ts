@@ -1,6 +1,8 @@
 'use client'
 
 import { create } from 'zustand'
+import apiClient from '@/lib/api-client'
+import { LEGACY_TOKEN_KEY, STORED_USER_KEY } from '@/lib/session'
 
 interface AuthUser {
   id: string
@@ -9,48 +11,47 @@ interface AuthUser {
 }
 
 interface AuthStore {
-  token: string | null
   user: AuthUser | null
   isAuthenticated: boolean
-  setToken: (token: string) => void
   setUser: (user: AuthUser) => void
-  logout: () => void
+  logout: () => Promise<void>
   loadAuth: () => void
 }
 
-// Sesión guardada en el navegador (en el servidor no existe localStorage)
-function readStoredAuth(): Pick<AuthStore, 'token' | 'user' | 'isAuthenticated'> {
-  if (typeof window === 'undefined') return { token: null, user: null, isAuthenticated: false }
-  const token = localStorage.getItem('token')
-  const user = localStorage.getItem('user')
-  if (!token || !user) return { token: null, user: null, isAuthenticated: false }
+// El token vive en una cookie HttpOnly (ADR-005). El navegador solo recuerda datos no
+// sensibles del usuario para pintar la interfaz; si la cookie ya no sirve, el backend
+// responde 401 y apiClient lleva al login.
+function readStoredAuth(): Pick<AuthStore, 'user' | 'isAuthenticated'> {
+  if (typeof window === 'undefined') return { user: null, isAuthenticated: false }
   try {
-    return { token, user: JSON.parse(user), isAuthenticated: true }
+    const user = localStorage.getItem(STORED_USER_KEY)
+    if (!user) return { user: null, isAuthenticated: false }
+    return { user: JSON.parse(user), isAuthenticated: true }
   } catch {
-    return { token: null, user: null, isAuthenticated: false }
+    return { user: null, isAuthenticated: false }
   }
 }
 
 export const useAuthStore = create<AuthStore>((set) => ({
-    ...readStoredAuth(),
+  ...readStoredAuth(),
 
-    setToken: (token: string) => {
-      localStorage.setItem('token', token)
-      document.cookie = `token=${token}; path=/; max-age=86400; SameSite=Lax`
-      set({ token, isAuthenticated: true })
-    },
-    
-    setUser: (user: any) => {
-      localStorage.setItem('user', JSON.stringify(user))
-      set({ user })
-    },
-    
-    logout: () => {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      document.cookie = 'token=; path=/; max-age=0'
-      set({ token: null, user: null, isAuthenticated: false })
-    },
-    
-    loadAuth: () => set(readStoredAuth()),
+  setUser: (user: AuthUser) => {
+    try { localStorage.setItem(STORED_USER_KEY, JSON.stringify(user)) } catch { /* sin almacenamiento */ }
+    set({ user, isAuthenticated: true })
+  },
+
+  logout: async () => {
+    try {
+      localStorage.removeItem(STORED_USER_KEY)
+      localStorage.removeItem(LEGACY_TOKEN_KEY)
+    } catch { /* sin almacenamiento */ }
+    set({ user: null, isAuthenticated: false })
+    try {
+      await apiClient.post('/api/v1/auth/logout')
+    } catch {
+      // Si falla la red, la cookie vence sola; la interfaz ya cerró la sesión
+    }
+  },
+
+  loadAuth: () => set(readStoredAuth()),
 }))

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import apiClient from '@/lib/api-client'
+import apiClient, { hasStoredSession } from '@/lib/api-client'
 import GoalProgressCard from '@/components/GoalProgressCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
@@ -238,8 +238,7 @@ export default function GoalsPage() {
   }, [])
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) { router.push('/auth/login'); return }
+    if (!hasStoredSession()) { router.push('/auth/login'); return }
     let active = true
     fetchGoals(() => active)
     return () => { active = false }

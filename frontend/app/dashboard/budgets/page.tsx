@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import apiClient from '@/lib/api-client'
+import apiClient, { hasStoredSession } from '@/lib/api-client'
 import BudgetCard from '@/components/BudgetCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
@@ -128,8 +128,7 @@ export default function BudgetsPage() {
   }, [currentMonth])
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) { router.push('/auth/login'); return }
+    if (!hasStoredSession()) { router.push('/auth/login'); return }
     let active = true
     fetchData(() => active)
     return () => { active = false }

@@ -3,6 +3,12 @@
 - **Versión:** v1 · **UC:** UC-001, UC-002, UC-003 · **REQ:** F-001, F-002, F-003
 - **Permiso requerido:** ninguno (visitante). Todos sujetos a límites por IP (INV-010).
 - Errores de validación de formato: **422** (FastAPI). Límite superado: **429** con `detail` legible.
+- **Navegador (ADR-005):** el navegador habla con el proxy de Next.js (`/api/v1/*`), nunca con el backend. Toda
+  petición que cambia datos lleva `x-finanzy-csrf: 1` (si falta o el `Origin` es ajeno → **403**). En `login` y
+  `verify-email` el proxy guarda el token en la cookie HttpOnly y **quita `access_token` y `token_type`** de la
+  respuesta. Rutas propias del proxy: `POST /auth/logout` → 204 (borra la cookie) y `POST /auth/adopt`
+  `{ "token" }` → 200 con el usuario (migra una sesión antigua de `localStorage`; 401 si no es válida).
+  Sin cookie, toda ruta protegida responde **401** «Tu sesión ya no es válida. Inicia sesión de nuevo.»
 
 ## `POST /register` → 201
 Entrada: `{ "email": "Email", "full_name": "texto 2-100", "password": "texto 8-128" }` (INV-018)
