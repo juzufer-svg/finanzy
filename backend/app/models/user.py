@@ -183,8 +183,9 @@ class UserDB:
             # Sin filas actualizadas no hubo cambio: no se informa un éxito falso
             return bool(result.data)
         except Exception as e:
+            # Los errores de Supabase se propagan; la ruta responde 503
             print(f"[UserDB.update_currency] {e}")
-            return False
+            raise
 
     @staticmethod
     async def delete_unverified_expired() -> int:

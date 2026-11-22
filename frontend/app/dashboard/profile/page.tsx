@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth'
 import { useThemeStore } from '@/store/theme'
 import { useCurrencyStore, AVAILABLE_CURRENCIES } from '@/store/currency'
 import apiClient from '@/lib/api-client'
+import { apiErrorMessage } from '@/components/DialogProvider'
 
 type ToastType = 'success' | 'error'
 interface Toast { msg: string; type: ToastType }
@@ -68,10 +69,10 @@ export default function ProfilePage() {
       const res = await apiClient.put('/api/v1/users/me/currency', { currency: newCurrency })
       setUserInfo(res.data)
       showToast(`Moneda actualizada a ${AVAILABLE_CURRENCIES.find(c => c.code === newCurrency)?.name}`, 'success')
-    } catch {
+    } catch (err) {
       // Si el backend falla, la moneda igual queda guardada en este navegador,
       // pero se avisa: nunca se muestra como guardada en el servidor si no lo está.
-      showToast('No se pudo guardar en el servidor. La preferencia se guardó solo en este navegador.', 'error')
+      showToast(`${apiErrorMessage(err, 'No se pudo guardar en el servidor.')} La preferencia se guardó solo en este navegador.`, 'error')
     } finally {
       setUpdatingCurrency(false)
     }

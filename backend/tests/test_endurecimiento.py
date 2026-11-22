@@ -203,3 +203,14 @@ def test_inv018_registro_exige_al_menos_8_caracteres(client, users, sent_emails)
     assert client.post("/api/v1/auth/register", json=corta, headers=ip(2)).status_code == 422
     buena = {**corta, "password": "Clave123"}
     assert client.post("/api/v1/auth/register", json=buena, headers=ip(2)).status_code == 201
+
+
+def test_moneda_si_supabase_falla_responde_503(client, users, monkeypatch):
+    _usuario(users)
+
+    async def revienta(*_):
+        raise RuntimeError("Supabase no disponible")
+
+    monkeypatch.setattr(UserDB, "update_currency", staticmethod(revienta))
+    r = client.put("/api/v1/users/me/currency", json={"currency": "EUR"}, headers=auth_header("u1"))
+    assert r.status_code == 503
