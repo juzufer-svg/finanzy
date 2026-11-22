@@ -62,7 +62,7 @@ jobs:
         run: bash backend/sql/pruebas/probar.sh
 
   frontend:
-    name: Frontend (lint + build)
+    name: Frontend (lint + pruebas + build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -79,5 +79,7 @@ jobs:
         run: npm ci
       - name: Lint
         run: npx eslint . --max-warnings=0
+      - name: Pruebas
+        run: npm test
       - name: Build
         run: npx next build

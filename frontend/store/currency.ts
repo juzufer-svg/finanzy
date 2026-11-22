@@ -9,7 +9,6 @@ interface CurrencyStore {
   rates: Record<string, number>
   ratesLoaded: boolean
   setCurrency: (currency: string) => void
-  initBaseCurrency: (currency: string) => void
   loadRates: () => Promise<void>
   fmt: (amount: number) => string
   convert: (amount: number) => number
@@ -66,26 +65,6 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       convert: buildConverter(snapshot),
       fmt: buildFormatter(snapshot),
     })
-  },
-
-  // Optional helper for future use; current app data base is COP.
-  initBaseCurrency: (currency: string) => {
-    if (typeof window === 'undefined') return
-    if (!localStorage.getItem('base_currency')) {
-      localStorage.setItem('base_currency', currency)
-      localStorage.setItem('base_currency_migrated_v2', '1')
-      const state = get()
-      const snapshot: CurrencySnapshot = {
-        currency: state.currency,
-        baseCurrency: currency,
-        rates: state.rates,
-      }
-      set({
-        baseCurrency: currency,
-        convert: buildConverter(snapshot),
-        fmt: buildFormatter(snapshot),
-      })
-    }
   },
 
   loadRates: async () => {

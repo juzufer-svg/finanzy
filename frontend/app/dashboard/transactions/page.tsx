@@ -7,6 +7,7 @@ import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
+import { filterTransactions } from '@/lib/month-stats'
 
 interface Transaction {
   id: string
@@ -366,10 +367,19 @@ function CategorizedView({
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [activeTab, setActiveTab] = useState<'todos' | 'gasto' | 'ingreso'>('todos')
+  // Buscador y filtros (CHG-006): texto en descripción o categoría, sin importar tildes ni mayúsculas
+  const [texto, setTexto] = useState('')
+  const [categoriaFiltro, setCategoriaFiltro] = useState('')
+  const filtrando = texto.trim() !== '' || categoriaFiltro !== ''
 
-  const toggle = (id: string) => setExpanded(p => ({ ...p, [id]: !p[id] }))
+  // Con un filtro activo los grupos se muestran abiertos, salvo que el usuario cierre alguno
+  const isOpen = (id: string) => (filtrando ? expanded[id] !== false : !!expanded[id])
+  const toggle = (id: string) => setExpanded(p => ({ ...p, [id]: !isOpen(id) }))
 
-  const filteredTxs = activeTab === 'todos' ? transactions : transactions.filter(t => t.tipo === activeTab)
+  const porTipo = activeTab === 'todos' ? transactions : transactions.filter(t => t.tipo === activeTab)
+  const filteredTxs = filterTransactions(porTipo, { texto, categoriaId: categoriaFiltro }, categories)
+  const categoriasDelTab = categories.filter(c => activeTab === 'todos' || c.tipo === activeTab)
+  const limpiarFiltros = () => { setTexto(''); setCategoriaFiltro('') }
 
   // Group by category
   const groups = categories
@@ -386,12 +396,32 @@ function CategorizedView({
 
   return (
     <div className="space-y-4">
+      {/* Buscador y filtro por categoría */}
+      <div className="card p-3 flex flex-col sm:flex-row gap-2 sm:items-end">
+        <div className="flex-1 min-w-0">
+          <label htmlFor="tx-buscar" className="label">Buscar</label>
+          <input id="tx-buscar" type="search" value={texto} onChange={e => setTexto(e.target.value)}
+            placeholder="Descripción o categoría…" autoComplete="off" className="input-field" />
+        </div>
+        <div className="sm:w-56">
+          <label htmlFor="tx-filtro-categoria" className="label">Categoría</label>
+          <select id="tx-filtro-categoria" value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)} className="input-field">
+            <option value="">Todas</option>
+            {categoriasDelTab.map(c => <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ${c.nombre}` : c.nombre}</option>)}
+            <option value="__sin__">Sin categoría</option>
+          </select>
+        </div>
+        {filtrando && (
+          <button type="button" onClick={limpiarFiltros} className="btn-secondary whitespace-nowrap">Limpiar filtros</button>
+        )}
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-1.5">
         {(['todos', 'gasto', 'ingreso'] as const).map(tab => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => { setActiveTab(tab); setCategoriaFiltro('') }}
             className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${
               activeTab === tab ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
             }`}
@@ -399,7 +429,9 @@ function CategorizedView({
             {tab === 'todos' ? 'Todos' : tab === 'gasto' ? '↓ Gastos' : '↑ Ingresos'}
           </button>
         ))}
-        <span className="ml-auto text-xs text-slate-400 self-center">{filteredTxs.length} registros</span>
+        <span className="ml-auto text-xs text-slate-500 self-center" aria-live="polite">
+          {filteredTxs.length} {filteredTxs.length === 1 ? 'registro' : 'registros'}{filtrando ? ` · ${fmt(filteredTxs.reduce((s, t) => s + (t.tipo === 'gasto' ? -t.monto : t.monto), 0))} neto` : ''}
+        </span>
       </div>
 
       {/* Content */}
@@ -414,13 +446,14 @@ function CategorizedView({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
             </svg>
           </div>
-          <h3 className="text-base font-semibold text-slate-700">Sin transacciones</h3>
-          <p className="text-sm text-slate-400 mt-1">No hay registros en este período</p>
+          <h3 className="text-base font-semibold text-slate-700">{filtrando ? 'Ningún movimiento coincide' : 'Sin transacciones'}</h3>
+          <p className="text-sm text-slate-500 mt-1">{filtrando ? 'Prueba con otra palabra u otra categoría.' : 'No hay registros en este período'}</p>
+          {filtrando && <button type="button" onClick={limpiarFiltros} className="btn-secondary mt-4">Limpiar filtros</button>}
         </div>
       ) : (
         <div className="space-y-3">
           {groups.map(({ cat, txs, total }) => {
-            const isOpen = !!expanded[cat.id]
+            const abierto = isOpen(cat.id)
             const isGasto = cat.tipo === 'gasto'
             return (
               <div
@@ -433,6 +466,7 @@ function CategorizedView({
                 <button
                   className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
                   onClick={() => toggle(cat.id)}
+                  aria-expanded={abierto}
                 >
                   <span className="text-2xl flex-shrink-0">{cat.icono || '📁'}</span>
                   <div className="flex-1 min-w-0">
@@ -448,7 +482,7 @@ function CategorizedView({
                       {isGasto ? '-' : '+'}{fmt(total)}
                     </span>
                     <svg
-                      className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      className={`w-4 h-4 text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -457,7 +491,7 @@ function CategorizedView({
                 </button>
 
                 {/* Expanded transactions */}
-                {isOpen && (
+                {abierto && (
                   <div className="border-t border-slate-100 divide-y divide-slate-50">
                     {txs
                       .sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -507,6 +541,7 @@ function CategorizedView({
               <button
                 className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
                 onClick={() => toggle('__uncategorized__')}
+                aria-expanded={isOpen('__uncategorized__')}
               >
                 <span className="text-2xl flex-shrink-0">📁</span>
                 <div className="flex-1 min-w-0">
@@ -514,13 +549,13 @@ function CategorizedView({
                   <p className="text-xs text-slate-400 mt-0.5">{uncategorized.length} transacciones</p>
                 </div>
                 <svg
-                  className={`w-4 h-4 text-slate-400 transition-transform ${expanded['__uncategorized__'] ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 text-slate-400 transition-transform ${isOpen('__uncategorized__') ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                 </svg>
               </button>
-              {expanded['__uncategorized__'] && (
+              {isOpen('__uncategorized__') && (
                 <div className="border-t border-slate-100 divide-y divide-slate-50">
                   {uncategorized.map(tx => (
                     <div key={tx.id} className="flex items-center gap-3 px-4 py-3 bg-slate-50/50 dark:bg-slate-700/30 group">
@@ -528,9 +563,24 @@ function CategorizedView({
                         <p className="text-xs font-semibold text-slate-700 truncate">{tx.descripcion || '—'}</p>
                         <p className="text-xs text-slate-400">{tx.fecha}</p>
                       </div>
-                      <span className={`text-xs font-bold ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>
-                        {tx.tipo === 'gasto' ? '-' : '+'}{fmt(tx.monto)}
-                      </span>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className={`text-xs font-bold ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {tx.tipo === 'gasto' ? '-' : '+'}{fmt(tx.monto)}
+                        </span>
+                        {/* Permite asignarles una categoría (p. ej. tras borrar la que tenían) */}
+                        <button onClick={() => onEdit(tx)} title="Editar" aria-label="Editar transacción"
+                          className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded text-slate-400 hover:text-blue-500 transition-all">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                          </svg>
+                        </button>
+                        <button onClick={() => onDelete(tx.id)} title="Eliminar" aria-label="Eliminar transacción"
+                          className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-slate-400 hover:text-red-500 transition-all">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
