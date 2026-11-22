@@ -16,7 +16,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ-F-006 | UC-005 | CT-004 | `be/api/routes/plataapp.py`, `be/models/plataapp.py` (categorías por defecto), `fe/app/dashboard/transactions/page.tsx` (CategoriesManagerModal) | `t/test_propiedad.py`, `t/test_validaciones.py::test_inv004_tipo_debe_ser_ingreso_o_gasto` · BDD-PROPIEDAD | Verificado |
 | REQ-F-007 | UC-006 | CT-005 | `be/api/routes/plataapp.py`, `fe/app/dashboard/budgets/page.tsx`, `fe/components/BudgetCard.tsx` | `t/test_propiedad.py`, `t/test_validaciones.py::test_inv003_limites_objetivos_y_abonos_positivos` · BDD-PROPIEDAD | Verificado (avance calculado en frontend: sin prueba automatizada) |
 | REQ-F-008 | UC-007 | CT-006 | `be/api/routes/plataapp.py`, `fe/app/dashboard/goals/page.tsx`, `fe/components/GoalProgressCard.tsx` | `t/test_metas.py::test_meta_completada_cuando_lo_ahorrado_alcanza_el_objetivo`, `t/test_propiedad.py` · BDD-METAS | Verificado |
-| REQ-F-009 | UC-007, WF-002 | CT-006 `abonar` | `be/api/routes/plataapp.py::abonar_meta` | `t/test_metas.py` · BDD-METAS | Verificado |
+| REQ-F-009 | UC-007, WF-002 | CT-006 `abonar` | `be/api/routes/plataapp.py::abonar_meta`, `be/models/plataapp.py::MetaDB.abonar`, `backend/sql/2026-11-22_abonar_meta_atomico.sql` | `t/test_metas.py` · BDD-METAS | Verificado |
 | REQ-F-010 | UC-008 | CT-003 | `fe/app/dashboard/reports/page.tsx` | — (cálculos en frontend) | Implementado |
 | REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `be/models/user.py::update_currency`, `fe/store/currency.ts`, `fe/lib/currency.ts`, `fe/app/dashboard/profile/page.tsx` | `t/test_endurecimiento.py::test_moneda_*` (guardado en servidor; conversión en frontend sin prueba) | Implementado |
 | REQ-F-012 | — | — | `fe/store/theme.ts`, `fe/components/ThemeProvider.tsx` | — | Implementado |
@@ -43,7 +43,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-005 | `test_validaciones.py::test_inv005_*` |
 | INV-006 | `test_auth.py::test_inv006_cuenta_pendiente_no_obtiene_sesion` |
 | INV-007 | `test_codigos.py::test_inv007_*` |
-| INV-008 | `test_metas.py::test_inv008_*` |
+| INV-008 | `test_metas.py::test_inv008_*`, `test_metas_atomico.py::*` (concurrencia real probada en PostgreSQL, CHG-004) |
 | INV-009 | `test_codigos.py::test_inv009_*`, `test_limites.py::test_forgot_password_aplica_el_limite_diario_en_silencio` |
 | INV-010 | `test_limites.py::*`, `test_auth.py::test_inv010_login_se_bloquea_tras_5_fallos` |
 | INV-011 | `test_auth.py::test_inv011_*` |

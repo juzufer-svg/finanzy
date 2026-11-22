@@ -12,7 +12,7 @@ from app.schemas.plataapp import (
     MetaCreate, MetaResponse, ActualizarMeta, AbonarMeta,
     MES_PATTERN,
 )
-from app.models.plataapp import TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB
+from app.models.plataapp import TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, AbonoAtomicoNoDisponible
 from app.api.sesion import usuario_de_sesion
 from typing import Optional
 
@@ -228,6 +228,20 @@ async def abonar_meta(meta_id: str, datos: AbonarMeta, authorization: str = Head
     """Registra un aporte a una meta: crea transacción de gasto y aumenta monto_actual."""
     usuario_id = await get_user_id(authorization)
 
+    # 1) Camino atómico: una sola transacción en PostgreSQL (CHG-004)
+    try:
+        meta_actualizada = await MetaDB.abonar(meta_id, usuario_id, datos.monto, datos.fecha, datos.descripcion)
+    except AbonoAtomicoNoDisponible:
+        return await _abonar_sin_transaccion(meta_id, usuario_id, datos)
+    except Exception:
+        # La función revierte todo si falla: no quedó nada a medias
+        raise HTTPException(status_code=500, detail="No se pudo registrar el abono")
+    meta_actualizada = _ensure_owner(meta_actualizada, usuario_id, "Meta no encontrada")
+    return {**meta_actualizada, "porcentaje_completado": _porcentaje(meta_actualizada)}
+
+
+async def _abonar_sin_transaccion(meta_id: str, usuario_id: str, datos: AbonarMeta) -> dict:
+    """Método anterior (modo demo o si la función SQL aún no está instalada)."""
     # Validar la meta ANTES de registrar el gasto (evita transacciones huérfanas)
     meta = _ensure_owner(await MetaDB.obtener_por_id(meta_id, usuario_id), usuario_id, "Meta no encontrada")
 

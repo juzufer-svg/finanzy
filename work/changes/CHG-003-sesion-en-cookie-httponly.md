@@ -1,6 +1,6 @@
 # CHG-003 — Sesión en cookie HttpOnly (sin token en el navegador)
 
-- **Estado:** listo-para-aprobar
+- **Estado:** aprobado y fusionado (PR #6, 2026-11-22)
 - **Fecha:** 2026-11-22 · **Solicitante:** dueño del proyecto · **Riesgo:** alto (sesión, seguridad) · modo `completo`
 
 ## 1. Pedido original

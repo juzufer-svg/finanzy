@@ -16,8 +16,8 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-009 | Limpiar los documentos antiguos de la raíz (`API_REFERENCE.md`, `ARCHITECTURE.md`, `QUICKSTART.md`, `START_HERE.md`, `*.sh`, …) y actualizar `README.md` | deuda-tecnica | bajo | Pendiente | ADR-004 |
 | BL-010 | Pruebas automatizadas del frontend (avance de presupuestos, reportes, moneda) | deuda-tecnica | medio | Pendiente | TRACEABILITY (huérfanos) |
 | BL-011 | Quitar de la lista de CORS los dominios viejos `plataapp*.vercel.app` | deuda-tecnica | bajo | Hecho (CHG-002, PR #5) | `backend/app/main.py` |
-| BL-012 | Sesión en cookie HttpOnly + proxy de Next.js + CSRF (quitar el token de `localStorage`) | seguridad | alto | En revisión (CHG-003) | Revisión PR #2, prioridad 1 |
-| BL-013 | Abono a metas atómico (función SQL/RPC: sumar y registrar el gasto en una sola transacción) | correccion-de-bug | alto | Pendiente | Revisión PR #2, prioridad 3 |
+| BL-012 | Sesión en cookie HttpOnly + proxy de Next.js + CSRF (quitar el token de `localStorage`) | seguridad | alto | Hecho (CHG-003, PR #6) | Revisión PR #2, prioridad 1 |
+| BL-013 | Abono a metas atómico (función SQL/RPC: sumar y registrar el gasto en una sola transacción) | correccion-de-bug | alto | En revisión (CHG-004) | Revisión PR #2, prioridad 3 |
 | BL-014 | Códigos, límites y bloqueos de login persistentes en PostgreSQL (sobreviven reinicios) | seguridad | medio | Pendiente | Revisión PR #2, prioridad 2 |
 | BL-015 | Verificar en Supabase las llaves foráneas `ON DELETE CASCADE` y conciliar los 64 registros huérfanos y `presupuestos.mes_año` NULL (solo con decisión del dueño) | datos | alto | Pendiente | Revisión PR #2 |
 | BL-016 | Cerrar el PR #2 (sus partes útiles pasaron a CHG-002) | deuda-tecnica | bajo | Pendiente (requiere el visto bueno del dueño) | Revisión PR #2 |
