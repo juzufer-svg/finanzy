@@ -24,18 +24,28 @@ function migrateLegacySession(): Promise<void> {
     let legacy: string | null = null
     try { legacy = localStorage.getItem(LEGACY_TOKEN_KEY) } catch { return }
     if (!legacy) return
+    let definitivo = true
     try {
       await axios.post('/api/v1/auth/adopt', { token: legacy }, {
         headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: CSRF_VALUE },
       })
-    } catch {
-      // Sesión vencida o inválida: la siguiente petición responderá 401 y llevará al login
-    } finally {
-      try { localStorage.removeItem(LEGACY_TOKEN_KEY) } catch { /* sin almacenamiento */ }
-      document.cookie = 'token=; path=/; max-age=0'
+    } catch (err: unknown) {
+      // 400/401: sesión vencida o inválida (la siguiente petición llevará al login).
+      // 5xx o sin red: fallo pasajero; se conserva el token y se reintenta después (INV-016).
+      const status = (err as { response?: { status?: number } })?.response?.status
+      definitivo = status === 400 || status === 401
     }
+    if (definitivo) clearLegacySession()
+    else legacyMigration = null
   })()
   return legacyMigration
+}
+
+/** Borra el token antiguo del navegador (también al iniciar sesión, para que no reemplace la sesión nueva). */
+export function clearLegacySession(): void {
+  if (typeof window === 'undefined') return
+  try { localStorage.removeItem(LEGACY_TOKEN_KEY) } catch { /* sin almacenamiento */ }
+  document.cookie = 'token=; path=/; max-age=0'
 }
 
 apiClient.interceptors.request.use(async (config) => {

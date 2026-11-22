@@ -25,6 +25,8 @@ El JWT se guardaba en `localStorage` y en una cookie legible por JavaScript. Cua
 - `POST /api/v1/auth/logout` borra la cookie. Un 401 del backend también la borra (un 503 no, INV-016).
 - **Migración sin cerrar sesiones:** si el navegador tiene el token antiguo en `localStorage`, `apiClient` lo envía
   una sola vez a `POST /api/v1/auth/adopt`, que lo valida con `GET /users/me` y lo pasa a la cookie; luego se borra.
+  `adopt` nunca reemplaza una cookie existente, iniciar sesión borra el token antiguo, y ante un fallo pasajero del
+  backend (5xx o sin red) el token se conserva y se reintenta (INV-016).
 - El navegador solo guarda `user` (id, correo, nombre) para pintar la interfaz.
 
 ## Consecuencias

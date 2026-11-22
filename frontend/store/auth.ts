@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import apiClient from '@/lib/api-client'
+import apiClient, { clearLegacySession } from '@/lib/api-client'
 import { LEGACY_TOKEN_KEY, STORED_USER_KEY } from '@/lib/session'
 
 interface AuthUser {
@@ -35,7 +35,9 @@ function readStoredAuth(): Pick<AuthStore, 'user' | 'isAuthenticated'> {
 export const useAuthStore = create<AuthStore>((set) => ({
   ...readStoredAuth(),
 
+  // Se llama al iniciar sesión: el token antiguo ya no debe migrarse sobre la sesión nueva
   setUser: (user: AuthUser) => {
+    clearLegacySession()
     try { localStorage.setItem(STORED_USER_KEY, JSON.stringify(user)) } catch { /* sin almacenamiento */ }
     set({ user, isAuthenticated: true })
   },

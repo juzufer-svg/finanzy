@@ -9,6 +9,9 @@
  *   ajeno no puede añadirlo sin permiso CORS) y, si trae Origin, debe ser este mismo sitio.
  * - Rutas propias: `auth/logout` (borra la cookie) y `auth/adopt` (pasa a la cookie una
  *   sesión antigua guardada en localStorage, para que nadie pierda la sesión al desplegar).
+ * - Depende de Vercel para la IP real: Vercel reemplaza `x-forwarded-for` con la IP del
+ *   visitante y aquí se reenvía tal cual (fuera de Vercel el cliente podría falsificarla).
+ * - Del backend solo se reenvía `Content-Type` (la API no usa redirecciones ni descargas).
  */
 import { type NextRequest, NextResponse } from 'next/server'
 import { CSRF_HEADER, CSRF_VALUE } from '@/lib/session'
@@ -96,8 +99,12 @@ async function readBody(req: NextRequest): Promise<string | undefined | null> {
   return text || undefined
 }
 
-/** Pasa a la cookie HttpOnly una sesión antigua (token en localStorage), si sigue siendo válida. */
+/**
+ * Pasa a la cookie HttpOnly una sesión antigua (token en localStorage), si sigue siendo válida.
+ * Nunca reemplaza ni borra una sesión que ya está en la cookie (p. ej. un login reciente).
+ */
 async function adoptLegacySession(req: NextRequest, body: string | undefined) {
+  if (req.cookies.get(COOKIE_NAME)?.value) return new NextResponse(null, { status: 204 })
   let token = ''
   try {
     token = String(JSON.parse(body || '{}').token || '')
@@ -106,16 +113,22 @@ async function adoptLegacySession(req: NextRequest, body: string | undefined) {
   }
   if (!token || token.length > 4096) return json(400, 'Sesión inválida')
 
-  const check = await fetch(`${BACKEND_URL}/api/v1/users/me`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    cache: 'no-store',
-  })
-  if (!check.ok) {
-    const res = json(check.status === 503 ? 503 : 401, 'Tu sesión ya no es válida. Inicia sesión de nuevo.')
-    if (check.status !== 503) clearSessionCookie(res)
-    return res
+  let check: Response
+  let user: unknown
+  try {
+    check = await fetch(`${BACKEND_URL}/api/v1/users/me`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    user = check.ok ? await check.json() : null
+  } catch {
+    return json(502, 'No se pudo conectar con el servidor. Intenta de nuevo en unos minutos.')
   }
-  const res = NextResponse.json(await check.json(), { headers: { 'Cache-Control': 'no-store' } })
+  if (check.status === 401 || check.status === 404 || check.status === 422) {
+    return json(401, 'Tu sesión ya no es válida. Inicia sesión de nuevo.')
+  }
+  if (!check.ok) return json(503, 'Servicio no disponible. Intenta de nuevo en unos minutos.')
+  const res = NextResponse.json(user, { headers: { 'Cache-Control': 'no-store' } })
   setSessionCookie(res, token)
   return res
 }
@@ -174,8 +187,10 @@ async function handle(req: NextRequest, ctx: Ctx) {
     status: upstream.status,
     headers: upstreamType ? { ...headers, 'Content-Type': upstreamType } : headers,
   })
-  // Sesión vencida, cerrada o cuenta eliminada: se borra la cookie (un 503 no la toca, INV-016)
-  if (token && (upstream.status === 401 || (req.method === 'DELETE' && path === 'users/me' && upstream.ok))) {
+  // Sesión vencida, cerrada o cuenta eliminada: se borra la cookie (un 503 no la toca, INV-016).
+  // Un 401 de auth/* (p. ej. contraseña mala en el login) no es una sesión vencida.
+  const sesionVencida = upstream.status === 401 && !path.startsWith('auth/')
+  if (token && (sesionVencida || (req.method === 'DELETE' && path === 'users/me' && upstream.ok))) {
     clearSessionCookie(res)
   }
   return res

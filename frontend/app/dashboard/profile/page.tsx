@@ -53,7 +53,7 @@ export default function ProfilePage() {
     setDeleteError('')
     try {
       await apiClient.delete('/api/v1/users/me')
-      logout()
+      await logout()
       router.push('/')
     } catch {
       setDeleteError('No se pudo eliminar la cuenta. Intenta de nuevo.')

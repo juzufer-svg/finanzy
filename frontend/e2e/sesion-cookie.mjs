@@ -48,6 +48,8 @@ const ctx = await browser.newContext()
 const page = await ctx.newPage()
 page.on('pageerror', e => errores.push(e.message))
 await page.goto(`${BASE}/auth/login`)
+// Un token antiguo vencido en el navegador no debe pisar la sesión nueva al iniciar sesión
+await page.evaluate(() => localStorage.setItem('token', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4IiwiZXhwIjoxfQ.x'))
 await page.fill('input[type=email]', EMAIL)
 await page.fill('input[type=password]', PASSWORD)
 const [resp] = await Promise.all([
@@ -56,7 +58,9 @@ const [resp] = await Promise.all([
 ])
 comprobar(!(await resp.text()).includes('access_token'), 'la respuesta de login no trae el token')
 await page.waitForURL('**/dashboard', { timeout: 10000 })
-comprobar(true, 'login lleva al dashboard')
+await page.goto(`${BASE}/dashboard/goals`)
+await page.waitForTimeout(1500)
+comprobar(page.url().endsWith('/dashboard/goals'), 'login lleva al dashboard y un token viejo no cierra la sesión nueva')
 comprobar(!(await page.evaluate(() => document.cookie)).includes('eyJ'), 'JavaScript no puede leer el token')
 comprobar(!JSON.stringify(await page.evaluate(() => ({ ...localStorage }))).includes('eyJ'), 'localStorage no guarda el token')
 
