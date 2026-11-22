@@ -39,7 +39,7 @@ REQ-N-001, REQ-N-003, REQ-N-004, REQ-N-009, REQ-F-001, REQ-F-011 · BL-004, BL-0
 | # | Pregunta | Respuesta | Quién |
 |---|---|---|---|
 | 1 | ¿Unificar la contraseña mínima en 8? | Sí (decisión delegada: «lo que consideres correcto») | Dueño, 2026-11-22 |
-| 2 | ¿Cerrar el PR #2? | Pendiente | Dueño |
+| 2 | ¿Cerrar el PR #2? | Sí, cerrado 2026-11-22 | Dueño |
 
 ## 5. Spec afectada
 INV-001 (ampliado), INV-017/018/019 (nuevos) · CT-001 `register` · CT-002 `me/currency` · VALUE-OBJECTS (contraseña) ·

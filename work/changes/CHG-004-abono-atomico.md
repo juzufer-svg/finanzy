@@ -1,6 +1,6 @@
 # CHG-004 — Abono a metas atómico
 
-- **Estado:** listo-para-aprobar
+- **Estado:** aprobado y fusionado (PR #7, 2026-11-22; SQL ejecutado en Supabase, comprobación t, t, f, f)
 - **Fecha:** 2026-11-22 · **Solicitante:** dueño del proyecto · **Riesgo:** alto (dinero, base de datos) · modo `completo`
 
 ## 1. Pedido original
