@@ -378,3 +378,48 @@ class MetaDB:
         except Exception as e:
             print(f"[Supabase] metas.eliminar error: {e}")
             raise
+
+    # Códigos de error que indican que la función SQL aún no está instalada (o el esquema
+    # no coincide): en ese caso la ruta usa el método anterior, así nada se rompe.
+    _RPC_NO_DISPONIBLE = {"PGRST202", "42883", "42703", "42P01"}
+
+    @staticmethod
+    async def abonar(meta_id: str, usuario_id: str, monto: float, fecha: str, descripcion: str) -> Optional[dict]:
+        """Abono atómico con la función SQL `abonar_meta` (CHG-004, INV-008).
+
+        Suma a la meta y registra el gasto en una sola transacción de PostgreSQL, con la
+        meta bloqueada mientras tanto (dos abonos simultáneos no se pisan).
+        Devuelve la meta actualizada, o None si no existe o es de otro usuario.
+        Lanza AbonoAtomicoNoDisponible si no hay Supabase o la función no está instalada.
+        """
+        if not _supabase_ok():
+            raise AbonoAtomicoNoDisponible("modo demo")
+        client = SupabaseDB.get_client()
+        try:
+            result = client.rpc("abonar_meta", {
+                "p_meta_id": meta_id,
+                "p_usuario_id": usuario_id,
+                "p_monto": monto,
+                "p_fecha": fecha,
+                "p_descripcion": descripcion,
+            }).execute()
+        except Exception as e:
+            codigo = str(getattr(e, "code", "") or "")
+            mensaje = str(getattr(e, "message", "") or e)
+            # 22P02: el id no es un UUID válido → se trata como meta inexistente (404)
+            if codigo in ("P0002", "22P02") or "meta_no_encontrada" in mensaje:
+                return None
+            if codigo in MetaDB._RPC_NO_DISPONIBLE:
+                print(f"[Supabase] abonar_meta no disponible ({codigo}); se usa el método anterior")
+                raise AbonoAtomicoNoDisponible(codigo) from e
+            print(f"[Supabase] metas.abonar error: {codigo} {mensaje}")
+            raise
+        datos = result.data
+        if isinstance(datos, list):
+            return datos[0] if datos else None
+        return datos or None
+
+
+class AbonoAtomicoNoDisponible(Exception):
+    """La función SQL `abonar_meta` no se puede usar (modo demo o migración sin aplicar)."""
+

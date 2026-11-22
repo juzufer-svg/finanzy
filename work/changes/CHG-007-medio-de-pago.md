@@ -23,7 +23,7 @@ Con la captura del artifact de referencia: Débito, Crédito, Efectivo, Transfer
   filtro por medio en Transacciones; tarjeta "Gastos por medio de pago" en Reportes.
 
 ## 3. Spec afectada
-REQ-F-004 (CA-4) · UC-004 · CT-003 v1.1 · INV-022 (nuevo) · BDD-TRANSACCIONES · BL-017.
+REQ-F-004 (CA-4) · UC-004 · CT-003 v1.1 · INV-022 (nuevo) · BDD-TRANSACCIONES · BL-018.
 
 ## 4. Evidencia
 - `python -m pytest -q` → todas pasan (111), 17 nuevas en `tests/test_medio_pago.py` (5 medios válidos, 5 inválidos, sin
