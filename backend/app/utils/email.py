@@ -1,39 +1,46 @@
 """
 Email utility - sends verification codes via SendGrid API
 """
-import random
-import string
+import secrets
 from datetime import datetime, timedelta
 import httpx
 from app.core.config import settings
 
-# In-memory store: { email: { code, expires_at } }
+# In-memory store: { email: { code, expires_at, attempts } }
 _pending_codes: dict[str, dict] = {}
 
 CODE_EXPIRE_MINUTES = 10
+MAX_CODE_ATTEMPTS = 5  # intentos fallidos permitidos por código
 
 
 def generate_code(length: int = 6) -> str:
-    return "".join(random.choices(string.digits, k=length))
+    # secrets: generador criptográficamente seguro (random es predecible)
+    return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
 def save_code(email: str, code: str) -> None:
     _pending_codes[email.lower()] = {
         "code": code,
         "expires_at": datetime.utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
+        "attempts": 0,
     }
 
 
 def verify_code(email: str, code: str) -> bool:
-    entry = _pending_codes.get(email.lower())
+    key = email.lower()
+    entry = _pending_codes.get(key)
     if not entry:
         return False
     if datetime.utcnow() > entry["expires_at"]:
-        _pending_codes.pop(email.lower(), None)
+        _pending_codes.pop(key, None)
         return False
-    if entry["code"] != code:
+    if not secrets.compare_digest(entry["code"], code):
+        entry["attempts"] += 1
+        # Tras varios fallos el código se invalida: evita probar los 1.000.000 de combinaciones
+        if entry["attempts"] >= MAX_CODE_ATTEMPTS:
+            _pending_codes.pop(key, None)
         return False
-    _pending_codes.pop(email.lower(), None)
+    _pending_codes.pop(key, None)
     return True
 
 

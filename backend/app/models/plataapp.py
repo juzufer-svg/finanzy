@@ -50,7 +50,7 @@ class TransaccionDB:
             return result.data[0]
         except Exception as e:
             print(f"[Supabase] transacciones.crear error: {e}")
-            return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo)
+            raise
 
     @staticmethod
     async def obtener_por_usuario(usuario_id: str, mes: Optional[str] = None) -> list:
@@ -66,7 +66,7 @@ class TransaccionDB:
             return result.data
         except Exception as e:
             print(f"[Supabase] transacciones.obtener error: {e}")
-            return await DemoTransaccionDB.obtener_por_usuario(usuario_id, mes)
+            raise
 
     @staticmethod
     async def obtener_por_id(transaccion_id: str) -> dict:
@@ -78,7 +78,7 @@ class TransaccionDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] transacciones.obtener_por_id error: {e}")
-            return await DemoTransaccionDB.obtener_por_id(transaccion_id)
+            raise
 
     @staticmethod
     async def actualizar(transaccion_id: str, **kwargs) -> dict:
@@ -92,7 +92,7 @@ class TransaccionDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] transacciones.actualizar error: {e}")
-            return await DemoTransaccionDB.actualizar(transaccion_id, **kwargs)
+            raise
 
     @staticmethod
     async def eliminar(transaccion_id: str) -> bool:
@@ -104,7 +104,7 @@ class TransaccionDB:
             return True
         except Exception as e:
             print(f"[Supabase] transacciones.eliminar error: {e}")
-            return await DemoTransaccionDB.eliminar(transaccion_id)
+            raise
 
     @staticmethod
     async def obtener_resumen(usuario_id: str, mes: str) -> dict:
@@ -142,7 +142,7 @@ class CategoriaDB:
             return result.data[0]
         except Exception as e:
             print(f"[Supabase] categorias.crear error: {e}")
-            return await DemoCategoriaDB.crear(usuario_id, nombre, icono, tipo)
+            raise
 
     @staticmethod
     async def obtener_por_usuario(usuario_id: str) -> list:
@@ -169,7 +169,7 @@ class CategoriaDB:
             return cats
         except Exception as e:
             print(f"[Supabase] categorias.obtener error: {e}")
-            return await DemoCategoriaDB.obtener_por_usuario(usuario_id)
+            raise
 
     @staticmethod
     async def obtener_por_id(categoria_id: str) -> dict:
@@ -181,7 +181,7 @@ class CategoriaDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] categorias.obtener_por_id error: {e}")
-            return await DemoCategoriaDB.obtener_por_id(categoria_id)
+            raise
 
     @staticmethod
     async def actualizar(categoria_id: str, nombre: str, icono: str, tipo: str) -> dict:
@@ -193,7 +193,7 @@ class CategoriaDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] categorias.actualizar error: {e}")
-            return await DemoCategoriaDB.actualizar(categoria_id, nombre, icono, tipo)
+            raise
 
     @staticmethod
     async def eliminar(categoria_id: str) -> bool:
@@ -205,7 +205,7 @@ class CategoriaDB:
             return True
         except Exception as e:
             print(f"[Supabase] categorias.eliminar error: {e}")
-            return await DemoCategoriaDB.eliminar(categoria_id)
+            raise
 
 
 class PresupuestoDB:
@@ -227,7 +227,7 @@ class PresupuestoDB:
             return result.data[0]
         except Exception as e:
             print(f"[Supabase] presupuestos.crear error: {e}")
-            return await DemoPresupuestoDB.crear(usuario_id, categoria_id, limite_mensual, mes_ano)
+            raise
 
     @staticmethod
     async def obtener_por_usuario_mes(usuario_id: str, mes_ano: str) -> list:
@@ -240,7 +240,19 @@ class PresupuestoDB:
             return result.data
         except Exception as e:
             print(f"[Supabase] presupuestos.obtener error: {e}")
-            return await DemoPresupuestoDB.obtener_por_usuario_mes(usuario_id, mes_ano)
+            raise
+
+    @staticmethod
+    async def obtener_por_id(presupuesto_id: str) -> Optional[dict]:
+        if not _supabase_ok():
+            return await DemoPresupuestoDB.obtener_por_id(presupuesto_id)
+        try:
+            client = SupabaseDB.get_client()
+            result = client.table("presupuestos").select("*").eq("id", presupuesto_id).limit(1).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"[Supabase] presupuestos.obtener_por_id error: {e}")
+            raise
 
     @staticmethod
     async def actualizar(presupuesto_id: str, limite_mensual: float) -> dict:
@@ -253,7 +265,7 @@ class PresupuestoDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] presupuestos.actualizar error: {e}")
-            return await DemoPresupuestoDB.actualizar(presupuesto_id, limite_mensual)
+            raise
 
     @staticmethod
     async def eliminar(presupuesto_id: str) -> bool:
@@ -265,7 +277,7 @@ class PresupuestoDB:
             return True
         except Exception as e:
             print(f"[Supabase] presupuestos.eliminar error: {e}")
-            return await DemoPresupuestoDB.eliminar(presupuesto_id)
+            raise
 
 
 class MetaDB:
@@ -288,7 +300,7 @@ class MetaDB:
             return result.data[0]
         except Exception as e:
             print(f"[Supabase] metas.crear error: {e}")
-            return await DemoMetaDB.crear(usuario_id, nombre, monto_objetivo, fecha_objetivo)
+            raise
 
     @staticmethod
     async def obtener_por_usuario(usuario_id: str) -> list:
@@ -300,7 +312,7 @@ class MetaDB:
             return result.data
         except Exception as e:
             print(f"[Supabase] metas.obtener error: {e}")
-            return await DemoMetaDB.obtener_por_usuario(usuario_id)
+            raise
 
     @staticmethod
     async def obtener_por_id(meta_id: str) -> dict:
@@ -312,7 +324,7 @@ class MetaDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] metas.obtener_por_id error: {e}")
-            return await DemoMetaDB.obtener_por_id(meta_id)
+            raise
 
     @staticmethod
     async def actualizar_progreso(meta_id: str, updates: dict) -> dict:
@@ -326,7 +338,7 @@ class MetaDB:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] metas.actualizar error: {e}")
-            return await DemoMetaDB.actualizar_progreso(meta_id, updates)
+            raise
 
     @staticmethod
     async def eliminar(meta_id: str) -> bool:
@@ -338,4 +350,4 @@ class MetaDB:
             return True
         except Exception as e:
             print(f"[Supabase] metas.eliminar error: {e}")
-            return await DemoMetaDB.eliminar(meta_id)
+            raise

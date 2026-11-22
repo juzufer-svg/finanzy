@@ -195,6 +195,11 @@ class DemoPresupuestoDB:
                 if p["usuario_id"] == usuario_id and p["mes_ano"] == mes_ano]
 
     @staticmethod
+    async def obtener_por_id(presupuesto_id: str):
+        """Get budget by id"""
+        return DemoPresupuestoDB._presupuestos.get(presupuesto_id)
+
+    @staticmethod
     async def actualizar(presupuesto_id: str, limite_mensual: float) -> dict:
         """Update budget limit"""
         if presupuesto_id in DemoPresupuestoDB._presupuestos:

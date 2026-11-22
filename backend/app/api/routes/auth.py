@@ -1,7 +1,7 @@
 """
 Authentication routes
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from app.schemas.auth import (
     UserRegistration, UserLogin, Token, UserResponse,
@@ -13,6 +13,30 @@ from app.core.config import settings
 from app.utils.email import generate_code, save_code, verify_code, send_verification_email
 
 router = APIRouter()
+
+# ── Protección contra fuerza bruta en el login (en memoria, por correo) ───────
+_MAX_LOGIN_FAILS = 5
+_LOCK_MINUTES = 15
+_login_fails: dict[str, dict] = {}
+
+
+def _check_locked(email: str) -> None:
+    entry = _login_fails.get(email)
+    if entry and entry.get("locked_until") and datetime.utcnow() < entry["locked_until"]:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demasiados intentos fallidos. Intenta de nuevo en {_LOCK_MINUTES} minutos.",
+        )
+
+
+def _register_fail(email: str) -> None:
+    entry = _login_fails.get(email)
+    if not entry or (entry.get("locked_until") and datetime.utcnow() >= entry["locked_until"]):
+        entry = {"count": 0, "locked_until": None}
+    entry["count"] += 1
+    if entry["count"] >= _MAX_LOGIN_FAILS:
+        entry["locked_until"] = datetime.utcnow() + timedelta(minutes=_LOCK_MINUTES)
+    _login_fails[email] = entry
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -97,10 +121,14 @@ async def resend_code(data: ResendCodeRequest, background_tasks: BackgroundTasks
 async def login(user_data: UserLogin, background_tasks: BackgroundTasks):
     """Login with email + password. Returns JWT or pending verification."""
     email = user_data.email.lower()
+    _check_locked(email)
     user = await UserDB.get_by_email(email)
 
     if not user or not verify_password(user_data.password, user.get("hashed_password", "")):
+        _register_fail(email)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    _login_fails.pop(email, None)
 
     if not user["is_active"]:
         # Send new verification code
