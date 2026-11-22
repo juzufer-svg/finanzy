@@ -5,6 +5,9 @@ import apiClient, { hasStoredSession } from '@/lib/api-client'
 import BudgetCard from '@/components/BudgetCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
+import PageHeader from '@/components/PageHeader'
+import MonthNavigator from '@/components/MonthNavigator'
+import { monthTitle } from '@/lib/month-stats'
 import { useRouter } from 'next/navigation'
 
 interface Transaction {
@@ -59,11 +62,11 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 sm:p-6 max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-bold text-slate-900">Editar Presupuesto</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
         </div>
         {cat && (
           <p className="text-sm text-slate-500 mb-4">
@@ -181,39 +184,23 @@ export default function BudgetsPage() {
           onSaved={fetchData}
         />
       )}
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="page-header mb-0">
-          <h1 className="page-title">Presupuestos</h1>
-          <p className="page-subtitle capitalize">
-            {new Date(parseInt(currentMonth.split('-')[0]), parseInt(currentMonth.split('-')[1]) - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => { const [y, m] = currentMonth.split('-').map(Number); const d = new Date(y, m - 2); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`) }}
-            className="btn-secondary">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5 8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-          <button onClick={() => { const [y, m] = currentMonth.split('-').map(Number); const d = new Date(y, m); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`) }}
-            className="btn-secondary">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-          <button onClick={() => setShowForm(!showForm)} className="btn-primary text-xs sm:text-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <PageHeader
+        title="Presupuestos"
+        subtitle={monthTitle(currentMonth)}
+        actions={<>
+          <MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />
+          <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary" aria-expanded={showForm}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showForm ? "M6 18 18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} />
             </svg>
-            {showForm ? 'Cancelar' : 'Nuevo Presupuesto'}
+            {showForm ? 'Cancelar' : 'Nuevo presupuesto'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Form */}
       {showForm && (
-        <div className="card p-6 animate-slide-in">
+        <div className="card p-4 sm:p-6 animate-slide-in">
           <h2 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
             <div className="w-6 h-6 bg-blue-100 rounded flex items-center justify-center">
               <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,7 +247,7 @@ export default function BudgetsPage() {
           {[1, 2, 3].map(i => <div key={i} className="card h-44 animate-pulse bg-slate-100" />)}
         </div>
       ) : budgets.length === 0 ? (
-        <div className="card p-16 flex flex-col items-center text-center">
+        <div className="card px-6 py-12 sm:p-16 flex flex-col items-center text-center">
           <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
             <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />

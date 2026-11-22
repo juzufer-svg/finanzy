@@ -81,14 +81,14 @@ function SummaryCard({ title, value, type, previous, previousLabel, current }: S
   return (
     <div className={`card overflow-hidden`}>
       <div className={`h-1 bg-gradient-to-r ${c.gradient}`} />
-      <div className="p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="p-4 sm:p-5">
+        <div className="flex items-center justify-between mb-2 sm:mb-4">
           <p className="text-sm font-semibold text-slate-600">{title}</p>
-          <div className={`w-10 h-10 rounded-xl ${c.bg} ring-1 ${c.ring} flex items-center justify-center ${c.text}`}>
+          <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${c.bg} ring-1 ${c.ring} flex items-center justify-center ${c.text}`} aria-hidden>
             {c.icon}
           </div>
         </div>
-        <p className={`text-3xl font-bold tracking-tight ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
+        <p className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums break-words ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
           {fmt(value)}
         </p>
         <p className="text-xs text-slate-500 mt-1"><Comparison type={type} current={current} previous={previous} previousLabel={previousLabel} /></p>
@@ -149,9 +149,9 @@ export default function DashboardSummary({ mes }: { mes: string }) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
         {[1, 2, 3].map(i => (
-          <div key={i} className="card h-32 animate-pulse bg-slate-100" />
+          <div key={i} className="card h-28 sm:h-36 animate-pulse bg-slate-100" />
         ))}
       </div>
     )
@@ -162,7 +162,7 @@ export default function DashboardSummary({ mes }: { mes: string }) {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
       <SummaryCard title="Ingresos" value={summary.ingresos} type="ingreso" previous={previous?.ingresos ?? null} previousLabel={previousLabel} current={comparable.ingresos} />
       <SummaryCard title="Gastos" value={summary.gastos} type="gasto" previous={previous?.gastos ?? null} previousLabel={previousLabel} current={comparable.gastos} />
       <SummaryCard title="Balance" value={summary.balance} type="balance" previous={previous?.balance ?? null} previousLabel={previousLabel} current={comparable.balance} />

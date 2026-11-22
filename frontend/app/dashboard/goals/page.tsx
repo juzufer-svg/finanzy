@@ -5,6 +5,7 @@ import apiClient, { hasStoredSession } from '@/lib/api-client'
 import GoalProgressCard from '@/components/GoalProgressCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
+import PageHeader from '@/components/PageHeader'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 
@@ -47,14 +48,14 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-6 w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-base font-bold text-slate-900">Abonar a meta</h2>
-            <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">{goal.nombre}</p>
+            <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[14rem]">{goal.nombre}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
             </svg>
@@ -149,11 +150,11 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-6 w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-slate-900">Editar Meta</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
             </svg>
@@ -166,7 +167,7 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
               onChange={e => setFormData({ ...formData, nombre: e.target.value })}
               className="input-field" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="goal-monto-objetivo" className="label">Monto Objetivo</label>
               <div className="relative">
@@ -288,41 +289,40 @@ export default function GoalsPage() {
     <div className="space-y-6">
       {editingGoal && <EditGoalModal goal={editingGoal} onClose={() => setEditingGoal(null)} onSaved={fetchGoals} />}
       {abonarGoal && <AbonarModal goal={abonarGoal} onClose={() => setAbonarGoal(null)} onSaved={fetchGoals} />}
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="page-header mb-0">
-          <h1 className="page-title">Metas de Ahorro</h1>
-          <p className="page-subtitle">{goals.length} metas · {completadas} completadas</p>
-        </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showForm ? "M6 18 18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} />
-          </svg>
-          {showForm ? 'Cancelar' : 'Nueva Meta'}
-        </button>
-      </div>
+      <PageHeader
+        title="Metas de ahorro"
+        subtitle={`${goals.length} ${goals.length === 1 ? 'meta' : 'metas'} · ${completadas} ${completadas === 1 ? 'completada' : 'completadas'}`}
+        actions={
+          <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary" aria-expanded={showForm}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showForm ? "M6 18 18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} />
+            </svg>
+            {showForm ? 'Cancelar' : 'Nueva meta'}
+          </button>
+        }
+      />
 
       {/* Summary row */}
       {goals.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="card p-3 sm:p-4 border-l-4 border-blue-400 min-w-0">
-            <p className="text-[10px] sm:text-xs text-slate-500 truncate">Total Objetivo</p>
-            <p className="text-sm sm:text-lg font-bold text-slate-900 mt-0.5 truncate">{fmt(totalObjetivo)}</p>
+            <p className="text-xs text-slate-500">Total objetivo</p>
+            <p className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 tabular-nums break-words">{fmt(totalObjetivo)}</p>
           </div>
           <div className="card p-3 sm:p-4 border-l-4 border-emerald-400 min-w-0">
-            <p className="text-[10px] sm:text-xs text-slate-500 truncate">Total Ahorrado</p>
-            <p className="text-sm sm:text-lg font-bold text-emerald-600 mt-0.5 truncate">{fmt(totalAhorrado)}</p>
+            <p className="text-xs text-slate-500">Total ahorrado</p>
+            <p className="text-base sm:text-lg font-bold text-emerald-600 mt-0.5 tabular-nums break-words">{fmt(totalAhorrado)}</p>
           </div>
-          <div className="card p-3 sm:p-4 border-l-4 border-violet-400 min-w-0">
-            <p className="text-[10px] sm:text-xs text-slate-500 truncate">Completadas</p>
-            <p className="text-sm sm:text-lg font-bold text-violet-600 mt-0.5">{completadas} / {goals.length}</p>
+          <div className="card p-3 sm:p-4 border-l-4 border-violet-400 min-w-0 col-span-2 sm:col-span-1">
+            <p className="text-xs text-slate-500">Completadas</p>
+            <p className="text-base sm:text-lg font-bold text-violet-600 mt-0.5 tabular-nums">{completadas} / {goals.length}</p>
           </div>
         </div>
       )}
 
       {/* Form */}
       {showForm && (
-        <div className="card p-6 animate-slide-in">
+        <div className="card p-4 sm:p-6 animate-slide-in">
           <h2 className="text-sm font-bold text-slate-900 mb-4">Nueva Meta de Ahorro</h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
             <div>
@@ -363,7 +363,7 @@ export default function GoalsPage() {
           {[1, 2, 3].map(i => <div key={i} className="card h-52 animate-pulse bg-slate-100" />)}
         </div>
       ) : goals.length === 0 ? (
-        <div className="card p-16 flex flex-col items-center text-center">
+        <div className="card px-6 py-12 sm:p-16 flex flex-col items-center text-center">
           <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
             <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />

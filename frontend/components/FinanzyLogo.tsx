@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface FinanzyLogoProps {
   /** Modo: 'full' muestra icono + nombre + tagline, 'icon' solo el icono, 'horizontal' icono + nombre */
   variant?: 'full' | 'icon' | 'horizontal'
@@ -9,6 +11,11 @@ interface FinanzyLogoProps {
 }
 
 function LogoIcon({ size }: { size: number }) {
+  // Ids únicos por instancia: si el logo aparece dos veces y una copia está oculta
+  // (display: none), los degradados con el mismo id dejan la otra copia invisible.
+  const uid = useId().replace(/:/g, '')
+  const fGrad = `fGrad-${uid}`
+  const chartGrad = `chartGrad-${uid}`
   return (
   <svg
     width={size}
@@ -16,30 +23,31 @@ function LogoIcon({ size }: { size: number }) {
     viewBox="0 0 100 100"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    aria-label="Finanzy logo icon"
+    aria-hidden="true"
+    focusable="false"
   >
     <defs>
-      <linearGradient id="fGrad" x1="0" y1="0" x2="1" y2="1">
+      <linearGradient id={fGrad} x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stopColor="#0D1B4B" />
         <stop offset="100%" stopColor="#00B89C" />
       </linearGradient>
-      <linearGradient id="chartGrad" x1="0" y1="1" x2="1" y2="0">
+      <linearGradient id={chartGrad} x1="0" y1="1" x2="1" y2="0">
         <stop offset="0%" stopColor="#00C9A7" />
         <stop offset="100%" stopColor="#00E5C4" />
       </linearGradient>
     </defs>
 
     {/* Letra F – rama superior horizontal */}
-    <rect x="14" y="8" width="56" height="16" rx="6" fill="url(#fGrad)" />
+    <rect x="14" y="8" width="56" height="16" rx="6" fill={`url(#${fGrad})`} />
     {/* Letra F – rama media horizontal */}
-    <rect x="14" y="36" width="40" height="14" rx="5" fill="url(#fGrad)" />
+    <rect x="14" y="36" width="40" height="14" rx="5" fill={`url(#${fGrad})`} />
     {/* Letra F – pilar vertical */}
-    <rect x="14" y="8" width="16" height="72" rx="6" fill="url(#fGrad)" />
+    <rect x="14" y="8" width="16" height="72" rx="6" fill={`url(#${fGrad})`} />
 
     {/* Barras del gráfico dentro de la F */}
-    <rect x="38" y="62" width="9" height="18" rx="3" fill="url(#chartGrad)" />
-    <rect x="51" y="52" width="9" height="28" rx="3" fill="url(#chartGrad)" />
-    <rect x="64" y="40" width="9" height="40" rx="3" fill="url(#chartGrad)" />
+    <rect x="38" y="62" width="9" height="18" rx="3" fill={`url(#${chartGrad})`} />
+    <rect x="51" y="52" width="9" height="28" rx="3" fill={`url(#${chartGrad})`} />
+    <rect x="64" y="40" width="9" height="40" rx="3" fill={`url(#${chartGrad})`} />
 
     {/* Flecha de tendencia alcista */}
     <polyline
@@ -74,7 +82,7 @@ export default function FinanzyLogo({
 
   if (variant === 'icon') {
     return (
-      <span className={className} aria-label="Finanzy">
+      <span className={`inline-flex ${className}`} role="img" aria-label="Finanzy">
         <LogoIcon size={size} />
       </span>
     )

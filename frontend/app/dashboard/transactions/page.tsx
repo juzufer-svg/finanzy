@@ -7,7 +7,9 @@ import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
-import { filterTransactions } from '@/lib/month-stats'
+import { filterTransactions, monthTitle, shortDate } from '@/lib/month-stats'
+import PageHeader from '@/components/PageHeader'
+import MonthNavigator from '@/components/MonthNavigator'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 
 interface Transaction {
@@ -144,8 +146,8 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
   const displayed = filterTipo === 'todos' ? categories : categories.filter(c => c.tipo === filterTipo)
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[calc(100dvh-2rem)]" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="text-base font-bold text-slate-900">Crear Categorías</h3>
@@ -154,7 +156,7 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
               className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
               + Nueva
             </button>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+            <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
           </div>
         </div>
 
@@ -163,7 +165,7 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
           <div className="p-5 border-b border-slate-100 bg-slate-50 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-bold text-slate-800">{editingId ? 'Editar categoría' : 'Nueva categoría'}</h4>
-              <button onClick={() => { setShowForm(false); setEditingId(null) }} className="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
+              <button onClick={() => { setShowForm(false); setEditingId(null) }} aria-label="Cerrar formulario" className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 text-lg leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
             </div>
             {error && <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">{error}</div>}
             <form onSubmit={handleSubmit} className="space-y-3">
@@ -224,7 +226,7 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
           ) : (
             displayed.map(cat => (
               <div key={cat.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors group">
-                <span className="text-2xl flex-shrink-0">{cat.icono || '📁'}</span>
+                <span className="text-2xl flex-shrink-0" aria-hidden>{cat.icono || '📁'}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-800 truncate">{cat.nombre}</p>
                   <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
@@ -233,15 +235,15 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
                     {cat.tipo === 'gasto' ? '↓ Gasto' : '↑ Ingreso'}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                <div className="flex items-center gap-1 reveal-on-hover transition-opacity flex-shrink-0">
                   <button onClick={() => openEdit(cat)}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar">
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" title="Editar" aria-label={`Editar categoría ${cat.nombre}`}>
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
                     </svg>
                   </button>
                   <button onClick={() => handleDelete(cat.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar">
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Eliminar" aria-label={`Eliminar categoría ${cat.nombre}`}>
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                     </svg>
@@ -294,11 +296,11 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6 max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-bold text-slate-900">Editar Transacción</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
         </div>
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -411,7 +413,7 @@ function CategorizedView({
   return (
     <div className="space-y-4">
       {/* Buscador y filtro por categoría */}
-      <div className="card p-3 flex flex-wrap gap-2 items-end">
+      <div className="card p-3 sm:p-4 flex flex-wrap gap-3 items-end">
         <div className="basis-full min-w-0">
           <label htmlFor="tx-buscar" className="label">Buscar</label>
           <input id="tx-buscar" type="search" value={texto} onChange={e => setTexto(e.target.value)}
@@ -439,19 +441,21 @@ function CategorizedView({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {(['todos', 'gasto', 'ingreso'] as const).map(tab => (
           <button
             key={tab}
+            type="button"
             onClick={() => { setActiveTab(tab); setCategoriaFiltro('') }}
-            className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${
+            aria-pressed={activeTab === tab}
+            className={`text-xs px-4 py-2 rounded-full font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
               activeTab === tab ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
             }`}
           >
             {tab === 'todos' ? 'Todos' : tab === 'gasto' ? '↓ Gastos' : '↑ Ingresos'}
           </button>
         ))}
-        <span className="ml-auto text-xs text-slate-500 self-center" aria-live="polite">
+        <span className="ml-auto text-xs text-slate-500 tabular-nums" aria-live="polite">
           {filteredTxs.length} {filteredTxs.length === 1 ? 'registro' : 'registros'}{filtrando ? ` · neto ${netoFiltrado < 0 ? '-' : '+'}${fmt(Math.abs(netoFiltrado))}` : ''}
         </span>
       </div>
@@ -486,7 +490,7 @@ function CategorizedView({
               >
                 {/* Card header — clickable to expand */}
                 <button
-                  className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
+                  className="w-full flex items-center gap-3 p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
                   onClick={() => toggle(cat.id)}
                   aria-expanded={abierto}
                 >
@@ -499,7 +503,7 @@ function CategorizedView({
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span
-                      className={`text-base font-bold ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}
+                      className={`text-sm sm:text-base font-bold tabular-nums whitespace-nowrap ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}
                     >
                       {isGasto ? '-' : '+'}{fmt(total)}
                     </span>
@@ -521,19 +525,20 @@ function CategorizedView({
                         <div key={tx.id} className="flex items-center gap-3 px-4 py-3 bg-slate-50/50 dark:bg-slate-700/30 group">
                           <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isGasto ? 'bg-red-400' : 'bg-emerald-400'}`} />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-slate-700 truncate">
+                            <p className="text-sm font-medium text-slate-700 truncate">
                               {tx.descripcion || cat.nombre}
                             </p>
-                            <p className="text-xs text-slate-500">{tx.fecha}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
+                            <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <span className={`text-xs font-bold ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}>
+                            <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}>
                               {isGasto ? '-' : '+'}{fmt(tx.monto)}
                             </span>
                             <button
                               onClick={() => onEdit(tx)}
-                              className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded text-slate-300 hover:text-blue-500 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all"
+                              className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 reveal-on-hover transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                               title="Editar"
+                              aria-label={`Editar ${tx.descripcion || cat.nombre} del ${shortDate(tx.fecha)}`}
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
@@ -541,8 +546,9 @@ function CategorizedView({
                             </button>
                             <button
                               onClick={() => onDelete(tx.id)}
-                              className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-slate-300 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                              className="p-2 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-slate-400 hover:text-red-500 dark:hover:text-red-400 reveal-on-hover transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                               title="Eliminar"
+                              aria-label={`Eliminar ${tx.descripcion || cat.nombre} del ${shortDate(tx.fecha)}`}
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
@@ -561,14 +567,14 @@ function CategorizedView({
           {uncategorized.length > 0 && (
             <div className="card overflow-hidden border-l-4 border-slate-300">
               <button
-                className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
                 onClick={() => toggle('__uncategorized__')}
                 aria-expanded={isOpen('__uncategorized__')}
               >
-                <span className="text-2xl flex-shrink-0">📁</span>
+                <span className="text-2xl flex-shrink-0" aria-hidden>📁</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-900">Sin categoría</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{uncategorized.length} transacciones</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{uncategorized.length} {uncategorized.length === 1 ? 'transacción' : 'transacciones'}</p>
                 </div>
                 <svg
                   className={`w-4 h-4 text-slate-400 transition-transform ${isOpen('__uncategorized__') ? 'rotate-180' : ''}`}
@@ -582,22 +588,22 @@ function CategorizedView({
                   {uncategorized.map(tx => (
                     <div key={tx.id} className="flex items-center gap-3 px-4 py-3 bg-slate-50/50 dark:bg-slate-700/30 group">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-slate-700 truncate">{tx.descripcion || '—'}</p>
-                        <p className="text-xs text-slate-500">{tx.fecha}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
+                        <p className="text-sm font-medium text-slate-700 truncate">{tx.descripcion || '—'}</p>
+                        <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className={`text-xs font-bold ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>
+                        <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>
                           {tx.tipo === 'gasto' ? '-' : '+'}{fmt(tx.monto)}
                         </span>
                         {/* Permite asignarles una categoría (p. ej. tras borrar la que tenían) */}
                         <button onClick={() => onEdit(tx)} title="Editar" aria-label="Editar transacción"
-                          className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded text-slate-400 hover:text-blue-500 transition-all">
+                          className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg text-slate-400 hover:text-blue-500 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
                           </svg>
                         </button>
                         <button onClick={() => onDelete(tx.id)} title="Eliminar" aria-label="Eliminar transacción"
-                          className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-slate-400 hover:text-red-500 transition-all">
+                          className="p-2 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-slate-400 hover:text-red-500 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
                           </svg>
@@ -692,58 +698,39 @@ export default function TransactionsPage() {
         />
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="page-header mb-0">
-          <h1 className="page-title">Transacciones</h1>
-          <p className="page-subtitle capitalize">
-            {new Date(parseInt(currentMonth.split('-')[0]), parseInt(currentMonth.split('-')[1]) - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Transacciones"
+        subtitle={monthTitle(currentMonth)}
+        actions={<>
           <button
+            type="button"
             onClick={() => setShowCategoriesManager(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-sm font-semibold shadow-md hover:opacity-90 transition-all"
-            style={{background: 'linear-gradient(135deg, #0D1B4B 0%, #00B89C 100%)'}}
+            className="btn-secondary"
             title="Crear o gestionar categorías"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h.008v.008H6V6Z" />
             </svg>
-            Crear Categorías
+            Categorías
           </button>
-          <button
-            onClick={() => { const [y, m] = currentMonth.split('-').map(Number); const d = new Date(y, m - 2); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`) }}
-            className="btn-secondary">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5 8.25 12l7.5-7.5" />
-            </svg>
-            <span className="hidden sm:inline">Anterior</span>
-          </button>
-          <button onClick={() => { const [y, m] = currentMonth.split('-').map(Number); const d = new Date(y, m); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`) }}
-            className="btn-primary">
-            <span className="hidden sm:inline">Siguiente</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
+          <MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />
+        </>}
+      />
 
       {/* Mini stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card p-4 border-l-4 border-emerald-400 min-w-0 overflow-hidden">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="card p-3 sm:p-4 border-l-4 border-emerald-400 min-w-0">
           <p className="text-xs text-slate-500">Ingresos</p>
-          <p className="text-xs font-bold text-emerald-600 mt-0.5 sm:text-xl truncate">{fmt(income)}</p>
+          <p className="text-base sm:text-xl font-bold text-emerald-600 mt-0.5 tabular-nums break-words">{fmt(income)}</p>
         </div>
-        <div className="card p-4 border-l-4 border-red-400 min-w-0 overflow-hidden">
+        <div className="card p-3 sm:p-4 border-l-4 border-red-400 min-w-0">
           <p className="text-xs text-slate-500">Gastos</p>
-          <p className="text-xs font-bold text-red-600 mt-0.5 sm:text-xl truncate">{fmt(expenses)}</p>
+          <p className="text-base sm:text-xl font-bold text-red-600 mt-0.5 tabular-nums break-words">{fmt(expenses)}</p>
         </div>
-        <div className="card p-4 border-l-4 border-blue-400 min-w-0 overflow-hidden">
+        <div className="card p-3 sm:p-4 border-l-4 border-blue-400 min-w-0 col-span-2 sm:col-span-1">
           <p className="text-xs text-slate-500">Balance</p>
-          <p className={`text-xs font-bold mt-0.5 sm:text-xl truncate ${(income - expenses) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+          <p className={`text-base sm:text-xl font-bold mt-0.5 tabular-nums break-words ${(income - expenses) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
             {fmt(income - expenses)}
           </p>
         </div>

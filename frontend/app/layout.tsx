@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import ThemeProvider from '@/components/ThemeProvider'
@@ -15,6 +15,20 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: 'Finanzy - Control a tu medida',
   description: 'Tu solución completa para gestionar tus finanzas personales',
+  appleWebApp: { capable: true, title: 'Finanzy', statusBarStyle: 'default' },
+  formatDetection: { telephone: false },
+}
+
+// viewport-fit=cover: la app ocupa toda la pantalla del iPhone (muesca y barra de inicio);
+// los márgenes seguros se respetan con env(safe-area-inset-*) en el diseño.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
 }
 
 export default function RootLayout({

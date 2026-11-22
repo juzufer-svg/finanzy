@@ -30,6 +30,29 @@ export function monthOf(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
 }
 
+/**
+ * Nombre del mes para títulos: "Noviembre de 2026" (o "Noviembre" sin año).
+ * Solo la primera letra va en mayúscula; la clase CSS `capitalize` daba "Noviembre De 2026".
+ */
+export function monthTitle(mes: string, conAnio = true): string {
+  const texto = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)) - 1, 1)
+    .toLocaleDateString('es-ES', conAnio ? { month: 'long', year: 'numeric' } : { month: 'long' })
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+/**
+ * Fecha corta para listas: "2026-11-05" → "5 nov" (o "5 nov 2026").
+ * Se arma a mano para que se vea igual en Chrome y en Safari. Si no tiene el formato esperado, se deja igual.
+ */
+export function shortDate(fecha: string, conAnio = false): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha || '')
+  const mes = m ? MESES_CORTOS[Number(m[2]) - 1] : undefined
+  if (!m || !mes) return fecha
+  return `${Number(m[3])} ${mes}${conAnio ? ` ${m[1]}` : ''}`
+}
+
 /** Mes anterior o siguiente (`delta` = -1 / +1) de un mes `YYYY-MM`. */
 export function shiftMonth(mes: string, delta: number): string {
   const [y, m] = mes.split('-').map(Number)

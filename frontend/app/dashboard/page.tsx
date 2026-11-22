@@ -8,6 +8,9 @@ import TransactionList from '@/components/TransactionList'
 import ErrorState from '@/components/ErrorState'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import { useRouter } from 'next/navigation'
+import PageHeader from '@/components/PageHeader'
+import MonthNavigator from '@/components/MonthNavigator'
+import { monthTitle } from '@/lib/month-stats'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -44,18 +47,6 @@ export default function Dashboard() {
     fetchData(() => active)
     return () => { active = false }
   }, [fetchData, router])
-
-  const handlePreviousMonth = () => {
-    const [y, m] = currentMonth.split('-').map(Number)
-    const d = new Date(y, m - 2)
-    setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
-
-  const handleNextMonth = () => {
-    const [y, m] = currentMonth.split('-').map(Number)
-    const d = new Date(y, m)
-    setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
 
   if (loading) {
     return (
@@ -132,47 +123,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">Resumen de tu actividad financiera</p>
-      </div>
-
-      {/* Month Selector */}
-      <div className="card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Período</p>
-          <p className="text-xl font-bold text-slate-900 mt-0.5 capitalize">
-            {new Date(parseInt(currentMonth.split('-')[0]), parseInt(currentMonth.split('-')[1]) - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handlePreviousMonth} className="btn-secondary">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5 8.25 12l7.5-7.5" />
-            </svg>
-            <span className="hidden sm:inline">Anterior</span>
-          </button>
-          <button onClick={handleNextMonth} className="btn-primary">
-            <span className="hidden sm:inline">Siguiente</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle={<>Resumen de <span className="font-medium text-slate-700">{monthTitle(currentMonth)}</span></>}
+        actions={<MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />}
+      />
 
       {/* Summary Cards */}
       <DashboardSummary mes={currentMonth} />
 
       {/* Recent Transactions */}
-      <div className="card p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Transacciones Recientes</h2>
+      <div className="card p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900">Transacciones recientes</h2>
             <p className="text-xs text-slate-500 mt-0.5">Últimas 5 transacciones del período</p>
           </div>
-          <Link href="/dashboard/transactions" className="btn-primary text-xs">
+          <Link href="/dashboard/transactions" className="btn-secondary text-xs flex-shrink-0">
             Ver todas
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
@@ -184,20 +151,20 @@ export default function Dashboard() {
 
       {/* Quick Access */}
       <div>
-        <h2 className="section-title">Acceso Rápido</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <h2 className="section-title">Acceso rápido</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {quickLinks.map(({ href, label, desc, color, iconColor, icon }) => (
             <Link
               key={href}
               href={href}
-              className={`card-hover p-5 flex flex-col gap-3 border ${color} transition-all duration-200`}
+              className={`card-hover p-4 sm:p-5 flex flex-col gap-3 border ${color} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
             >
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconColor}`}>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconColor}`} aria-hidden>
                 {icon}
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">{label}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">{desc}</p>
               </div>
             </Link>
           ))}

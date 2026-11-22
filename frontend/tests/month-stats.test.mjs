@@ -5,7 +5,7 @@ import {
   monthOf, shiftMonth, daysInMonth, elapsedDays, sumByTipo, dailyAverage, projectMonthEnd,
   pctChange, totalsByCategory, compareByCategory, cumulativeByDay, totalBudget, normalizeText,
   filterTransactions, totalsByPaymentMethod, comparablePrevious,
-  upToToday,
+  upToToday, monthTitle, shortDate,
 } from '../lib/month-stats.ts'
 
 const hoy = new Date(2026, 10, 22) // 22 de noviembre de 2026 (hora local)
@@ -126,4 +126,15 @@ test('upToToday: en el mes en curso quita lo anotado con fecha posterior a hoy',
   assert.deepEqual(upToToday(items, '2026-11', hoy).map(t => t.id), ['a', 'c'])
   // Otro mes: no se recorta
   assert.equal(upToToday(items, '2026-10', hoy).length, 3)
+})
+
+test('título del mes: solo la primera letra en mayúscula', () => {
+  assert.equal(monthTitle('2026-11'), 'Noviembre de 2026')
+  assert.equal(monthTitle('2027-01', false), 'Enero')
+})
+
+test('fecha corta para listas', () => {
+  assert.equal(shortDate('2026-11-05'), '5 nov')
+  assert.equal(shortDate('2027-01-31', true), '31 ene 2027')
+  assert.equal(shortDate('sin fecha'), 'sin fecha')
 })

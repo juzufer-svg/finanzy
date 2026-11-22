@@ -123,7 +123,7 @@ export default function DialogProvider({ children }: { children: React.ReactNode
       {/* Avisos: aria-live para que los lectores de pantalla los anuncien */}
       <div
         aria-live="polite"
-        className="fixed bottom-4 right-4 left-4 sm:left-auto z-[100] flex flex-col gap-2 sm:w-96 pointer-events-none"
+        className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-4 right-4 left-4 sm:left-auto z-[100] flex flex-col gap-2 sm:w-96 pointer-events-none"
       >
         {toasts.map(t => (
           <div
