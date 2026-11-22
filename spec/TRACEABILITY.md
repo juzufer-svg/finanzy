@@ -22,6 +22,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ-F-012 | — | — | `fe/store/theme.ts`, `fe/components/ThemeProvider.tsx` | — | Implementado |
 | REQ-F-013 | UC-010 | CT-002 `DELETE me` | `be/api/routes/users.py`, `be/models/user.py`, `fe/app/dashboard/profile/page.tsx`, llaves foráneas `backend/sql/2026-11-22_huerfanos_3_llaves_foraneas.sql` (CHG-005) | `backend/sql/pruebas/probar.sh` (cascada en la BD, INV-021) | Implementado (la cascada se verifica en CI; el endpoint, sin prueba) |
 | REQ-F-014 | — | CT-002 `GET me` | `be/api/routes/users.py`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
+| REQ-F-015 | UC-011 | CT-007 | `be/api/routes/asistente.py`, `be/utils/asistente.py`, `be/schemas/asistente.py`, `be/core/config.py` (`ANTHROPIC_*`, `ASISTENTE_*`), `fe/app/dashboard/assistant/page.tsx`, `fe/app/dashboard/layout.tsx` (menú y botón de la barra superior) | `t/test_asistente.py` (INV-023, INV-024; la API de Claude se simula) | Verificado (backend; la pantalla del chat, revisión manual) |
 | REQ-N-001 | — | Todos | `be/api/routes/plataapp.py::_ensure_owner`, `::_ensure_categoria_propia`, `be/models/plataapp.py` (filtro `usuario_id`) | `t/test_propiedad.py`, `t/test_endurecimiento.py` (INV-001, INV-002) | Verificado |
 | REQ-N-002 | — | CT-001 | `be/core/rate_limit.py`, `be/api/routes/auth.py` | `t/test_limites.py`, `t/test_auth.py::test_inv010_login_se_bloquea_tras_5_fallos` (INV-010) | Verificado |
 | REQ-N-003 | — | — | `be/main.py`, `be/core/config.py`, `be/utils/email.py`, `fe/next.config.js` (cabeceras) | `t/test_app_seguridad.py`, `t/test_correo.py`, `t/test_endurecimiento.py` (INV-012, INV-013, INV-019) | Verificado (cabeceras: comprobación manual con `curl -I`) |
@@ -58,6 +59,8 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-020 | `frontend/e2e/sesion-cookie.mjs` (prueba de punta a punta con Playwright; manual, sin CI todavía) |
 | INV-021 | `backend/sql/pruebas/probar.sh` + `02_comprobaciones.sql` (CI, job "Migraciones SQL") |
 | INV-022 | `test_medio_pago.py::test_inv022_*`, `backend/sql/pruebas/02_comprobaciones.sql` (CHECK en la BD) |
+| INV-023 | `test_asistente.py::test_inv023_*` |
+| INV-024 | `test_asistente.py::test_inv024_*`, `::test_sin_clave_responde_503_y_no_llama_a_claude`, `::test_ultima_ronda_obliga_a_responder_sin_herramientas` |
 
 ## Huérfanos (deben quedar vacíos)
 - REQ sin prueba automatizada: REQ-F-011 (conversión), REQ-F-012, REQ-F-013 (endpoint; la cascada sí se prueba en el CI de SQL), REQ-F-014 (lógica en frontend o de bajo riesgo — ver BL-010). REQ-F-010 ya tiene `npm test` (CHG-006).

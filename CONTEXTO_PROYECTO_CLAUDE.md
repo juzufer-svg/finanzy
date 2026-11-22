@@ -32,6 +32,7 @@ Navegador ──► Vercel (Next.js, carpeta /frontend)
 | Railway | Backend FastAPI | Hobby | US$5/mes (incluye US$5 de consumo) | **Bloquea SMTP** (puertos 25/465/587/2525) → el correo va por API HTTPS |
 | Supabase | Base de datos PostgreSQL | Free | US$0 | **Se pausa tras 7 días sin actividad** (se reactiva con *Restore*). Sin respaldos restaurables en el plan gratis |
 | Brevo | Correos transaccionales (códigos) | Free | US$0 | 300 correos/día. Remitente verificado: Gmail del dueño |
+| Anthropic (API de Claude) | Asistente del chat (CHG-010) | Prepago por uso | Por tokens (Haiku) | Opcional. Topes diarios en INV-024; fijar también un límite de gasto en la Claude Console |
 
 **Historial de proveedores:** SendGrid se eliminó (su prueba gratis venció el 30/06/2026) y se
 reemplazó por Brevo.
@@ -40,7 +41,8 @@ reemplazó por Brevo.
 
 **Railway (backend):** `ENVIRONMENT=production`, `SECRET_KEY` (≥ 32 caracteres), `ALGORITHM`
 (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES`, `SUPABASE_URL`, `SUPABASE_KEY` (service_role),
-`SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`.
+`SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`, `ANTHROPIC_API_KEY` (opcional, asistente),
+`ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`.
 
 **Vercel (frontend):** `BACKEND_URL` (URL pública de Railway, con `https://`). Root Directory = `frontend`.
 
@@ -67,6 +69,8 @@ backend/app/
   api/routes/auth.py      registro, verificación, login, reenvío, recuperar contraseña
   api/routes/users.py     /users/me (ver, moneda, eliminar cuenta)
   api/routes/plataapp.py  transacciones, categorías, presupuestos, metas (con verificación de dueño)
+  api/routes/asistente.py chat con Claude: sesión, topes de costo (CHG-010)
+  utils/asistente.py      herramientas de solo lectura + ciclo de tool use con la API de Claude
   core/config.py          Settings (variables de entorno)
   core/security.py        JWT (PyJWT, solo HMAC) y hash de contraseñas (bcrypt)
   core/rate_limit.py      limitadores en memoria (ventana deslizante) + IP del cliente
@@ -137,6 +141,8 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 **Finanzas**: `transacciones` (GET con `?mes=YYYY-MM`, POST, GET/PUT/DELETE `/{id}`, GET `resumen/{mes}`; campo opcional `medio_pago`, CT-003 v1.1),
 `categorias` (GET, POST, PUT/DELETE `/{id}`), `presupuestos` (GET `/{mes_ano}`, POST, PUT/DELETE `/{id}`),
 `metas` (GET, POST, PUT/DELETE `/{id}`, POST `/{id}/abonar` → crea un gasto en la categoría "Ahorro" y suma a la meta)
+
+**Asistente (`/asistente`)**: `POST chat` → pregunta en lenguaje natural; Claude consulta herramientas de solo lectura (CT-007)
 
 **Otros**: `GET /health`. `/docs` y `/openapi.json` están ocultos en producción.
 

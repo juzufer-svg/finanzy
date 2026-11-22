@@ -53,6 +53,13 @@ const IconProfile = () => (
   </svg>
 )
 
+const IconChat = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+  </svg>
+)
+
 const IconLogout = () => (
   <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -82,10 +89,14 @@ const menuItems = [
   { href: '/dashboard/budgets', label: 'Presupuestos', Icon: IconBudget },
   { href: '/dashboard/goals', label: 'Metas', Icon: IconGoal },
   { href: '/dashboard/reports', label: 'Reportes', Icon: IconReport },
+  { href: '/dashboard/assistant', label: 'Asistente', Icon: IconChat },
   { href: '/dashboard/profile', label: 'Perfil', Icon: IconProfile },
 ]
 
 /** Inicial del nombre (o del correo) para el avatar. */
+// Fuera de la barra inferior del celular (se abren desde la barra superior)
+const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant'])
+
 const initialOf = (user: { full_name?: string; email?: string } | null) =>
   (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()
 
@@ -154,6 +165,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     >
       {dark ? <IconSun /> : <IconMoon />}
     </button>
+  )
+
+  const assistantActive = isActive('/dashboard/assistant')
+  const assistantButton = (
+    <Link
+      href="/dashboard/assistant"
+      aria-label="Abrir el asistente"
+      aria-current={assistantActive ? 'page' : undefined}
+      title="Asistente"
+      className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+        assistantActive
+          ? (dark ? 'text-teal-300 bg-slate-700' : 'text-blue-600 bg-blue-50')
+          : (dark ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-100')
+      }`}
+    >
+      <IconChat />
+    </Link>
   )
 
   const userCard = (
@@ -323,6 +351,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              {assistantButton}
               {themeButton}
               <Link
                 href="/dashboard/profile"
@@ -352,9 +381,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         aria-label="Navegación principal"
         className={`md:hidden fixed bottom-0 inset-x-0 border-t z-40 pb-[env(safe-area-inset-bottom)] backdrop-blur ${dark ? 'bg-slate-800/95 border-slate-700' : 'bg-white/95 border-slate-200'}`}
       >
-        {/* Perfil no va aquí: se abre desde el avatar de la barra superior (5 botones caben sin cortar textos) */}
+        {/* Perfil y Asistente no van aquí: se abren desde la barra superior (5 botones caben sin cortar textos) */}
         <div className="grid grid-cols-5 h-16 px-[env(safe-area-inset-left)]">
-          {menuItems.filter(item => item.href !== '/dashboard/profile').map(({ href, label, Icon }) => {
+          {menuItems.filter(item => !BOTTOM_NAV_EXCLUDED.has(item.href)).map(({ href, label, Icon }) => {
             const active = isActive(href)
             return (
               <Link
