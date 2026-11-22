@@ -1,0 +1,62 @@
+# Integración continua (BL-004 / REQ-N-009).
+# En cada push y en cada pull request corre las pruebas y la auditoría del backend,
+# y el lint y el build del frontend. No usa secretos ni toca producción.
+# Gratis: el repositorio es público, así que GitHub Actions no tiene costo.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest + pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # igual que backend/Dockerfile
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt pip-audit
+      - name: Pruebas
+        run: python -m pytest -q
+      - name: Auditoría de dependencias
+        run: python -m pip_audit -r requirements.txt
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+      - name: Build
+        run: npx next build

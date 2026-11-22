@@ -27,6 +27,10 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 _is_production = settings.ENVIRONMENT.lower() == "production"
@@ -37,56 +41,51 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     # No exponer la documentación interactiva en producción
+    debug=bool(settings.DEBUG and not _is_production),
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
     openapi_url=None if _is_production else "/openapi.json",
 )
 
-# CORS Middleware Configuration
-# IMPORTANT: allow_origins=["*"] is INCOMPATIBLE with allow_credentials=True
-# Must use explicit origins or allow_origin_regex
+# CORS: solo orígenes exactos (CHG-002). El frontend en Vercel llama al backend a
+# través del proxy de Next.js (servidor a servidor), por lo que el navegador no
+# necesita CORS en producción; esta lista sirve para desarrollo y pruebas.
+# Sin comodines ni expresiones regulares: un «*.vercel.app» permitiría que
+# cualquier proyecto de Vercel llamara a la API con credenciales.
 import os
 
 codespace_name = os.getenv("CODESPACE_NAME", "").strip()
 
-allow_origins = [
+allow_origins = list(settings.CORS_ORIGINS)
+allow_origins += [
     "http://localhost:3000",
     "http://localhost:8000",
     "http://localhost:5173",
     "https://localhost:3000",
     "https://localhost:8000",
+    "https://finanzyapp.vercel.app",
 ]
 
 if codespace_name:
-    allow_origins.extend([
+    allow_origins += [
         f"https://{codespace_name}-3000.app.github.dev",
         f"https://{codespace_name}-8000.app.github.dev",
-        f"http://{codespace_name}-3000.app.github.dev",
-        f"http://{codespace_name}-8000.app.github.dev",
-    ])
-    print(f"✓ Codespaces detected: {codespace_name}")
+    ]
 
-# Vercel frontend URL
-vercel_url = os.getenv("VERCEL_URL", "").strip()
-if vercel_url:
+# URL del despliegue de Vercel (si se define); solo un host, sin rutas
+vercel_url = os.getenv("VERCEL_URL", "").strip().strip("/")
+if vercel_url and "/" not in vercel_url and "*" not in vercel_url:
     allow_origins.append(f"https://{vercel_url}")
 
-# Always allow Vercel production domain
-allow_origins.extend([
-    "https://plataapp-omega.vercel.app",
-    "https://plataapp.vercel.app",
-])
-
+allow_origins = list(dict.fromkeys(allow_origins))  # sin duplicados, en orden
 print(f"✓ CORS allowed origins: {allow_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_origin_regex=r"https://(.*\.app\.github\.dev|.*\.vercel\.app)",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # Include Routes

@@ -5,7 +5,7 @@
 - Errores de validación de formato: **422** (FastAPI). Límite superado: **429** con `detail` legible.
 
 ## `POST /register` → 201
-Entrada: `{ "email": "Email", "full_name": "texto 2-100", "password": "texto ≥ 6" }`
+Entrada: `{ "email": "Email", "full_name": "texto 2-100", "password": "texto 8-128" }` (INV-018)
 Salida: `{ "status": "pending", "message": "Te enviamos un código de 6 dígitos…" }`
 
 | HTTP | Cuándo | `detail` |

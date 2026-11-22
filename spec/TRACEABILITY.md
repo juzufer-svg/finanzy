@@ -18,24 +18,25 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ-F-008 | UC-007 | CT-006 | `be/api/routes/plataapp.py`, `fe/app/dashboard/goals/page.tsx`, `fe/components/GoalProgressCard.tsx` | `t/test_metas.py::test_meta_completada_cuando_lo_ahorrado_alcanza_el_objetivo`, `t/test_propiedad.py` · BDD-METAS | Verificado |
 | REQ-F-009 | UC-007, WF-002 | CT-006 `abonar` | `be/api/routes/plataapp.py::abonar_meta` | `t/test_metas.py` · BDD-METAS | Verificado |
 | REQ-F-010 | UC-008 | CT-003 | `fe/app/dashboard/reports/page.tsx` | — (cálculos en frontend) | Implementado |
-| REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `fe/store/currency.ts`, `fe/lib/currency.ts`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
+| REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `be/models/user.py::update_currency`, `fe/store/currency.ts`, `fe/lib/currency.ts`, `fe/app/dashboard/profile/page.tsx` | `t/test_endurecimiento.py::test_moneda_*` (guardado en servidor; conversión en frontend sin prueba) | Implementado |
 | REQ-F-012 | — | — | `fe/store/theme.ts`, `fe/components/ThemeProvider.tsx` | — | Implementado |
 | REQ-F-013 | UC-010 | CT-002 `DELETE me` | `be/api/routes/users.py`, `be/models/user.py`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
 | REQ-F-014 | — | CT-002 `GET me` | `be/api/routes/users.py`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
-| REQ-N-001 | — | Todos | `be/api/routes/plataapp.py::_ensure_owner`, `::_ensure_categoria_propia` | `t/test_propiedad.py` (INV-001, INV-002) | Verificado |
+| REQ-N-001 | — | Todos | `be/api/routes/plataapp.py::_ensure_owner`, `::_ensure_categoria_propia`, `be/models/plataapp.py` (filtro `usuario_id`) | `t/test_propiedad.py`, `t/test_endurecimiento.py` (INV-001, INV-002) | Verificado |
 | REQ-N-002 | — | CT-001 | `be/core/rate_limit.py`, `be/api/routes/auth.py` | `t/test_limites.py`, `t/test_auth.py::test_inv010_login_se_bloquea_tras_5_fallos` (INV-010) | Verificado |
-| REQ-N-003 | — | — | `be/main.py`, `be/utils/email.py`, `fe/next.config.js` (cabeceras) | `t/test_app_seguridad.py`, `t/test_correo.py` (INV-012, INV-013) | Verificado (cabeceras: comprobación manual con `curl -I`) |
-| REQ-N-004 | — | — | `backend/requirements.txt`, `frontend/package.json` | `pip-audit` / `npm audit` (manual) | Implementado |
+| REQ-N-003 | — | — | `be/main.py`, `be/core/config.py`, `be/utils/email.py`, `fe/next.config.js` (cabeceras) | `t/test_app_seguridad.py`, `t/test_correo.py`, `t/test_endurecimiento.py` (INV-012, INV-013, INV-019) | Verificado (cabeceras: comprobación manual con `curl -I`) |
+| REQ-N-004 | — | — | `backend/requirements.txt`, `frontend/package.json` | `pip-audit` en CI (`.github/workflows/ci.yml`); `npm audit` manual | Implementado |
 | REQ-N-005 | — | — | `fe/components/DialogProvider.tsx`, `fe/components/ErrorState.tsx`, formularios | Revisión manual | Implementado |
 | REQ-N-007 | — | — | — | — | Especificado (backlog) |
 | REQ-N-008 | — | — | — | — | Especificado (backlog) |
+| REQ-N-009 | — | — | `.github/workflows/ci.yml` (pytest, pip-audit, eslint, next build en cada push y PR) | El propio CI | Implementado |
 | REQ-N-010 | — | — | `be/utils/email.py` (Brevo) | `t/test_correo.py` | Verificado |
 
 ## Invariantes → pruebas
 
 | INV | Pruebas |
 |---|---|
-| INV-001 | `test_propiedad.py::test_inv001_*` |
+| INV-001 | `test_propiedad.py::test_inv001_*`, `test_endurecimiento.py::test_toda_consulta_por_id_en_supabase_filtra_tambien_por_usuario`, `::test_modo_demo_no_borra_ni_edita_registros_de_otro_usuario` |
 | INV-002 | `test_propiedad.py::test_inv002_no_se_puede_usar_una_categoria_ajena` |
 | INV-003 | `test_validaciones.py::test_inv003_*` |
 | INV-004 | `test_validaciones.py::test_inv004_tipo_debe_ser_ingreso_o_gasto` |
@@ -51,6 +52,9 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-014 | `test_auth.py::test_inv014_correo_se_normaliza_a_minusculas` |
 | INV-015 | `test_auth.py::test_inv015_*` |
 | INV-016 | `test_sesiones.py::test_inv016_*`, `test_sesiones.py::test_login_y_verificacion_emiten_la_version_de_sesion_vigente` |
+| INV-017 | `test_endurecimiento.py::test_inv017_*` |
+| INV-018 | `test_endurecimiento.py::test_inv018_*` |
+| INV-019 | `test_endurecimiento.py` (configuración y CORS) |
 
 ## Huérfanos (deben quedar vacíos)
 - REQ sin prueba automatizada: REQ-F-010, REQ-F-011, REQ-F-012, REQ-F-013, REQ-F-014 (lógica en frontend o de bajo riesgo; sin pruebas de frontend todavía — ver backlog).

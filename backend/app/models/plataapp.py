@@ -17,6 +17,13 @@ def _supabase_ok() -> bool:
     return bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
 
 
+def _de_usuario(registro: Optional[dict], usuario_id: str) -> Optional[dict]:
+    """Devuelve el registro solo si pertenece al usuario (modo demo)."""
+    if registro and str(registro.get("usuario_id")) == str(usuario_id):
+        return registro
+    return None
+
+
 def _mes_rango(mes: str):
     """Devuelve (first_day, next_month_first_day) para filtrar por mes en Supabase."""
     year, month = int(mes[:4]), int(mes[5:7])
@@ -69,38 +76,42 @@ class TransaccionDB:
             raise
 
     @staticmethod
-    async def obtener_por_id(transaccion_id: str) -> dict:
+    async def obtener_por_id(transaccion_id: str, usuario_id: str) -> Optional[dict]:
         if not _supabase_ok():
-            return await DemoTransaccionDB.obtener_por_id(transaccion_id)
+            return _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("transacciones").select("*").eq("id", transaccion_id).limit(1).execute()
+            result = client.table("transacciones").select("*").eq("id", transaccion_id).eq("usuario_id", usuario_id).limit(1).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] transacciones.obtener_por_id error: {e}")
             raise
 
     @staticmethod
-    async def actualizar(transaccion_id: str, **kwargs) -> dict:
+    async def actualizar(transaccion_id: str, usuario_id: str, **kwargs) -> Optional[dict]:
         if not _supabase_ok():
+            if not _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id):
+                return None
             return await DemoTransaccionDB.actualizar(transaccion_id, **kwargs)
         try:
             allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo'}
             updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
             client = SupabaseDB.get_client()
-            result = client.table("transacciones").update(updates).eq("id", transaccion_id).execute()
+            result = client.table("transacciones").update(updates).eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] transacciones.actualizar error: {e}")
             raise
 
     @staticmethod
-    async def eliminar(transaccion_id: str) -> bool:
+    async def eliminar(transaccion_id: str, usuario_id: str) -> bool:
         if not _supabase_ok():
+            if not _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id):
+                return False
             return await DemoTransaccionDB.eliminar(transaccion_id)
         try:
             client = SupabaseDB.get_client()
-            client.table("transacciones").delete().eq("id", transaccion_id).execute()
+            client.table("transacciones").delete().eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return True
         except Exception as e:
             print(f"[Supabase] transacciones.eliminar error: {e}")
@@ -172,36 +183,40 @@ class CategoriaDB:
             raise
 
     @staticmethod
-    async def obtener_por_id(categoria_id: str) -> dict:
+    async def obtener_por_id(categoria_id: str, usuario_id: str) -> Optional[dict]:
         if not _supabase_ok():
-            return await DemoCategoriaDB.obtener_por_id(categoria_id)
+            return _de_usuario(await DemoCategoriaDB.obtener_por_id(categoria_id), usuario_id)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("categorias").select("*").eq("id", categoria_id).limit(1).execute()
+            result = client.table("categorias").select("*").eq("id", categoria_id).eq("usuario_id", usuario_id).limit(1).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] categorias.obtener_por_id error: {e}")
             raise
 
     @staticmethod
-    async def actualizar(categoria_id: str, nombre: str, icono: str, tipo: str) -> dict:
+    async def actualizar(categoria_id: str, usuario_id: str, nombre: str, icono: str, tipo: str) -> Optional[dict]:
         if not _supabase_ok():
+            if not _de_usuario(await DemoCategoriaDB.obtener_por_id(categoria_id), usuario_id):
+                return None
             return await DemoCategoriaDB.actualizar(categoria_id, nombre, icono, tipo)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("categorias").update({"nombre": nombre, "icono": icono, "tipo": tipo}).eq("id", categoria_id).execute()
+            result = client.table("categorias").update({"nombre": nombre, "icono": icono, "tipo": tipo}).eq("id", categoria_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] categorias.actualizar error: {e}")
             raise
 
     @staticmethod
-    async def eliminar(categoria_id: str) -> bool:
+    async def eliminar(categoria_id: str, usuario_id: str) -> bool:
         if not _supabase_ok():
+            if not _de_usuario(await DemoCategoriaDB.obtener_por_id(categoria_id), usuario_id):
+                return False
             return await DemoCategoriaDB.eliminar(categoria_id)
         try:
             client = SupabaseDB.get_client()
-            client.table("categorias").delete().eq("id", categoria_id).execute()
+            client.table("categorias").delete().eq("id", categoria_id).eq("usuario_id", usuario_id).execute()
             return True
         except Exception as e:
             print(f"[Supabase] categorias.eliminar error: {e}")
@@ -243,37 +258,41 @@ class PresupuestoDB:
             raise
 
     @staticmethod
-    async def obtener_por_id(presupuesto_id: str) -> Optional[dict]:
+    async def obtener_por_id(presupuesto_id: str, usuario_id: str) -> Optional[dict]:
         if not _supabase_ok():
-            return await DemoPresupuestoDB.obtener_por_id(presupuesto_id)
+            return _de_usuario(await DemoPresupuestoDB.obtener_por_id(presupuesto_id), usuario_id)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("presupuestos").select("*").eq("id", presupuesto_id).limit(1).execute()
+            result = client.table("presupuestos").select("*").eq("id", presupuesto_id).eq("usuario_id", usuario_id).limit(1).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] presupuestos.obtener_por_id error: {e}")
             raise
 
     @staticmethod
-    async def actualizar(presupuesto_id: str, limite_mensual: float) -> dict:
+    async def actualizar(presupuesto_id: str, usuario_id: str, limite_mensual: float) -> Optional[dict]:
         if not _supabase_ok():
+            if not _de_usuario(await DemoPresupuestoDB.obtener_por_id(presupuesto_id), usuario_id):
+                return None
             return await DemoPresupuestoDB.actualizar(presupuesto_id, limite_mensual)
         try:
             client = SupabaseDB.get_client()
             result = client.table("presupuestos").update({"limite_mensual": limite_mensual})\
-                .eq("id", presupuesto_id).execute()
+                .eq("id", presupuesto_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] presupuestos.actualizar error: {e}")
             raise
 
     @staticmethod
-    async def eliminar(presupuesto_id: str) -> bool:
+    async def eliminar(presupuesto_id: str, usuario_id: str) -> bool:
         if not _supabase_ok():
+            if not _de_usuario(await DemoPresupuestoDB.obtener_por_id(presupuesto_id), usuario_id):
+                return False
             return await DemoPresupuestoDB.eliminar(presupuesto_id)
         try:
             client = SupabaseDB.get_client()
-            client.table("presupuestos").delete().eq("id", presupuesto_id).execute()
+            client.table("presupuestos").delete().eq("id", presupuesto_id).eq("usuario_id", usuario_id).execute()
             return True
         except Exception as e:
             print(f"[Supabase] presupuestos.eliminar error: {e}")
@@ -315,38 +334,42 @@ class MetaDB:
             raise
 
     @staticmethod
-    async def obtener_por_id(meta_id: str) -> dict:
+    async def obtener_por_id(meta_id: str, usuario_id: str) -> Optional[dict]:
         if not _supabase_ok():
-            return await DemoMetaDB.obtener_por_id(meta_id)
+            return _de_usuario(await DemoMetaDB.obtener_por_id(meta_id), usuario_id)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("metas").select("*").eq("id", meta_id).limit(1).execute()
+            result = client.table("metas").select("*").eq("id", meta_id).eq("usuario_id", usuario_id).limit(1).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] metas.obtener_por_id error: {e}")
             raise
 
     @staticmethod
-    async def actualizar_progreso(meta_id: str, updates: dict) -> dict:
+    async def actualizar_progreso(meta_id: str, usuario_id: str, updates: dict) -> Optional[dict]:
         if not _supabase_ok():
+            if not _de_usuario(await DemoMetaDB.obtener_por_id(meta_id), usuario_id):
+                return None
             return await DemoMetaDB.actualizar_progreso(meta_id, updates)
         try:
             allowed = {'nombre', 'monto_objetivo', 'monto_actual', 'fecha_objetivo'}
             data = {k: v for k, v in updates.items() if k in allowed and v is not None}
             client = SupabaseDB.get_client()
-            result = client.table("metas").update(data).eq("id", meta_id).execute()
+            result = client.table("metas").update(data).eq("id", meta_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"[Supabase] metas.actualizar error: {e}")
             raise
 
     @staticmethod
-    async def eliminar(meta_id: str) -> bool:
+    async def eliminar(meta_id: str, usuario_id: str) -> bool:
         if not _supabase_ok():
+            if not _de_usuario(await DemoMetaDB.obtener_por_id(meta_id), usuario_id):
+                return False
             return await DemoMetaDB.eliminar(meta_id)
         try:
             client = SupabaseDB.get_client()
-            client.table("metas").delete().eq("id", meta_id).execute()
+            client.table("metas").delete().eq("id", meta_id).eq("usuario_id", usuario_id).execute()
             return True
         except Exception as e:
             print(f"[Supabase] metas.eliminar error: {e}")

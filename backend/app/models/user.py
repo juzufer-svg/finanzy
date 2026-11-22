@@ -135,7 +135,8 @@ class UserDB:
     async def get_session_version(user_id: str) -> Optional[int]:
         """Versión de sesión vigente del usuario (INV-016).
 
-        Devuelve None si el usuario ya no existe. Sin Supabase (modo demo local)
+        Devuelve None si el usuario ya no existe o si su cuenta no está activa
+        (INV-017): un token de una cuenta desactivada deja de servir. Sin Supabase (modo demo local)
         devuelve 0. Los errores de Supabase se propagan: quien llama decide
         responder 503 en vez de cerrar la sesión por un fallo pasajero.
         """
@@ -144,12 +145,12 @@ class UserDB:
         client = SupabaseDB.get_client()
         result = (
             client.table(UserDB.TABLE_NAME)
-            .select("session_version")
+            .select("session_version,is_active")
             .eq("id", user_id)
             .limit(1)
             .execute()
         )
-        if not result.data:
+        if not result.data or not result.data[0].get("is_active"):
             return None
         return int(result.data[0].get("session_version") or 0)
 
@@ -175,11 +176,12 @@ class UserDB:
             return False
         try:
             client = SupabaseDB.get_client()
-            client.table(UserDB.TABLE_NAME)\
+            result = client.table(UserDB.TABLE_NAME)\
                 .update({"currency": currency})\
                 .eq("id", user_id)\
                 .execute()
-            return True
+            # Sin filas actualizadas no hubo cambio: no se informa un éxito falso
+            return bool(result.data)
         except Exception as e:
             print(f"[UserDB.update_currency] {e}")
             return False
