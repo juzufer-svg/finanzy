@@ -1,58 +1,54 @@
-"""
-Configuration settings for the application
-"""
+"""Configuración segura de Finanzy. Los secretos críticos deben venir del entorno."""
 from typing import List
-from pydantic_settings import BaseSettings
-from pydantic import Field
-
+from urllib.parse import urlparse
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    """Application settings from environment variables"""
-    
-    # API Configuration
     API_V1_STR: str = "/api/v1"
-    PROJECT_NAME: str = "Full Stack App"
-    
-    # CORS
-    CORS_ORIGINS: List[str] = Field(
-        default=[
-            "http://localhost:3000",
-            "http://localhost:8000",
-            "http://localhost:5173",
-            "https://localhost:3000",
-            "https://localhost:8000",
-            "https://vercel.com",
-            "https://*.app.github.dev",
-            "http://*.app.github.dev",
-            "*"  # Allow all origins in development
-        ]
-    )
-    
-    # JWT
-    SECRET_KEY: str = Field(default="your-secret-key-change-in-production")
+    PROJECT_NAME: str = "Finanzy"
+    CORS_ORIGINS: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    SECRET_KEY: str = Field(min_length=32)
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 días
-    
-    # Supabase
-    SUPABASE_URL: str = Field(default="")
-    SUPABASE_KEY: str = Field(default="")
-    SUPABASE_ANON_KEY: str = Field(default="")
-    
-    # Database
-    DATABASE_URL: str = Field(default="postgresql://user:password@localhost/dbname")
-    
-    # Correo transaccional (Brevo)
-    BREVO_API_KEY: str = Field(default="")
-    FROM_EMAIL: str = Field(default="")  # remitente verificado en Brevo
-    FROM_NAME: str = Field(default="Finanzy")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, ge=5, le=1440)
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    DATABASE_URL: str = ""
+    BREVO_API_KEY: str = ""
+    FROM_EMAIL: str = ""
+    FROM_NAME: str = "Finanzy"
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = False
 
-    # Environment
-    ENVIRONMENT: str = Field(default="development")
-    DEBUG: bool = Field(default=True)
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def validate_cors_origins(cls, origins: List[str]) -> List[str]:
+        cleaned: list[str] = []
+        for origin in origins:
+            value = origin.strip().rstrip("/")
+            parsed = urlparse(value)
+            if "*" in value or not parsed.scheme or not parsed.netloc:
+                raise ValueError("CORS_ORIGINS requiere orígenes HTTP(S) exactos, sin comodines")
+            if parsed.username or parsed.password:
+                raise ValueError("No se permiten credenciales en CORS_ORIGINS")
+            if parsed.scheme not in {"http", "https"} or parsed.path or parsed.query or parsed.fragment:
+                raise ValueError("Cada origen CORS debe contener solo esquema y host HTTP(S)")
+            if value not in cleaned:
+                cleaned.append(value)
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_production_configuration(self):
+        if self.ALGORITHM not in {"HS256", "HS384", "HS512"}:
+            raise ValueError("ALGORITHM debe ser HS256, HS384 o HS512")
+        if self.ENVIRONMENT.lower() == "production":
+            if not self.SUPABASE_URL or not self.SUPABASE_KEY:
+                raise ValueError("Producción requiere SUPABASE_URL y SUPABASE_KEY; no se permite modo demo")
+            if self.DEBUG:
+                raise ValueError("DEBUG debe estar deshabilitado en producción")
+        return self
 
 settings = Settings()

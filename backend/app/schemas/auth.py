@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field, EmailStr
 
 
 class UserRegistration(BaseModel):
-    """User registration request"""
+    """Registro con contraseña de al menos 8 caracteres."""
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=100)
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class UserLogin(BaseModel):
@@ -34,10 +34,10 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    """Reset password with emailed code"""
+    """Reset password with emailed code."""
     email: EmailStr
     code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=72)
 
 
 class MessageResponse(BaseModel):
