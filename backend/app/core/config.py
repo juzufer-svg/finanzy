@@ -41,10 +41,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = Field(default="postgresql://user:password@localhost/dbname")
     
-    # Resend (preferred)
-    # SendGrid
-    SENDGRID_API_KEY: str = Field(default="")
-    FROM_EMAIL: str = Field(default="")
+    # Correo transaccional (Brevo)
+    BREVO_API_KEY: str = Field(default="")
+    FROM_EMAIL: str = Field(default="")  # remitente verificado en Brevo
     FROM_NAME: str = Field(default="Finanzy")
 
     # Environment

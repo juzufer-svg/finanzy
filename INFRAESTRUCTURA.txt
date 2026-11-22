@@ -23,6 +23,14 @@ BASE DE DATOS
                proyecto está inactivo más de 7 días
   Plan Pro   : ~$25/mes → sin pausas
 
+CORREO (códigos de verificación y recuperación)
+  Plataforma : Brevo (API transaccional por HTTPS)
+  Plan gratis: 300 correos/día
+  Variables  : BREVO_API_KEY, FROM_EMAIL (remitente
+               verificado en Brevo), FROM_NAME
+  Nota       : Railway Hobby bloquea SMTP; por eso se
+               usa la API HTTPS de Brevo
+
 REPOSITORIO
   GitHub     : juzufer-svg/plataapp
   Rama       : main

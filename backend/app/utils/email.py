@@ -1,5 +1,5 @@
 """
-Email utility - sends verification codes via SendGrid API
+Email utility - sends verification codes via the Brevo transactional email API
 """
 import secrets
 from datetime import datetime, timedelta
@@ -127,37 +127,64 @@ def _build_html(code: str, purpose: str = "verify") -> str:
 """
 
 
-def send_verification_email(to_email: str, code: str, purpose: str = "verify") -> bool:
-    """Send a verification / password-reset code via SendGrid API."""
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 
-    # ── 1. SendGrid API ───────────────────────────────────────────────────────
-    if settings.SENDGRID_API_KEY:
-        from_addr = settings.FROM_EMAIL or "noreply@finanzy.app"
+
+def _build_text(code: str, purpose: str) -> str:
+    """Versión en texto plano (mejora la entrega en Gmail y otros clientes)."""
+    tpl = _TEMPLATES[purpose]
+    lines = [
+        tpl["title"],
+        tpl["intro"],
+        f"Tu código: {code}",
+        f"Expira en {CODE_EXPIRE_MINUTES} minutos. Si no solicitaste esto, ignora este correo.",
+        "Finanzy · Control a tu medida",
+    ]
+    return "\n\n".join(lines)
+
+
+def send_verification_email(to_email: str, code: str, purpose: str = "verify") -> bool:
+    """Envía un código de verificación / restablecimiento usando la API de Brevo.
+
+    Requiere en el entorno:
+      BREVO_API_KEY  → clave de API de Brevo (SMTP & API → API Keys)
+      FROM_EMAIL     → remitente verificado en Brevo (Senders)
+    """
+    if settings.BREVO_API_KEY:
+        if not settings.FROM_EMAIL:
+            print("[EMAIL ERROR] FROM_EMAIL no está configurado (debe ser un remitente verificado en Brevo)")
+            return False
         try:
             resp = httpx.post(
-                "https://api.sendgrid.com/v3/mail/send",
+                BREVO_API_URL,
                 headers={
-                    "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
+                    "api-key": settings.BREVO_API_KEY,
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
                 },
                 json={
-                    "personalizations": [{"to": [{"email": to_email}]}],
-                    "from": {"email": from_addr, "name": settings.FROM_NAME},
+                    "sender": {"email": settings.FROM_EMAIL, "name": settings.FROM_NAME},
+                    "to": [{"email": to_email}],
                     "subject": _TEMPLATES[purpose]["subject"].format(code=code),
-                    "content": [{"type": "text/html", "value": _build_html(code, purpose)}],
+                    "htmlContent": _build_html(code, purpose),
+                    "textContent": _build_text(code, purpose),
                 },
                 timeout=15,
             )
-            if resp.status_code == 202:
-                print(f"[EMAIL] Sent via SendGrid to {to_email}")
+            if resp.status_code in (200, 201, 202):
+                print(f"[EMAIL] Sent via Brevo to {to_email} ({purpose})")
                 return True
-            print(f"[EMAIL ERROR] SendGrid responded {resp.status_code}: {resp.text}")
+            print(f"[EMAIL ERROR] Brevo responded {resp.status_code}: {resp.text}")
         except Exception as e:
-            print(f"[EMAIL ERROR] SendGrid exception: {e}")
+            print(f"[EMAIL ERROR] Brevo exception: {e}")
         return False
 
-    # ── 2. Dev mode ───────────────────────────────────────────────────────────
-    print(f"\n{'='*40}")
-    print(f"[DEV] {purpose} code for {to_email}: {code}")
-    print(f"{'='*40}\n")
+    # Sin clave de Brevo: en producción es un error de configuración y el código
+    # NO se escribe en los logs; en desarrollo se muestra para poder probar.
+    if settings.ENVIRONMENT.lower() == "production":
+        print("[EMAIL ERROR] BREVO_API_KEY no está configurada: no se pudo enviar el código")
+        return False
+
+    separator = "=" * 40
+    print(f"\n{separator}\n[DEV] {purpose} code for {to_email}: {code}\n{separator}\n")
     return True
