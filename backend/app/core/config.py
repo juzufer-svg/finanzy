@@ -31,8 +31,10 @@ class Settings(BaseSettings):
         for origin in origins:
             value = origin.strip().rstrip("/")
             parsed = urlparse(value)
-            if value == "*" or not parsed.scheme or not parsed.netloc:
+            if "*" in value or not parsed.scheme or not parsed.netloc:
                 raise ValueError("CORS_ORIGINS requiere orígenes HTTP(S) exactos, sin comodines")
+            if parsed.username or parsed.password:
+                raise ValueError("No se permiten credenciales dentro de un origen CORS")
             if parsed.scheme not in {"http", "https"} or parsed.path or parsed.query or parsed.fragment:
                 raise ValueError("Cada origen CORS debe contener solo esquema y host HTTP(S)")
             if value not in cleaned:
