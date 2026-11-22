@@ -14,23 +14,28 @@ from app.schemas.plataapp import (
 )
 from app.models.plataapp import TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB
 from app.core.security import decode_token
+from app.models.user import UserDB
 from typing import Optional
 
 router = APIRouter()
 
 
-def get_user_id(authorization: str) -> str:
-    """Extrae el usuario_id del token Bearer."""
+async def get_user_id(authorization: str) -> str:
+    """Valida JWT y comprueba que el usuario siga activo en la base de datos."""
     try:
         scheme, token = authorization.split(" ", 1)
     except (ValueError, AttributeError):
         raise HTTPException(status_code=401, detail="Token inválido")
-    if scheme.lower() != "bearer":
+    if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status_code=401, detail="Token inválido")
-    payload = decode_token(token)
+    payload = decode_token(token.strip())
     if not payload or not payload.get("sub"):
         raise HTTPException(status_code=401, detail="Token inválido")
-    return payload["sub"]
+    user_id = payload["sub"]
+    user = await UserDB.get_by_id(user_id)
+    if not user or not user.get("is_active"):
+        raise HTTPException(status_code=401, detail="Sesión inválida o cuenta inactiva")
+    return user_id
 
 
 def _ensure_owner(registro: Optional[dict], usuario_id: str, detalle: str) -> dict:
@@ -44,7 +49,7 @@ async def _ensure_categoria_propia(categoria_id: Optional[str], usuario_id: str)
     """Valida que la categoría (si se envía) pertenezca al usuario."""
     if not categoria_id:
         return
-    categoria = await CategoriaDB.obtener_por_id(categoria_id)
+    categoria = await CategoriaDB.obtener_por_id(categoria_id, usuario_id)
     _ensure_owner(categoria, usuario_id, "Categoría no encontrada")
 
 
@@ -57,7 +62,7 @@ def _porcentaje(meta: dict) -> float:
 
 @router.post("/transacciones", response_model=TransaccionResponse)
 async def crear_transaccion(transaccion: TransaccionCreate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
     return await TransaccionDB.crear(
         usuario_id=usuario_id,
@@ -71,7 +76,7 @@ async def crear_transaccion(transaccion: TransaccionCreate, authorization: str =
 
 @router.get("/transacciones", response_model=list[TransaccionResponse])
 async def obtener_transacciones(authorization: str = Header(...), mes: Optional[str] = None):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     if mes is not None and not MES_PATTERN.match(mes):
         raise HTTPException(status_code=422, detail="Formato de mes inválido (YYYY-MM)")
     return await TransaccionDB.obtener_por_usuario(usuario_id, mes)
@@ -79,23 +84,23 @@ async def obtener_transacciones(authorization: str = Header(...), mes: Optional[
 
 @router.get("/transacciones/resumen/{mes}")
 async def obtener_resumen(mes: str = Path(..., pattern=MES_PATTERN.pattern), authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     return await TransaccionDB.obtener_resumen(usuario_id, mes)
 
 
 @router.get("/transacciones/{transaccion_id}", response_model=TransaccionResponse)
 async def obtener_transaccion(transaccion_id: str, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    transaccion = await TransaccionDB.obtener_por_id(transaccion_id)
+    usuario_id = await get_user_id(authorization)
+    transaccion = await TransaccionDB.obtener_por_id(transaccion_id, usuario_id)
     return _ensure_owner(transaccion, usuario_id, "Transacción no encontrada")
 
 
 @router.put("/transacciones/{transaccion_id}", response_model=TransaccionResponse)
 async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCreate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id), usuario_id, "Transacción no encontrada")
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
-    actualizada = await TransaccionDB.actualizar(transaccion_id, **transaccion.model_dump())
+    actualizada = await TransaccionDB.actualizar(transaccion_id, usuario_id, **transaccion.model_dump())
     if not actualizada:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     return actualizada
@@ -103,9 +108,9 @@ async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCr
 
 @router.delete("/transacciones/{transaccion_id}")
 async def eliminar_transaccion(transaccion_id: str, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id), usuario_id, "Transacción no encontrada")
-    await TransaccionDB.eliminar(transaccion_id)
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
+    await TransaccionDB.eliminar(transaccion_id, usuario_id)
     return {"message": "Transacción eliminada"}
 
 
@@ -113,7 +118,7 @@ async def eliminar_transaccion(transaccion_id: str, authorization: str = Header(
 
 @router.post("/categorias", response_model=CategoriaResponse)
 async def crear_categoria(categoria: CategoriaCreate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     return await CategoriaDB.crear(
         usuario_id=usuario_id,
         nombre=categoria.nombre,
@@ -124,15 +129,15 @@ async def crear_categoria(categoria: CategoriaCreate, authorization: str = Heade
 
 @router.get("/categorias", response_model=list[CategoriaResponse])
 async def obtener_categorias(authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     return await CategoriaDB.obtener_por_usuario(usuario_id)
 
 
 @router.put("/categorias/{categoria_id}", response_model=CategoriaResponse)
 async def actualizar_categoria(categoria_id: str, datos: CategoriaUpdate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id), usuario_id, "Categoría no encontrada")
-    actualizada = await CategoriaDB.actualizar(categoria_id, datos.nombre, datos.icono, datos.tipo)
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id, usuario_id), usuario_id, "Categoría no encontrada")
+    actualizada = await CategoriaDB.actualizar(categoria_id, usuario_id, datos.nombre, datos.icono, datos.tipo)
     if not actualizada:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
     return actualizada
@@ -140,10 +145,10 @@ async def actualizar_categoria(categoria_id: str, datos: CategoriaUpdate, author
 
 @router.delete("/categorias/{categoria_id}")
 async def eliminar_categoria(categoria_id: str, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id), usuario_id, "Categoría no encontrada")
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id, usuario_id), usuario_id, "Categoría no encontrada")
     try:
-        await CategoriaDB.eliminar(categoria_id)
+        await CategoriaDB.eliminar(categoria_id, usuario_id)
     except Exception:
         raise HTTPException(
             status_code=409,
@@ -156,7 +161,7 @@ async def eliminar_categoria(categoria_id: str, authorization: str = Header(...)
 
 @router.post("/presupuestos", response_model=PresupuestoResponse)
 async def crear_presupuesto(presupuesto: PresupuestoCreate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(presupuesto.categoria_id, usuario_id)
     return await PresupuestoDB.crear(
         usuario_id=usuario_id,
@@ -168,15 +173,15 @@ async def crear_presupuesto(presupuesto: PresupuestoCreate, authorization: str =
 
 @router.get("/presupuestos/{mes_ano}", response_model=list[PresupuestoResponse])
 async def obtener_presupuestos(mes_ano: str = Path(..., pattern=MES_PATTERN.pattern), authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     return await PresupuestoDB.obtener_por_usuario_mes(usuario_id, mes_ano)
 
 
 @router.put("/presupuestos/{presupuesto_id}", response_model=PresupuestoResponse)
 async def actualizar_presupuesto(presupuesto_id: str, datos: PresupuestoUpdate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await PresupuestoDB.obtener_por_id(presupuesto_id), usuario_id, "Presupuesto no encontrado")
-    actualizado = await PresupuestoDB.actualizar(presupuesto_id, datos.limite_mensual)
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await PresupuestoDB.obtener_por_id(presupuesto_id, usuario_id), usuario_id, "Presupuesto no encontrado")
+    actualizado = await PresupuestoDB.actualizar(presupuesto_id, usuario_id, datos.limite_mensual)
     if not actualizado:
         raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
     return actualizado
@@ -184,9 +189,9 @@ async def actualizar_presupuesto(presupuesto_id: str, datos: PresupuestoUpdate, 
 
 @router.delete("/presupuestos/{presupuesto_id}")
 async def eliminar_presupuesto(presupuesto_id: str, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await PresupuestoDB.obtener_por_id(presupuesto_id), usuario_id, "Presupuesto no encontrado")
-    await PresupuestoDB.eliminar(presupuesto_id)
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await PresupuestoDB.obtener_por_id(presupuesto_id, usuario_id), usuario_id, "Presupuesto no encontrado")
+    await PresupuestoDB.eliminar(presupuesto_id, usuario_id)
     return {"message": "Presupuesto eliminado"}
 
 
@@ -194,7 +199,7 @@ async def eliminar_presupuesto(presupuesto_id: str, authorization: str = Header(
 
 @router.post("/metas", response_model=MetaResponse)
 async def crear_meta(meta: MetaCreate, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     nueva = await MetaDB.crear(
         usuario_id=usuario_id,
         nombre=meta.nombre,
@@ -206,7 +211,7 @@ async def crear_meta(meta: MetaCreate, authorization: str = Header(...)):
 
 @router.get("/metas", response_model=list[MetaResponse])
 async def obtener_metas(authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
     metas = await MetaDB.obtener_por_usuario(usuario_id)
     for meta in metas:
         meta["porcentaje_completado"] = _porcentaje(meta)
@@ -215,10 +220,10 @@ async def obtener_metas(authorization: str = Header(...)):
 
 @router.put("/metas/{meta_id}", response_model=MetaResponse)
 async def actualizar_meta(meta_id: str, actualizacion: ActualizarMeta, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await MetaDB.obtener_por_id(meta_id), usuario_id, "Meta no encontrada")
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await MetaDB.obtener_por_id(meta_id, usuario_id), usuario_id, "Meta no encontrada")
     updates = {k: v for k, v in actualizacion.model_dump().items() if v is not None}
-    meta = await MetaDB.actualizar_progreso(meta_id, updates)
+    meta = await MetaDB.actualizar_progreso(meta_id, usuario_id, updates)
     if not meta:
         raise HTTPException(status_code=404, detail="Meta no encontrada")
     return {**meta, "porcentaje_completado": _porcentaje(meta)}
@@ -226,19 +231,19 @@ async def actualizar_meta(meta_id: str, actualizacion: ActualizarMeta, authoriza
 
 @router.delete("/metas/{meta_id}")
 async def eliminar_meta(meta_id: str, authorization: str = Header(...)):
-    usuario_id = get_user_id(authorization)
-    _ensure_owner(await MetaDB.obtener_por_id(meta_id), usuario_id, "Meta no encontrada")
-    await MetaDB.eliminar(meta_id)
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await MetaDB.obtener_por_id(meta_id, usuario_id), usuario_id, "Meta no encontrada")
+    await MetaDB.eliminar(meta_id, usuario_id)
     return {"message": "Meta eliminada"}
 
 
 @router.post("/metas/{meta_id}/abonar", response_model=MetaResponse)
 async def abonar_meta(meta_id: str, datos: AbonarMeta, authorization: str = Header(...)):
     """Registra un aporte a una meta: crea transacción de gasto y aumenta monto_actual."""
-    usuario_id = get_user_id(authorization)
+    usuario_id = await get_user_id(authorization)
 
     # Validar la meta ANTES de registrar el gasto (evita transacciones huérfanas)
-    meta = _ensure_owner(await MetaDB.obtener_por_id(meta_id), usuario_id, "Meta no encontrada")
+    meta = _ensure_owner(await MetaDB.obtener_por_id(meta_id, usuario_id), usuario_id, "Meta no encontrada")
 
     # Buscar o crear la categoría especial "Ahorro"
     categorias = await CategoriaDB.obtener_por_usuario(usuario_id)
@@ -259,11 +264,11 @@ async def abonar_meta(meta_id: str, datos: AbonarMeta, authorization: str = Head
     # Incrementar el monto_actual de la meta; si falla, revertir la transacción
     nuevo_monto = float(meta["monto_actual"]) + datos.monto
     try:
-        meta_actualizada = await MetaDB.actualizar_progreso(meta_id, {"monto_actual": nuevo_monto})
+        meta_actualizada = await MetaDB.actualizar_progreso(meta_id, usuario_id, {"monto_actual": nuevo_monto})
         if not meta_actualizada:
             raise RuntimeError("No se pudo actualizar la meta")
     except Exception:
-        await TransaccionDB.eliminar(transaccion["id"])
+        await TransaccionDB.eliminar(transaccion["id"], usuario_id)
         raise HTTPException(status_code=500, detail="No se pudo registrar el abono")
 
     return {**meta_actualizada, "porcentaje_completado": _porcentaje(meta_actualizada)}
