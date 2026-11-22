@@ -4,7 +4,7 @@
  * móvil (autocompletado "one-time-code") o un tecleo rápido inserte varios
  * dígitos en una sola casilla: se reparten en las siguientes.
  */
-export const CODE_LENGTH = 6
+const CODE_LENGTH = 6
 
 export function applyCodeInput(code: string[], index: number, rawValue: string) {
   const digits = rawValue.replace(/\D/g, '')

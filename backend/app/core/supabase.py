@@ -19,14 +19,3 @@ class SupabaseDB:
                 settings.SUPABASE_KEY  # Use service_role key for backend operations
             )
         return cls._client
-    
-    @classmethod
-    def close(cls):
-        """Close the connection"""
-        cls._client = None
-
-
-# Dependency to get Supabase client
-def get_supabase() -> Client:
-    """Dependency for getting Supabase client"""
-    return SupabaseDB.get_client()

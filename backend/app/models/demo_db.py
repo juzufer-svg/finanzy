@@ -12,8 +12,8 @@ class DemoTransaccionDB:
     _transacciones: Dict[str, dict] = {}
     
     @staticmethod
-    async def crear(usuario_id: str, categoria_id: str, monto: float, 
-                    descripcion: str, fecha: str, tipo: str) -> dict:
+    async def crear(usuario_id: str, categoria_id: str, monto: float,
+                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None) -> dict:
         """Create transaction"""
         trans_id = str(uuid.uuid4())
         transaccion = {
@@ -23,7 +23,8 @@ class DemoTransaccionDB:
             "monto": monto,
             "descripcion": descripcion,
             "fecha": fecha,
-            "tipo": tipo
+            "tipo": tipo,
+            "medio_pago": medio_pago,
         }
         DemoTransaccionDB._transacciones[trans_id] = transaccion
         return transaccion
@@ -63,7 +64,7 @@ class DemoTransaccionDB:
     async def actualizar(transaccion_id: str, **kwargs) -> dict:
         """Update transaction"""
         if transaccion_id in DemoTransaccionDB._transacciones:
-            allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo'}
+            allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo', 'medio_pago'}
             for k, v in kwargs.items():
                 if k in allowed:
                     DemoTransaccionDB._transacciones[transaccion_id][k] = v

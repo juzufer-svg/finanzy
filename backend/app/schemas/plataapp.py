@@ -12,6 +12,10 @@ MONTO_MAX = 1_000_000_000_000  # tope razonable para evitar valores absurdos
 
 Tipo = Literal["ingreso", "gasto"]
 
+# Medios de pago permitidos (INV-022). Se guardan como código; la interfaz muestra el nombre.
+MEDIOS_PAGO = ("debito", "credito", "efectivo", "transferencia", "nequi_daviplata")
+MedioPago = Literal["debito", "credito", "efectivo", "transferencia", "nequi_daviplata"]
+
 
 # Transacciones
 class TransaccionCreate(BaseModel):
@@ -21,6 +25,8 @@ class TransaccionCreate(BaseModel):
     descripcion: str = Field("", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
     tipo: Tipo
+    # Opcional: null = sin especificar (transacciones antiguas y abonos a metas)
+    medio_pago: Optional[MedioPago] = None
 
 
 class TransaccionResponse(BaseModel):
@@ -32,6 +38,7 @@ class TransaccionResponse(BaseModel):
     descripcion: Optional[str] = ""
     fecha: str
     tipo: str
+    medio_pago: Optional[str] = None
 
 
 class ResumenTransacciones(BaseModel):

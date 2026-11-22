@@ -3,14 +3,41 @@ import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
+import { comparablePrevious, monthOf, pctChange, shiftMonth, sumByTipo, upToToday, type MovimientoBase } from '@/lib/month-stats'
 
 interface SummaryCardProps {
   title: string
   value: number
   type: 'ingreso' | 'gasto' | 'balance'
+  /** Valor del mes anterior (CHG-006); `null` si no se pudo cargar. */
+  previous: number | null
+  previousLabel: string
+  /** Valor que se compara: en el mes en curso, sin lo anotado con fecha posterior a hoy. */
+  current: number
 }
 
-function SummaryCard({ title, value, type }: SummaryCardProps) {
+/** "▲ 12 % más que octubre": flecha + palabras, el color solo acompaña. */
+function Comparison({ type, current: value, previous, previousLabel }: Omit<SummaryCardProps, 'title' | 'value'>) {
+  const fmt = useCurrencyStore(s => s.fmt)
+  if (previous === null) return <>Período actual</>
+  if (type === 'balance') {
+    const diff = value - previous
+    if (Math.round(diff) === 0) return <>Igual que {previousLabel}</>
+    return <span className={diff > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>
+      {diff > 0 ? '▲' : '▼'} {fmt(Math.abs(diff))} {diff > 0 ? 'más' : 'menos'} que {previousLabel}
+    </span>
+  }
+  const change = pctChange(value, previous)
+  if (change === null) return <>Sin datos de {previousLabel} para comparar</>
+  if (Math.round(change) === 0) return <>Igual que {previousLabel}</>
+  const up = change > 0
+  const bad = type === 'gasto' ? up : !up
+  return <span className={bad ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}>
+    {up ? '▲' : '▼'} {Math.round(Math.abs(change)).toLocaleString('es-CO')} % {up ? 'más' : 'menos'} que {previousLabel}
+  </span>
+}
+
+function SummaryCard({ title, value, type, previous, previousLabel, current }: SummaryCardProps) {
   const fmt = useCurrencyStore(s => s.fmt)
   const config = {
     ingreso: {
@@ -64,7 +91,7 @@ function SummaryCard({ title, value, type }: SummaryCardProps) {
         <p className={`text-3xl font-bold tracking-tight ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
           {fmt(value)}
         </p>
-        <p className="text-xs text-slate-400 mt-1">Período actual</p>
+        <p className="text-xs text-slate-500 mt-1"><Comparison type={type} current={current} previous={previous} previousLabel={previousLabel} /></p>
       </div>
     </div>
   )
@@ -72,6 +99,14 @@ function SummaryCard({ title, value, type }: SummaryCardProps) {
 
 export default function DashboardSummary({ mes }: { mes: string }) {
   const [summary, setSummary] = useState({ ingresos: 0, gastos: 0, balance: 0 })
+  // Lo que se compara con el mes anterior: en el mes en curso, sin lo anotado con fecha posterior a hoy
+  const [comparable, setComparable] = useState({ ingresos: 0, gastos: 0, balance: 0 })
+  const [previous, setPrevious] = useState<{ ingresos: number; gastos: number; balance: number } | null>(null)
+  const previousMonth = shiftMonth(mes, -1)
+  const today = new Date()
+  // En el mes en curso se compara con el mes anterior hasta el mismo día
+  const previousLabel = new Date(Number(previousMonth.slice(0, 4)), Number(previousMonth.slice(5, 7)) - 1, 1)
+    .toLocaleDateString('es-ES', { month: 'long' }) + (mes === monthOf(today) ? ` al día ${today.getDate()}` : '')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -79,10 +114,26 @@ export default function DashboardSummary({ mes }: { mes: string }) {
   // la respuesta anterior, esa respuesta se ignora.
   const fetchSummary = useCallback(() => {
     let active = true
-    apiClient.get(`/api/v1/transacciones/resumen/${mes}`)
-      .then(response => {
+    // El mes anterior es solo para comparar: si falla, la tarjeta dice "Período actual".
+    const anterior = apiClient.get<MovimientoBase[]>(`/api/v1/transacciones?mes=${shiftMonth(mes, -1)}`)
+      .then(r => {
+        const items = comparablePrevious(r.data, mes, new Date())
+        const ingresos = sumByTipo(items, 'ingreso')
+        const gastos = sumByTipo(items, 'gasto')
+        return { ingresos, gastos, balance: ingresos - gastos }
+      })
+      .catch(() => null)
+    const totales = (items: MovimientoBase[]) => {
+      const ingresos = sumByTipo(items, 'ingreso')
+      const gastos = sumByTipo(items, 'gasto')
+      return { ingresos, gastos, balance: ingresos - gastos }
+    }
+    Promise.all([apiClient.get<MovimientoBase[]>(`/api/v1/transacciones?mes=${mes}`), anterior])
+      .then(([response, prev]) => {
         if (!active) return
-        setSummary(response.data)
+        setSummary(totales(response.data))
+        setComparable(totales(upToToday(response.data, mes, new Date())))
+        setPrevious(prev)
         setError('')
       })
       .catch(err => {
@@ -112,9 +163,9 @@ export default function DashboardSummary({ mes }: { mes: string }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <SummaryCard title="Ingresos" value={summary.ingresos} type="ingreso" />
-      <SummaryCard title="Gastos" value={summary.gastos} type="gasto" />
-      <SummaryCard title="Balance" value={summary.balance} type="balance" />
+      <SummaryCard title="Ingresos" value={summary.ingresos} type="ingreso" previous={previous?.ingresos ?? null} previousLabel={previousLabel} current={comparable.ingresos} />
+      <SummaryCard title="Gastos" value={summary.gastos} type="gasto" previous={previous?.gastos ?? null} previousLabel={previousLabel} current={comparable.gastos} />
+      <SummaryCard title="Balance" value={summary.balance} type="balance" previous={previous?.balance ?? null} previousLabel={previousLabel} current={comparable.balance} />
     </div>
   )
 }

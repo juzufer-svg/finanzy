@@ -1,6 +1,6 @@
 # Integración continua (BL-004 / REQ-N-009).
 # En cada pull request y en cada push a main corre las pruebas y la auditoría del backend,
-# y el lint y el build del frontend. No usa secretos ni toca producción.
+# prueba las migraciones SQL en un PostgreSQL desechable, y el lint, las pruebas y el build del frontend. No usa secretos ni toca producción.
 # Gratis: el repositorio es público, así que GitHub Actions no tiene costo.
 name: CI
 
@@ -41,8 +41,28 @@ jobs:
       - name: Auditoría de dependencias
         run: python -m pip_audit -r requirements.txt
 
+  sql:
+    name: Migraciones SQL (PostgreSQL desechable)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probar migraciones
+        env:
+          ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: bash backend/sql/pruebas/probar.sh
+
   frontend:
-    name: Frontend (lint + build)
+    name: Frontend (lint + pruebas + build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -59,5 +79,7 @@ jobs:
         run: npm ci
       - name: Lint
         run: npx eslint . --max-warnings=0
+      - name: Pruebas
+        run: npm test
       - name: Build
         run: npx next build

@@ -1,5 +1,6 @@
--- PlataApp Database Schema for Supabase
--- Ejecuta estos queries en Supabase SQL Editor
+-- Finanzy — Esquema de referencia de la base de datos (Supabase / PostgreSQL)
+-- Sirve para crear una base nueva desde cero. Los cambios sobre la base existente se
+-- aplican con las migraciones de backend/sql/ (en orden de fecha).
 
 -- Crear tabla users (si no existe)
 CREATE TABLE IF NOT EXISTS users (
@@ -33,6 +34,9 @@ CREATE TABLE IF NOT EXISTS transacciones (
   descripcion TEXT,
   fecha DATE NOT NULL,
   tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('ingreso', 'gasto')),
+  -- Medio de pago opcional (CHG-007, INV-022); NULL = sin especificar
+  medio_pago VARCHAR(20) CONSTRAINT transacciones_medio_pago_check
+    CHECK (medio_pago IS NULL OR medio_pago IN ('debito', 'credito', 'efectivo', 'transferencia', 'nequi_daviplata')),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -69,14 +73,12 @@ CREATE INDEX idx_presupuestos_usuario ON presupuestos(usuario_id);
 CREATE INDEX idx_presupuestos_mes ON presupuestos(mes_ano);
 CREATE INDEX idx_metas_usuario ON metas(usuario_id);
 
--- Insertar categorías de ejemplo
-INSERT INTO categorias (usuario_id, nombre, icono, tipo) VALUES
-  ('00000000-0000-0000-0000-000000000000', 'Salario', '💼', 'ingreso'),
-  ('00000000-0000-0000-0000-000000000000', 'Comida', '🍔', 'gasto'),
-  ('00000000-0000-0000-0000-000000000000', 'Transporte', '🚌', 'gasto'),
-  ('00000000-0000-0000-0000-000000000000', 'Entretenimiento', '🎬', 'gasto'),
-  ('00000000-0000-0000-0000-000000000000', 'Utilidades', '⚡', 'gasto'),
-  ('00000000-0000-0000-0000-000000000000', 'Freelance', '💻', 'ingreso');
+-- Índices para los borrados en cascada por categoría
+CREATE INDEX idx_transacciones_categoria ON transacciones(categoria_id);
+CREATE INDEX idx_presupuestos_categoria ON presupuestos(categoria_id);
+
+-- Las categorías por defecto las crea el backend para cada usuario la primera vez que las pide
+-- (no se insertan aquí: una fila con un usuario inexistente sería un registro huérfano).
 
 -- Crear función para actualizar el campo updated_at automáticamente
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -100,18 +102,6 @@ CREATE TRIGGER update_metas_updated_at BEFORE UPDATE ON metas
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Crear vista para reportes rápidos
-CREATE OR REPLACE VIEW v_resumen_mensual AS
-SELECT 
-  u.id as usuario_id,
-  DATE_TRUNC('month', t.fecha)::date as mes,
-  SUM(CASE WHEN t.tipo = 'ingreso' THEN t.monto ELSE 0 END) as total_ingresos,
-  SUM(CASE WHEN t.tipo = 'gasto' THEN t.monto ELSE 0 END) as total_gastos,
-  SUM(CASE WHEN t.tipo = 'ingreso' THEN t.monto ELSE -t.monto END) as balance
-FROM users u
-LEFT JOIN transacciones t ON u.id = t.usuario_id
-GROUP BY u.id, DATE_TRUNC('month', t.fecha);
-
 -- Habilitar RLS (Row Level Security) si es necesario
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transacciones ENABLE ROW LEVEL SECURITY;
@@ -119,20 +109,6 @@ ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE presupuestos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE metas ENABLE ROW LEVEL SECURITY;
 
--- Crear políticas de RLS (cada usuario solo ve sus datos)
-CREATE POLICY "Users can only read their own data" ON users
-  FOR SELECT USING (auth.uid()::text = id::text);
-
-CREATE POLICY "Users can only read their own transactions" ON transacciones
-  FOR SELECT USING (auth.uid()::text = usuario_id::text);
-
-CREATE POLICY "Users can insert their own transactions" ON transacciones
-  FOR INSERT WITH CHECK (auth.uid()::text = usuario_id::text);
-
-CREATE POLICY "Users can update their own transactions" ON transacciones
-  FOR UPDATE USING (auth.uid()::text = usuario_id::text);
-
-CREATE POLICY "Users can delete their own transactions" ON transacciones
-  FOR DELETE USING (auth.uid()::text = usuario_id::text);
-
--- Similar políticas para otras tablas...
+-- Sin políticas: el frontend nunca habla con Supabase. Solo el backend accede, con la clave
+-- service_role (que no está sujeta a RLS) y verificando el dueño de cada registro (INV-001).
+-- Con RLS activo y sin políticas, las claves públicas (anon) no pueden leer ni escribir nada.
