@@ -118,26 +118,6 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
   }),
 }))
 
-// Currency symbols
-export const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: 'US$',
-  EUR: '€',
-  MXN: 'MX$',
-  ARS: 'AR$',
-  COP: '$',
-  CLP: '$',
-}
-
-// Currency names
-export const CURRENCY_NAMES: Record<string, string> = {
-  USD: 'Dólar Estadounidense',
-  EUR: 'Euro',
-  MXN: 'Peso Mexicano',
-  ARS: 'Peso Argentino',
-  COP: 'Peso Colombiano',
-  CLP: 'Peso Chileno',
-}
-
 // Available currencies
 export const AVAILABLE_CURRENCIES = [
   { code: 'USD', name: 'Dólar Estadounidense', symbol: 'US$' },

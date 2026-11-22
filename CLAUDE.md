@@ -73,8 +73,8 @@ Analizar → Especificar → Diseñar → Validar spec → Coordinar → Impleme
 - Decisiones técnicas → `spec/ADR/` · No funcionales → `spec/NFR/NFR.md`
 - Estado de cada trabajo → `work/BACKLOG.md` y `work/changes/`
 - Cómo trabajan los agentes → `docs/PROTOCOLO-AGENTES.md`
-- Los archivos antiguos de la raíz (`API_REFERENCE.md`, `ARCHITECTURE.md`, `QUICKSTART.md`, `START_HERE.md`, etc.)
-  están **desactualizados**: no usarlos como referencia.
+- Los documentos y scripts antiguos de la raíz se eliminaron (CHG-005). El esquema de referencia de la BD es
+  `PLATAAPP_SCHEMA.sql` y los cambios sobre la base existente van como migraciones en `backend/sql/`.
 
 ## Al cerrar una tarea, informar siempre
 

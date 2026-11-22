@@ -68,7 +68,7 @@ async def obtener_transacciones(authorization: str = Header(...), mes: Optional[
     return await TransaccionDB.obtener_por_usuario(usuario_id, mes)
 
 
-@router.get("/transacciones/resumen/{mes}")
+@router.get("/transacciones/resumen/{mes}", response_model=ResumenTransacciones)
 async def obtener_resumen(mes: str = Path(..., pattern=MES_PATTERN.pattern), authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     return await TransaccionDB.obtener_resumen(usuario_id, mes)

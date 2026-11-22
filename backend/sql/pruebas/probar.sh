@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Prueba las migraciones de huérfanos (CHG-005) en un PostgreSQL DESECHABLE.
+# Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
+# Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
+set -euo pipefail
+cd "$(dirname "$0")"
+: "${ADMIN_URL:?Define ADMIN_URL con un PostgreSQL local o de CI (nunca el de Supabase)}"
+PGOPTIONS="-c client_min_messages=warning" psql "$ADMIN_URL" -q -c "drop database if exists finanzy_prueba_sql" -c "create database finanzy_prueba_sql"
+PGURL="${ADMIN_URL%/*}/finanzy_prueba_sql"
+export PGOPTIONS="-c client_min_messages=warning"
+run() { psql "$PGURL" -q -v ON_ERROR_STOP=1 -f "$1" > /dev/null; }
+run 01_base_como_produccion.sql
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -f ../2026-11-22_huerfanos_1_diagnostico.sql > /dev/null
+# El paso 3 antes del 2 debe fallar sin cambiar nada
+if psql "$PGURL" -q -v ON_ERROR_STOP=1 -f ../2026-11-22_huerfanos_3_llaves_foraneas.sql > /dev/null 2>&1; then
+  echo "ERROR: el paso 3 no debía funcionar con huérfanos"; exit 1
+fi
+for i in 1 2; do
+  run ../2026-11-22_huerfanos_2_respaldo_y_borrado.sql
+  run ../2026-11-22_huerfanos_3_llaves_foraneas.sql
+done
+run ../2026-11-22_quitar_vista_resumen.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 02_comprobaciones.sql

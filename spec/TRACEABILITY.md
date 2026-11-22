@@ -20,7 +20,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ-F-010 | UC-008 | CT-003 | `fe/app/dashboard/reports/page.tsx` | — (cálculos en frontend) | Implementado |
 | REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `be/models/user.py::update_currency`, `fe/store/currency.ts`, `fe/lib/currency.ts`, `fe/app/dashboard/profile/page.tsx` | `t/test_endurecimiento.py::test_moneda_*` (guardado en servidor; conversión en frontend sin prueba) | Implementado |
 | REQ-F-012 | — | — | `fe/store/theme.ts`, `fe/components/ThemeProvider.tsx` | — | Implementado |
-| REQ-F-013 | UC-010 | CT-002 `DELETE me` | `be/api/routes/users.py`, `be/models/user.py`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
+| REQ-F-013 | UC-010 | CT-002 `DELETE me` | `be/api/routes/users.py`, `be/models/user.py`, `fe/app/dashboard/profile/page.tsx`, llaves foráneas `backend/sql/2026-11-22_huerfanos_3_llaves_foraneas.sql` (CHG-005) | `backend/sql/pruebas/probar.sh` (cascada en la BD, INV-021) | Implementado (la cascada se verifica en CI; el endpoint, sin prueba) |
 | REQ-F-014 | — | CT-002 `GET me` | `be/api/routes/users.py`, `fe/app/dashboard/profile/page.tsx` | — | Implementado |
 | REQ-N-001 | — | Todos | `be/api/routes/plataapp.py::_ensure_owner`, `::_ensure_categoria_propia`, `be/models/plataapp.py` (filtro `usuario_id`) | `t/test_propiedad.py`, `t/test_endurecimiento.py` (INV-001, INV-002) | Verificado |
 | REQ-N-002 | — | CT-001 | `be/core/rate_limit.py`, `be/api/routes/auth.py` | `t/test_limites.py`, `t/test_auth.py::test_inv010_login_se_bloquea_tras_5_fallos` (INV-010) | Verificado |
@@ -56,6 +56,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-018 | `test_endurecimiento.py::test_inv018_*` |
 | INV-019 | `test_endurecimiento.py` (configuración y CORS) |
 | INV-020 | `frontend/e2e/sesion-cookie.mjs` (prueba de punta a punta con Playwright; manual, sin CI todavía) |
+| INV-021 | `backend/sql/pruebas/probar.sh` + `02_comprobaciones.sql` (CI, job "Migraciones SQL") |
 
 ## Huérfanos (deben quedar vacíos)
 - REQ sin prueba automatizada: REQ-F-010, REQ-F-011, REQ-F-012, REQ-F-013, REQ-F-014 (lógica en frontend o de bajo riesgo; sin pruebas de frontend todavía — ver backlog).

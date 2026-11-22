@@ -52,10 +52,6 @@ def _origen_cors_valido(origen: str) -> bool:
 class Settings(BaseSettings):
     """Application settings from environment variables"""
 
-    # API Configuration
-    API_V1_STR: str = "/api/v1"
-    PROJECT_NAME: str = "Finanzy"
-
     # CORS: orígenes exactos que pueden llamar al backend desde el navegador.
     # El frontend usa el proxy de Next.js (servidor a servidor), así que en
     # producción normalmente no hace falta configurar nada aquí.
@@ -69,10 +65,6 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = Field(default="")
     SUPABASE_KEY: str = Field(default="")
-    SUPABASE_ANON_KEY: str = Field(default="")
-
-    # Database
-    DATABASE_URL: str = Field(default="")
 
     # Correo transaccional (Brevo)
     BREVO_API_KEY: str = Field(default="")
