@@ -34,3 +34,8 @@ REQ-F-004 (CA-4) · UC-004 · CT-003 v1.1 · INV-022 (nuevo) · BDD-TRANSACCIONE
 ## 5. Despliegue
 1. Supabase → SQL Editor → ejecutar `backend/sql/2026-11-22_medio_pago.sql`. 2. Fusionar el PR (push a `main`).
 No hay variables de entorno nuevas.
+
+## Revisión independiente
+Agente `revisor` (2026-11-22): aprobado con observaciones. Corregido (ya existía antes): editar con `categoria_id` vacío
+enviaba `""` a una columna uuid (error 500); ahora queda sin categoría, como al crear
+(`test_supabase_update_categoria_vacia_queda_sin_categoria`). Por decidir con el dueño: Débito preseleccionado.

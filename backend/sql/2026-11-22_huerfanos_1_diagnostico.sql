@@ -53,3 +53,13 @@ select con.conrelid::regclass as tabla,
    and con.conrelid in ('public.categorias'::regclass, 'public.transacciones'::regclass,
                         'public.presupuestos'::regclass, 'public.metas'::regclass)
  order by 1, 2;
+
+-- 4) Tipos de las columnas que el paso 3 une con llaves foráneas: todas deberían decir "uuid".
+--    Si alguna dice otra cosa, no ejecutes el paso 3 y avisa (fallaría sin cambiar nada).
+select table_name as tabla, column_name as columna, data_type as tipo
+  from information_schema.columns
+ where table_schema = 'public'
+   and (table_name, column_name) in (('users', 'id'), ('categorias', 'id'), ('categorias', 'usuario_id'),
+        ('transacciones', 'usuario_id'), ('transacciones', 'categoria_id'), ('presupuestos', 'usuario_id'),
+        ('presupuestos', 'categoria_id'), ('metas', 'usuario_id'))
+ order by 1, 2;

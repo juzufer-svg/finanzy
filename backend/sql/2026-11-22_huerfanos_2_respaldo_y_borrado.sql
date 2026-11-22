@@ -36,25 +36,48 @@ alter table respaldo.huerfanos_categorias    add column if not exists respaldado
 alter table respaldo.huerfanos_transacciones add column if not exists respaldado_en timestamptz default now();
 alter table respaldo.huerfanos_presupuestos  add column if not exists respaldado_en timestamptz default now();
 alter table respaldo.huerfanos_metas         add column if not exists respaldado_en timestamptz default now();
+create table if not exists respaldo.presupuestos_sin_categoria (like public.presupuestos);
+alter table respaldo.presupuestos_sin_categoria add column if not exists respaldado_en timestamptz default now();
+
+-- Si las tablas originales ganaron columnas después del primer respaldo (p. ej. medio_pago),
+-- se agregan también al respaldo para poder repetir este script sin errores.
+do $$
+declare par record; col record;
+begin
+  for par in select * from (values
+      ('categorias', 'huerfanos_categorias'), ('transacciones', 'huerfanos_transacciones'),
+      ('presupuestos', 'huerfanos_presupuestos'), ('metas', 'huerfanos_metas'),
+      ('presupuestos', 'presupuestos_sin_categoria')) v(origen, destino) loop
+    for col in select a.attname, format_type(a.atttypid, a.atttypmod) as tipo
+                 from pg_attribute a
+                where a.attrelid = format('public.%I', par.origen)::regclass and a.attnum > 0 and not a.attisdropped loop
+      execute format('alter table respaldo.%I add column if not exists %I %s', par.destino, col.attname, col.tipo);
+    end loop;
+  end loop;
+end $$;
 
 -- a) Respaldo (sin duplicar si se repite)
 insert into respaldo.huerfanos_transacciones
-select t.*, now() from public.transacciones t
+select (jsonb_populate_record(null::respaldo.huerfanos_transacciones, to_jsonb(t) || jsonb_build_object('respaldado_en', now()))).*
+  from public.transacciones t
  where not exists (select 1 from public.users u where u.id = t.usuario_id)
    and not exists (select 1 from respaldo.huerfanos_transacciones r where r.id = t.id);
 
 insert into respaldo.huerfanos_presupuestos
-select p.*, now() from public.presupuestos p
+select (jsonb_populate_record(null::respaldo.huerfanos_presupuestos, to_jsonb(p) || jsonb_build_object('respaldado_en', now()))).*
+  from public.presupuestos p
  where not exists (select 1 from public.users u where u.id = p.usuario_id)
    and not exists (select 1 from respaldo.huerfanos_presupuestos r where r.id = p.id);
 
 insert into respaldo.huerfanos_metas
-select m.*, now() from public.metas m
+select (jsonb_populate_record(null::respaldo.huerfanos_metas, to_jsonb(m) || jsonb_build_object('respaldado_en', now()))).*
+  from public.metas m
  where not exists (select 1 from public.users u where u.id = m.usuario_id)
    and not exists (select 1 from respaldo.huerfanos_metas r where r.id = m.id);
 
 insert into respaldo.huerfanos_categorias
-select c.*, now() from public.categorias c
+select (jsonb_populate_record(null::respaldo.huerfanos_categorias, to_jsonb(c) || jsonb_build_object('respaldado_en', now()))).*
+  from public.categorias c
  where not exists (select 1 from public.users u where u.id = c.usuario_id)
    and not exists (select 1 from respaldo.huerfanos_categorias r where r.id = c.id);
 
@@ -67,8 +90,6 @@ delete from public.metas         m where not exists (select 1 from public.users 
 --    ver la consulta 2 del paso 1). Antes de cambiarlas se anota qué categoría tenían.
 create table if not exists respaldo.categoria_quitada (
   transaccion_id uuid, categoria_id_anterior uuid, respaldado_en timestamptz default now());
-create table if not exists respaldo.presupuestos_sin_categoria (like public.presupuestos);
-alter table respaldo.presupuestos_sin_categoria add column if not exists respaldado_en timestamptz default now();
 
 insert into respaldo.categoria_quitada (transaccion_id, categoria_id_anterior)
 select t.id, t.categoria_id from public.transacciones t
@@ -83,7 +104,8 @@ update public.transacciones t set categoria_id = null
                       and exists (select 1 from public.users u where u.id = c.usuario_id));
 
 insert into respaldo.presupuestos_sin_categoria
-select p.*, now() from public.presupuestos p
+select (jsonb_populate_record(null::respaldo.presupuestos_sin_categoria, to_jsonb(p) || jsonb_build_object('respaldado_en', now()))).*
+  from public.presupuestos p
  where not exists (select 1 from public.categorias c
                     where c.id = p.categoria_id
                       and exists (select 1 from public.users u where u.id = c.usuario_id));

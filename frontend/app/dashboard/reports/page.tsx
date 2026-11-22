@@ -10,7 +10,7 @@ import { apiErrorMessage } from '@/components/DialogProvider'
 import {
   type CategoriaBase, type MovimientoBase, type PresupuestoBase,
   comparablePrevious, compareByCategory, cumulativeByDay, dailyAverage, daysInMonth, elapsedDays, monthOf, pctChange,
-  projectMonthEnd, shiftMonth, sumByTipo, totalBudget, totalsByPaymentMethod,
+  projectMonthEnd, shiftMonth, sumByTipo, totalBudget, totalsByPaymentMethod, upToToday,
 } from '@/lib/month-stats'
 import { medioPagoLabel } from '@/lib/payment-methods'
 
@@ -90,22 +90,28 @@ export default function ReportsPage() {
   const gastos = sumByTipo(actuales, 'gasto')
   // En el mes en curso se compara con el mes anterior hasta el mismo día (no con el mes completo)
   const comparables = comparablePrevious(anteriores, currentMonth, hoy)
+  // Lo anotado con fecha posterior a hoy no cuenta para el promedio, la proyección ni la comparación
+  const ocurridos = upToToday(actuales, currentMonth, hoy)
+  const gastosHoy = sumByTipo(ocurridos, 'gasto')
+  const programados = gastos - gastosHoy
   const gastosAnt = sumByTipo(comparables, 'gasto')
   const ingresosAnt = sumByTipo(comparables, 'ingreso')
   const balance = ingresos - gastos
   const dias = daysInMonth(currentMonth)
   const transcurridos = elapsedDays(currentMonth, hoy)
-  const promedio = dailyAverage(gastos, currentMonth, hoy)
-  const proyeccion = projectMonthEnd(gastos, currentMonth, hoy)
+  const promedio = dailyAverage(gastosHoy, currentMonth, hoy)
+  const proyeccionRitmo = projectMonthEnd(gastosHoy, currentMonth, hoy)
+  // Nunca por debajo de lo ya anotado para este mes (incluye lo programado)
+  const proyeccion = proyeccionRitmo === null ? null : Math.max(proyeccionRitmo, gastos)
   const presupuesto = totalBudget(presupuestos, categorias)
   const esMesActual = currentMonth === monthOf(hoy)
   const anteriorCorto = nombreMes(mesAnterior, false) + (currentMonth === monthOf(hoy) ? ` al día ${hoy.getDate()}` : '')
   const actualCorto = nombreMes(currentMonth, false)
   const nombreCat = (id: string) => categorias.find(c => c.id === id)?.nombre || 'Sin categoría'
   const iconoCat = (id: string) => categorias.find(c => c.id === id)?.icono || '📁'
-  const comparacion = compareByCategory(actuales, comparables, 'gasto')
+  const comparacion = compareByCategory(ocurridos, comparables, 'gasto')
   const ahorro = ingresos > 0 ? (balance / ingresos) * 100 : null
-  const variacionTotal = pctChange(gastos, gastosAnt)
+  const variacionTotal = pctChange(gastosHoy, gastosAnt)
   const porMedio = totalsByPaymentMethod(actuales, 'gasto')
   const maxMedio = porMedio[0]?.total || 1
 
@@ -124,9 +130,12 @@ export default function ReportsPage() {
 
   const tarjetas: { titulo: string; valor: string; detalle: React.ReactNode; borde: string }[] = [
     { titulo: 'Ingresos', valor: fmt(ingresos), borde: 'border-emerald-400',
-      detalle: <Variacion valor={pctChange(ingresos, ingresosAnt)} contra={anteriorCorto} subirEsMalo={false} /> },
+      detalle: <Variacion valor={pctChange(sumByTipo(ocurridos, 'ingreso'), ingresosAnt)} contra={anteriorCorto} subirEsMalo={false} /> },
     { titulo: 'Gastos', valor: fmt(gastos), borde: 'border-red-400',
-      detalle: <Variacion valor={variacionTotal} contra={anteriorCorto} subirEsMalo /> },
+      detalle: <>
+        <Variacion valor={variacionTotal} contra={anteriorCorto} subirEsMalo />
+        {programados > 0 && <span className="block text-slate-500">Incluye {fmt(programados)} con fecha posterior a hoy</span>}
+      </> },
     { titulo: 'Balance', valor: fmt(balance), borde: balance >= 0 ? 'border-blue-400' : 'border-orange-400',
       detalle: <span className="text-slate-500">{ahorro === null ? 'Sin ingresos registrados' : ahorro >= 0 ? `Ahorras el ${pct(ahorro)} de lo que ganaste` : 'Gastas más de lo que ganas'}</span> },
     { titulo: 'Gasto diario promedio', valor: promedio === null ? '—' : fmt(promedio), borde: 'border-violet-400',

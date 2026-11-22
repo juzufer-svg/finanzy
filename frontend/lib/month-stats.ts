@@ -178,3 +178,14 @@ export function comparablePrevious<T extends MovimientoBase>(anteriores: T[], me
   const dia = today.getDate()
   return anteriores.filter(t => Number(t.fecha.slice(8, 10)) <= dia)
 }
+
+/**
+ * Movimientos del mes que ya ocurrieron: en el mes en curso quita los que tienen fecha posterior a hoy
+ * (p. ej. un arriendo anotado para el día 30), para que no inflen el promedio, la proyección ni la
+ * comparación con el mes anterior. En otros meses devuelve todo.
+ */
+export function upToToday<T extends MovimientoBase>(items: T[], mes: string, today: Date): T[] {
+  if (mes !== monthOf(today)) return items
+  const dia = today.getDate()
+  return items.filter(t => !t.fecha.startsWith(mes) || Number(t.fecha.slice(8, 10)) <= dia)
+}

@@ -30,6 +30,9 @@
   tienen editar y eliminar (antes no se podían corregir).
 - **Celular:** el contenedor principal del tablero (`dashboard/layout.tsx`) tenía `flex-1` sin `min-w-0` y la página
   se desbordaba a lo ancho (ya pasaba en el Dashboard); se corrigió.
+- **Fechas futuras** (revisión independiente): en el mes en curso lo anotado con fecha posterior a hoy suma en los
+  totales pero no en el promedio, la proyección ni la comparación (`upToToday`); la proyección nunca es menor que lo
+  anotado. El tablero ahora calcula sus tarjetas con `GET /transacciones?mes=` (mismos totales que `resumen/{mes}`).
 - Cálculos puros en `frontend/lib/month-stats.ts`, probados con `node --test` (`npm test`), sin dependencias nuevas;
   se agregó al CI.
 
@@ -37,5 +40,9 @@
 REQ-F-005 (CA-4, CA-5), REQ-F-010 (CA-2..5), UC-008, BDD-TRANSACCIONES, pregunta abierta 2 (resuelta), BL-007, BL-010.
 
 ## 4. Evidencia
-`npm test` → 12 pruebas de este cambio pasan (13 con la de CHG-007) · `npx eslint .` 0 problemas · `npx next build` correcto · revisión visual en el
+`npm test` → 13 pruebas de este cambio pasan (14 con la de CHG-007) · `npx eslint .` 0 problemas · `npx next build` correcto · revisión visual en el
 navegador con datos de prueba (claro y oscuro, escritorio y celular).
+
+## 5. Revisión independiente
+Agente `revisor` (2026-11-22): aprobado con observaciones, confianza 85 %. Corregidas: fechas futuras en el mes en
+curso (UC-008). Pendiente de decisión del dueño: si el medio de pago debe venir en "Sin especificar" en vez de Débito.

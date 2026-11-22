@@ -54,3 +54,9 @@ REQ-F-013 / UC-010 / CT-002 (la cascada ya estaba especificada; ahora la garanti
 
 ## 6. Cierre
 - Pendiente: el dueño ejecuta los pasos 1 → 2 → 3 (y 4) en Supabase; aprobación humana y push a `main`.
+
+## 7. Revisión independiente
+Agente `revisor` (2026-11-22): aprobado con observaciones, confianza 85 %. Corregido: el paso 2 fallaba al repetirse
+después de `2026-11-22_medio_pago.sql` (respaldo con una columna menos); ahora copia por nombre de columna y agrega al
+respaldo las columnas nuevas, y `probar.sh` lo repite tras esa migración. El paso 1 revisa además que las columnas de
+las llaves sean `uuid`.

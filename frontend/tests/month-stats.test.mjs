@@ -5,6 +5,7 @@ import {
   monthOf, shiftMonth, daysInMonth, elapsedDays, sumByTipo, dailyAverage, projectMonthEnd,
   pctChange, totalsByCategory, compareByCategory, cumulativeByDay, totalBudget, normalizeText,
   filterTransactions, totalsByPaymentMethod, comparablePrevious,
+  upToToday,
 } from '../lib/month-stats.ts'
 
 const hoy = new Date(2026, 10, 22) // 22 de noviembre de 2026 (hora local)
@@ -113,4 +114,16 @@ test('en el mes en curso se compara con el mes anterior hasta el mismo día', ()
   const octubre = [tx('1', '2026-10-05', 10), tx('2', '2026-10-22', 20), tx('3', '2026-10-28', 40)]
   assert.deepEqual(comparablePrevious(octubre, '2026-11', hoy).map(t => t.id), ['1', '2'])
   assert.equal(comparablePrevious(octubre, '2026-10', hoy).length, 3) // mes cerrado: completo
+})
+
+test('upToToday: en el mes en curso quita lo anotado con fecha posterior a hoy', () => {
+  const hoy = new Date(2026, 10, 22)
+  const items = [
+    { id: 'a', categoria_id: null, tipo: 'gasto', monto: 100, fecha: '2026-11-05' },
+    { id: 'b', categoria_id: null, tipo: 'gasto', monto: 900, fecha: '2026-11-30' },
+    { id: 'c', categoria_id: null, tipo: 'gasto', monto: 50, fecha: '2026-11-22' },
+  ]
+  assert.deepEqual(upToToday(items, '2026-11', hoy).map(t => t.id), ['a', 'c'])
+  // Otro mes: no se recorta
+  assert.equal(upToToday(items, '2026-10', hoy).length, 3)
 })

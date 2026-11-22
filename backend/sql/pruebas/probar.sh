@@ -23,4 +23,6 @@ run ../2026-11-22_quitar_vista_resumen.sql
 # CHG-007: medio de pago (dos veces para comprobar que se puede repetir)
 run ../2026-11-22_medio_pago.sql
 run ../2026-11-22_medio_pago.sql
+# Repetir el paso 2 después de medio_pago (la tabla de respaldo no tenía esa columna) debe funcionar
+run ../2026-11-22_huerfanos_2_respaldo_y_borrado.sql
 PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 02_comprobaciones.sql

@@ -112,3 +112,9 @@ def test_supabase_update_distingue_no_enviado_de_quitar(supabase_falso):
     assert "medio_pago" not in supabase_falso["update"]
     asyncio.run(modelos.TransaccionDB.actualizar("t", "u", monto=5, medio_pago=None))
     assert supabase_falso["update"]["medio_pago"] is None
+
+
+def test_supabase_update_categoria_vacia_queda_sin_categoria(supabase_falso):
+    # Antes se enviaba "" a una columna uuid y Supabase respondía con error (500)
+    asyncio.run(modelos.TransaccionDB.actualizar("t", "u", categoria_id="", monto=5))
+    assert supabase_falso["update"]["categoria_id"] is None

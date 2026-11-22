@@ -100,6 +100,8 @@ class TransaccionDB:
             updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
             if "medio_pago" in kwargs:  # None aquí significa "quitar el medio de pago"
                 updates["medio_pago"] = kwargs["medio_pago"]
+            if updates.get("categoria_id") == "":  # igual que en crear: "" = sin categoría (columna uuid)
+                updates["categoria_id"] = None
             client = SupabaseDB.get_client()
             result = client.table("transacciones").update(updates).eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None

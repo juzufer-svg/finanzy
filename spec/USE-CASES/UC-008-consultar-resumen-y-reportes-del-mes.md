@@ -20,7 +20,10 @@
 ## Reglas de negocio
 - Gasto diario promedio = gastos ÷ días transcurridos: los días reales del mes si ya cerró, el día de hoy si es el
   mes en curso; si el mes no ha empezado se muestra "—" (CHG-006, resuelve la pregunta abierta 2).
-- Proyección al cierre (solo mes en curso) = promedio diario × días del mes.
+- Proyección al cierre (solo mes en curso) = promedio diario × días del mes, nunca menor que lo ya anotado en el mes.
+- En el mes en curso, los movimientos con fecha posterior a hoy (p. ej. un arriendo anotado para el día 30) sí suman
+  en los totales del mes, pero no cuentan para el promedio, la proyección ni la comparación con el mes anterior, que
+  se hace hasta el mismo día; la tarjeta de Gastos de Reportes indica cuánto está anotado a futuro.
 - Presupuesto total del mes = suma de los límites de las categorías de gasto (`presupuestos/{mes}`).
 - Variación = (actual − anterior) ÷ anterior × 100; sin valor anterior se muestra "Sin datos"/"Nueva".
 - Los cálculos viven en `frontend/lib/month-stats.ts` y se prueban con `npm test`.

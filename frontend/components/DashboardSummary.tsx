@@ -3,7 +3,7 @@ import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
-import { comparablePrevious, monthOf, pctChange, shiftMonth, sumByTipo, type MovimientoBase } from '@/lib/month-stats'
+import { comparablePrevious, monthOf, pctChange, shiftMonth, sumByTipo, upToToday, type MovimientoBase } from '@/lib/month-stats'
 
 interface SummaryCardProps {
   title: string
@@ -12,10 +12,12 @@ interface SummaryCardProps {
   /** Valor del mes anterior (CHG-006); `null` si no se pudo cargar. */
   previous: number | null
   previousLabel: string
+  /** Valor que se compara: en el mes en curso, sin lo anotado con fecha posterior a hoy. */
+  current: number
 }
 
 /** "▲ 12 % más que octubre": flecha + palabras, el color solo acompaña. */
-function Comparison({ type, value, previous, previousLabel }: Omit<SummaryCardProps, 'title'>) {
+function Comparison({ type, current: value, previous, previousLabel }: Omit<SummaryCardProps, 'title' | 'value'>) {
   const fmt = useCurrencyStore(s => s.fmt)
   if (previous === null) return <>Período actual</>
   if (type === 'balance') {
@@ -35,7 +37,7 @@ function Comparison({ type, value, previous, previousLabel }: Omit<SummaryCardPr
   </span>
 }
 
-function SummaryCard({ title, value, type, previous, previousLabel }: SummaryCardProps) {
+function SummaryCard({ title, value, type, previous, previousLabel, current }: SummaryCardProps) {
   const fmt = useCurrencyStore(s => s.fmt)
   const config = {
     ingreso: {
@@ -89,7 +91,7 @@ function SummaryCard({ title, value, type, previous, previousLabel }: SummaryCar
         <p className={`text-3xl font-bold tracking-tight ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
           {fmt(value)}
         </p>
-        <p className="text-xs text-slate-500 mt-1"><Comparison type={type} value={value} previous={previous} previousLabel={previousLabel} /></p>
+        <p className="text-xs text-slate-500 mt-1"><Comparison type={type} current={current} previous={previous} previousLabel={previousLabel} /></p>
       </div>
     </div>
   )
@@ -97,6 +99,8 @@ function SummaryCard({ title, value, type, previous, previousLabel }: SummaryCar
 
 export default function DashboardSummary({ mes }: { mes: string }) {
   const [summary, setSummary] = useState({ ingresos: 0, gastos: 0, balance: 0 })
+  // Lo que se compara con el mes anterior: en el mes en curso, sin lo anotado con fecha posterior a hoy
+  const [comparable, setComparable] = useState({ ingresos: 0, gastos: 0, balance: 0 })
   const [previous, setPrevious] = useState<{ ingresos: number; gastos: number; balance: number } | null>(null)
   const previousMonth = shiftMonth(mes, -1)
   const today = new Date()
@@ -119,10 +123,16 @@ export default function DashboardSummary({ mes }: { mes: string }) {
         return { ingresos, gastos, balance: ingresos - gastos }
       })
       .catch(() => null)
-    Promise.all([apiClient.get(`/api/v1/transacciones/resumen/${mes}`), anterior])
+    const totales = (items: MovimientoBase[]) => {
+      const ingresos = sumByTipo(items, 'ingreso')
+      const gastos = sumByTipo(items, 'gasto')
+      return { ingresos, gastos, balance: ingresos - gastos }
+    }
+    Promise.all([apiClient.get<MovimientoBase[]>(`/api/v1/transacciones?mes=${mes}`), anterior])
       .then(([response, prev]) => {
         if (!active) return
-        setSummary(response.data)
+        setSummary(totales(response.data))
+        setComparable(totales(upToToday(response.data, mes, new Date())))
         setPrevious(prev)
         setError('')
       })
@@ -153,9 +163,9 @@ export default function DashboardSummary({ mes }: { mes: string }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <SummaryCard title="Ingresos" value={summary.ingresos} type="ingreso" previous={previous?.ingresos ?? null} previousLabel={previousLabel} />
-      <SummaryCard title="Gastos" value={summary.gastos} type="gasto" previous={previous?.gastos ?? null} previousLabel={previousLabel} />
-      <SummaryCard title="Balance" value={summary.balance} type="balance" previous={previous?.balance ?? null} previousLabel={previousLabel} />
+      <SummaryCard title="Ingresos" value={summary.ingresos} type="ingreso" previous={previous?.ingresos ?? null} previousLabel={previousLabel} current={comparable.ingresos} />
+      <SummaryCard title="Gastos" value={summary.gastos} type="gasto" previous={previous?.gastos ?? null} previousLabel={previousLabel} current={comparable.gastos} />
+      <SummaryCard title="Balance" value={summary.balance} type="balance" previous={previous?.balance ?? null} previousLabel={previousLabel} current={comparable.balance} />
     </div>
   )
 }
