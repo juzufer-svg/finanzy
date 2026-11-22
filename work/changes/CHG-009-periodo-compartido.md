@@ -1,6 +1,6 @@
 # CHG-009 — Filtro de período compartido y rediseñado
 
-- **Estado:** listo-para-aprobar
+- **Estado:** aprobado (PR #11 fusionado el 2026-11-22)
 - **Fecha:** 2026-11-22 · **Solicitante:** dueño del proyecto
 - **Riesgo:** bajo (solo frontend: estado de la interfaz y diseño; sin API, datos ni seguridad) · modo `ligero`
 
@@ -35,7 +35,7 @@ Presupuestos, Reportes). Riesgo bajo. REQ afectados en su presentación: REQ-F-0
 | # | Pregunta | Impacto | Respuesta | Quién |
 |---|---|---|---|---|
 | 1 | ¿El período debe recordarse también al cerrar el navegador? | Bajo | Se eligió no (sessionStorage); fácil de cambiar | Agente |
-| 2 | ¿La nueva transacción debe proponer una fecha del mes que se está viendo? | Bajo | Pendiente | Dueño |
+| 2 | ¿La nueva transacción debe proponer una fecha del mes que se está viendo? | Bajo | No: sigue proponiendo hoy; la fecha se elige en el campo Fecha (2026-11-22, BL-022 descartado) | Dueño |
 
 ## 5. Spec afectada
 - REQ: presentación de REQ-F-005/007/010; REQ-N-005 (accesibilidad). Sin cambios en UC, invariantes, contratos ni ADR.

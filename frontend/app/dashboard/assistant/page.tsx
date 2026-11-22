@@ -82,7 +82,7 @@ export default function AssistantPage() {
   return (
     <div className="space-y-4 sm:space-y-6">
       <PageHeader
-        title="Asistente"
+        title="Asistente IA"
         subtitle="Pregunta en tus palabras por tus gastos, ingresos, presupuestos y metas"
         actions={mensajes.length > 0 && (
           <button type="button" className="btn-secondary" onClick={nuevaConversacion} disabled={enviando}>
@@ -157,7 +157,7 @@ export default function AssistantPage() {
               value={pregunta}
               onChange={e => setPregunta(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ej.: ¿cuánto gasté en comida este mes?"
+              placeholder="Escribe tu pregunta…"
               className="input-field resize-none max-h-40"
             />
             <button type="submit" className="btn-primary flex-shrink-0" disabled={enviando || !pregunta.trim()}>

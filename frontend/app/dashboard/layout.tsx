@@ -89,7 +89,7 @@ const menuItems = [
   { href: '/dashboard/budgets', label: 'Presupuestos', Icon: IconBudget },
   { href: '/dashboard/goals', label: 'Metas', Icon: IconGoal },
   { href: '/dashboard/reports', label: 'Reportes', Icon: IconReport },
-  { href: '/dashboard/assistant', label: 'Asistente', Icon: IconChat },
+  { href: '/dashboard/assistant', label: 'Asistente IA', Icon: IconChat },
   { href: '/dashboard/profile', label: 'Perfil', Icon: IconProfile },
 ]
 
@@ -104,11 +104,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  // El menú móvil queda abierto solo para la ruta donde se abrió:
-  // al navegar se cierra solo, sin un efecto que haga setState.
-  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null)
-  const mobileMenuOpen = mobileMenuPath === pathname
-  const setMobileMenuOpen = (open: boolean) => setMobileMenuPath(open ? pathname : null)
+  // Menú lateral del celular. Se cierra al cambiar de ruta (por un enlace, el ícono del Asistente IA,
+  // el botón Atrás del navegador, etc.). Antes se guardaba la ruta donde se abrió y, al volver a esa
+  // ruta, el menú reaparecía solo (CHG-011). Ajuste durante el render, sin efecto:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [menuPathname, setMenuPathname] = useState(pathname)
+  if (menuPathname !== pathname) {
+    setMenuPathname(pathname)
+    setMobileMenuOpen(false)
+  }
   // false en el servidor y durante la hidratación, true después en el cliente
   const hydrated = useSyncExternalStore(subscribeNoop, () => true, () => false)
   const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
@@ -140,7 +145,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Esc cierra el menú móvil
   useEffect(() => {
     if (!mobileMenuOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileMenuPath(null) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileMenuOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [mobileMenuOpen])
@@ -171,9 +176,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const assistantButton = (
     <Link
       href="/dashboard/assistant"
-      aria-label="Abrir el asistente"
+      aria-label="Abrir el Asistente IA"
       aria-current={assistantActive ? 'page' : undefined}
-      title="Asistente"
+      title="Asistente IA"
       className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
         assistantActive
           ? (dark ? 'text-teal-300 bg-slate-700' : 'text-blue-600 bg-blue-50')
@@ -301,7 +306,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {menuItems.map(({ href, label, Icon }) => {
                 const active = isActive(href)
                 return (
-                  <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={`${navLinkClass(active)} py-3`}>
+                  <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} aria-current={active ? 'page' : undefined} className={`${navLinkClass(active)} py-3`}>
                     <Icon />
                     <span className="text-sm font-medium">{label}</span>
                   </Link>
@@ -381,7 +386,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         aria-label="Navegación principal"
         className={`md:hidden fixed bottom-0 inset-x-0 border-t z-40 pb-[env(safe-area-inset-bottom)] backdrop-blur ${dark ? 'bg-slate-800/95 border-slate-700' : 'bg-white/95 border-slate-200'}`}
       >
-        {/* Perfil y Asistente no van aquí: se abren desde la barra superior (5 botones caben sin cortar textos) */}
+        {/* Perfil y Asistente IA no van aquí: se abren desde la barra superior (5 botones caben sin cortar textos) */}
         <div className="grid grid-cols-5 h-16 px-[env(safe-area-inset-left)]">
           {menuItems.filter(item => !BOTTOM_NAV_EXCLUDED.has(item.href)).map(({ href, label, Icon }) => {
             const active = isActive(href)
