@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import DashboardSummary from '@/components/DashboardSummary'
@@ -18,27 +18,33 @@ export default function Dashboard() {
   const [categories, setCategories] = useState([])
   const [loadError, setLoadError] = useState('')
 
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchData = useCallback((isActive: () => boolean = () => true) => {
+    return Promise.all([
+      apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
+      apiClient.get('/api/v1/categorias')
+    ])
+      .then(([transRes, catRes]) => {
+        if (!isActive()) return
+        setTransactions(transRes.data)
+        setCategories(catRes.data)
+        setLoadError('')
+      })
+      .catch(err => {
+        if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus datos.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+  }, [currentMonth])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) { router.push('/auth/login'); return }
-    fetchData()
-  }, [currentMonth])
-
-  const fetchData = async () => {
-    setLoadError('')
-    try {
-      const [transRes, catRes] = await Promise.all([
-        apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
-        apiClient.get('/api/v1/categorias')
-      ])
-      setTransactions(transRes.data)
-      setCategories(catRes.data)
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus datos.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+    let active = true
+    fetchData(() => active)
+    return () => { active = false }
+  }, [fetchData, router])
 
   const handlePreviousMonth = () => {
     const [y, m] = currentMonth.split('-').map(Number)

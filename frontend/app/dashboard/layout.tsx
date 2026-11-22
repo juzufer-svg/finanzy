@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
@@ -59,12 +59,7 @@ const IconLogout = () => (
   </svg>
 )
 
-const IconWallet = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-      d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
-  </svg>
-)
+const subscribeNoop = () => () => {}
 
 const menuItems = [
   { href: '/dashboard', label: 'Dashboard', Icon: IconDashboard },
@@ -79,17 +74,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [hydrated, setHydrated] = useState(false)
+  // El menú móvil queda abierto solo para la ruta donde se abrió:
+  // al navegar se cierra solo, sin un efecto que haga setState.
+  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null)
+  const mobileMenuOpen = mobileMenuPath === pathname
+  const setMobileMenuOpen = (open: boolean) => setMobileMenuPath(open ? pathname : null)
+  // false en el servidor y durante la hidratación, true después en el cliente
+  const hydrated = useSyncExternalStore(subscribeNoop, () => true, () => false)
   const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
   const { dark } = useThemeStore()
   const { loadRates } = useCurrencyStore()
 
   useEffect(() => {
     loadAuth()
-    setHydrated(true)
     loadRates()
-  }, [])
+  }, [loadAuth, loadRates])
 
   // Si el usuario ya tiene sesión pero no tiene full_name (sesión antigua), lo carga desde la API
   useEffect(() => {
@@ -101,16 +100,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       })
       .catch(() => {})
-  }, [user])
+  }, [user, setUser])
 
   useEffect(() => {
     if (hydrated && !isAuthenticated) router.push('/auth/login')
   }, [hydrated, isAuthenticated, router])
-
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [pathname])
 
   if (!hydrated) return null
   if (!isAuthenticated) return null

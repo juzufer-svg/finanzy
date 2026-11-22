@@ -34,12 +34,9 @@ export default function Home() {
             Toma el control de tu dinero hoy mismo.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-3 md:gap-6 justify-center items-center mb-10 md:mb-12">
+          <div className="flex justify-center mb-10 md:mb-12">
             <Link href="/auth/register" className="w-full sm:w-auto px-6 md:px-8 py-3 md:py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition font-semibold text-base md:text-lg shadow-lg hover:shadow-xl transform hover:scale-105 text-center">
               Comenzar Gratis
-            </Link>
-            <Link href="https://github.com/juzufer-svg/plataapp" className="w-full sm:w-auto px-6 md:px-8 py-3 md:py-4 border-2 border-blue-400 text-blue-200 rounded-lg hover:bg-blue-900 hover:border-blue-300 transition font-semibold text-base md:text-lg text-center">
-              Ver en GitHub
             </Link>
           </div>
 

@@ -116,17 +116,19 @@ class DemoTransaccionDB:
 class DemoCategoriaDB:
     """In-memory categorias database"""
 
-    # Categorías por defecto visibles para todos los usuarios
-    _categorias: Dict[str, dict] = {
-        "cat-salario": {"id": "cat-salario", "usuario_id": "global", "nombre": "Salario", "icono": "💼", "tipo": "ingreso"},
-        "cat-freelance": {"id": "cat-freelance", "usuario_id": "global", "nombre": "Freelance", "icono": "💻", "tipo": "ingreso"},
-        "cat-comida": {"id": "cat-comida", "usuario_id": "global", "nombre": "Comida", "icono": "🍔", "tipo": "gasto"},
-        "cat-transporte": {"id": "cat-transporte", "usuario_id": "global", "nombre": "Transporte", "icono": "🚗", "tipo": "gasto"},
-        "cat-hogar": {"id": "cat-hogar", "usuario_id": "global", "nombre": "Hogar", "icono": "🏠", "tipo": "gasto"},
-        "cat-salud": {"id": "cat-salud", "usuario_id": "global", "nombre": "Salud", "icono": "💊", "tipo": "gasto"},
-        "cat-entretenimiento": {"id": "cat-entretenimiento", "usuario_id": "global", "nombre": "Entretenimiento", "icono": "🎮", "tipo": "gasto"},
-    }
-    
+    # Igual que en Supabase: cada usuario recibe su propia copia de las
+    # categorías por defecto la primera vez que las pide.
+    _DEFAULTS = [
+        {"nombre": "Salario", "icono": "💼", "tipo": "ingreso"},
+        {"nombre": "Freelance", "icono": "💻", "tipo": "ingreso"},
+        {"nombre": "Comida", "icono": "🍔", "tipo": "gasto"},
+        {"nombre": "Transporte", "icono": "🚗", "tipo": "gasto"},
+        {"nombre": "Hogar", "icono": "🏠", "tipo": "gasto"},
+        {"nombre": "Salud", "icono": "💊", "tipo": "gasto"},
+        {"nombre": "Entretenimiento", "icono": "🎮", "tipo": "gasto"},
+    ]
+    _categorias: Dict[str, dict] = {}
+
     @staticmethod
     async def crear(usuario_id: str, nombre: str, icono: str, tipo: str) -> dict:
         """Create category"""
@@ -143,9 +145,12 @@ class DemoCategoriaDB:
     
     @staticmethod
     async def obtener_por_usuario(usuario_id: str) -> list:
-        """Get user categories (global + user-specific)"""
-        return [c for c in DemoCategoriaDB._categorias.values()
-                if c["usuario_id"] in (usuario_id, "global")]
+        """Get user categories (seeding the defaults on first access)"""
+        cats = [c for c in DemoCategoriaDB._categorias.values() if c["usuario_id"] == usuario_id]
+        if not cats:
+            for d in DemoCategoriaDB._DEFAULTS:
+                cats.append(await DemoCategoriaDB.crear(usuario_id, d["nombre"], d["icono"], d["tipo"]))
+        return cats
     
     @staticmethod
     async def obtener_por_id(categoria_id: str) -> dict:

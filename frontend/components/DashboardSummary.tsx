@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
@@ -75,19 +75,26 @@ export default function DashboardSummary({ mes }: { mes: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => { fetchSummary() }, [mes])
+  // Devuelve una función de cancelación: si cambia el mes antes de que llegue
+  // la respuesta anterior, esa respuesta se ignora.
+  const fetchSummary = useCallback(() => {
+    let active = true
+    apiClient.get(`/api/v1/transacciones/resumen/${mes}`)
+      .then(response => {
+        if (!active) return
+        setSummary(response.data)
+        setError('')
+      })
+      .catch(err => {
+        if (active) setError(apiErrorMessage(err, 'No se pudo cargar el resumen del mes.'))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [mes])
 
-  const fetchSummary = async () => {
-    setError('')
-    try {
-      const response = await apiClient.get(`/api/v1/transacciones/resumen/${mes}`)
-      setSummary(response.data)
-    } catch (err) {
-      setError(apiErrorMessage(err, 'No se pudo cargar el resumen del mes.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => fetchSummary(), [fetchSummary])
 
   if (loading) {
     return (

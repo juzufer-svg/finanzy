@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import BudgetCard from '@/components/BudgetCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
@@ -105,29 +105,35 @@ export default function BudgetsPage() {
   const [loadError, setLoadError] = useState('')
   const { confirm, notify } = useDialog()
 
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchData = useCallback((isActive: () => boolean = () => true) => {
+    return Promise.all([
+      apiClient.get(`/api/v1/presupuestos/${currentMonth}`),
+      apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
+      apiClient.get('/api/v1/categorias')
+    ])
+      .then(([budRes, transRes, catRes]) => {
+        if (!isActive()) return
+        setBudgets(budRes.data)
+        setTransactions(transRes.data)
+        setCategories(catRes.data)
+        setLoadError('')
+      })
+      .catch(err => {
+        if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus presupuestos.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+  }, [currentMonth])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) { router.push('/auth/login'); return }
-    fetchData()
-  }, [currentMonth])
-
-  const fetchData = async () => {
-    setLoadError('')
-    try {
-      const [budRes, transRes, catRes] = await Promise.all([
-        apiClient.get(`/api/v1/presupuestos/${currentMonth}`),
-        apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
-        apiClient.get('/api/v1/categorias')
-      ])
-      setBudgets(budRes.data)
-      setTransactions(transRes.data)
-      setCategories(catRes.data)
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus presupuestos.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+    let active = true
+    fetchData(() => active)
+    return () => { active = false }
+  }, [fetchData, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

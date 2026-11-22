@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
@@ -20,46 +20,51 @@ export default function ReportsPage() {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
 
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchData = useCallback((isActive: () => boolean = () => true) => {
+    return Promise.all([
+      apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
+      apiClient.get('/api/v1/categorias')
+    ])
+      .then(([transRes, catRes]) => {
+        if (!isActive()) return
+        const trans = transRes.data
+        const cats = catRes.data
+
+        const totalIngresos = trans.filter((t: any) => t.tipo === 'ingreso').reduce((s: number, t: any) => s + t.monto, 0)
+        const totalGastos = trans.filter((t: any) => t.tipo === 'gasto').reduce((s: number, t: any) => s + t.monto, 0)
+
+        const gastosPorCat: Record<string, number> = {}
+        trans.filter((t: any) => t.tipo === 'gasto').forEach((t: any) => {
+          gastosPorCat[t.categoria_id] = (gastosPorCat[t.categoria_id] || 0) + t.monto
+        })
+        const topCatId = Object.entries(gastosPorCat).sort(([, a], [, b]) => b - a)[0]?.[0]
+        const topCatName = cats.find((c: any) => c.id === topCatId)?.nombre || 'N/A'
+
+        setStats({
+          totalIngresos, totalGastos,
+          balance: totalIngresos - totalGastos,
+          promedioMesGastos: totalGastos / 30,
+          categoriaConMasGasto: { nombre: topCatName, monto: gastosPorCat[topCatId || ''] || 0 }
+        })
+        setTransactions(trans)
+        setLoadError('')
+      })
+      .catch(err => {
+        if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus reportes.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+  }, [currentMonth])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) { router.push('/auth/login'); return }
-    fetchData()
-  }, [currentMonth])
-
-  const fetchData = async () => {
-    setLoadError('')
-    setLoading(true)
-    try {
-      const [transRes, catRes] = await Promise.all([
-        apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
-        apiClient.get('/api/v1/categorias')
-      ])
-      const trans = transRes.data
-      const cats = catRes.data
-
-      const totalIngresos = trans.filter((t: any) => t.tipo === 'ingreso').reduce((s: number, t: any) => s + t.monto, 0)
-      const totalGastos = trans.filter((t: any) => t.tipo === 'gasto').reduce((s: number, t: any) => s + t.monto, 0)
-
-      const gastosPorCat: Record<string, number> = {}
-      trans.filter((t: any) => t.tipo === 'gasto').forEach((t: any) => {
-        gastosPorCat[t.categoria_id] = (gastosPorCat[t.categoria_id] || 0) + t.monto
-      })
-      const topCatId = Object.entries(gastosPorCat).sort(([, a], [, b]) => b - a)[0]?.[0]
-      const topCatName = cats.find((c: any) => c.id === topCatId)?.nombre || 'N/A'
-
-      setStats({
-        totalIngresos, totalGastos,
-        balance: totalIngresos - totalGastos,
-        promedioMesGastos: totalGastos / 30,
-        categoriaConMasGasto: { nombre: topCatName, monto: gastosPorCat[topCatId || ''] || 0 }
-      })
-      setTransactions(trans)
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus reportes.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+    let active = true
+    fetchData(() => active)
+    return () => { active = false }
+  }, [fetchData, router])
 
   const fmt = useCurrencyStore(s => s.fmt)
   const savingsRate = stats.totalIngresos > 0

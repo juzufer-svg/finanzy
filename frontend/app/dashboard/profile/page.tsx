@@ -24,8 +24,6 @@ export default function ProfilePage() {
   const [updatingCurrency, setUpdatingCurrency] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const setCurrencyRef = useRef(setCurrency)
-  setCurrencyRef.current = setCurrency
 
   function showToast(msg: string, type: ToastType) {
     setToast({ msg, type })
@@ -42,12 +40,12 @@ export default function ProfilePage() {
         // Only hydrate from backend if there is no local value yet.
         const hasLocalCurrency = typeof window !== 'undefined' && !!localStorage.getItem('currency')
         if (res.data.currency && !hasLocalCurrency) {
-          setCurrencyRef.current(res.data.currency)
+          setCurrency(res.data.currency)
         }
       })
       .catch(() => showToast('No se pudo cargar tu perfil. Recarga la página.', 'error'))
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, setCurrency])
 
   async function handleDeleteAccount() {
     setDeleting(true)

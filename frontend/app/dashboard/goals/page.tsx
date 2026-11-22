@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import GoalProgressCard from '@/components/GoalProgressCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
@@ -221,23 +221,29 @@ export default function GoalsPage() {
   const [loadError, setLoadError] = useState('')
   const { confirm, notify } = useDialog()
 
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchGoals = useCallback((isActive: () => boolean = () => true) => {
+    return apiClient.get('/api/v1/metas')
+      .then(res => {
+        if (!isActive()) return
+        setGoals(res.data)
+        setLoadError('')
+      })
+      .catch(err => {
+        if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus metas.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+  }, [])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) { router.push('/auth/login'); return }
-    fetchGoals()
-  }, [])
-
-  const fetchGoals = async () => {
-    setLoadError('')
-    try {
-      const res = await apiClient.get('/api/v1/metas')
-      setGoals(res.data)
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus metas.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+    let active = true
+    fetchGoals(() => active)
+    return () => { active = false }
+  }, [fetchGoals, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

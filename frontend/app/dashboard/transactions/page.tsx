@@ -1,9 +1,8 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import TransactionForm from '@/components/TransactionForm'
-import TransactionList from '@/components/TransactionList'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
@@ -67,17 +66,26 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
   const [filterTipo, setFilterTipo] = useState<'todos' | 'gasto' | 'ingreso'>('todos')
   const { confirm, notify } = useDialog()
 
-  useEffect(() => { fetchCategories() }, [])
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchCategories = useCallback((isActive: () => boolean = () => true) => {
+    return apiClient.get('/api/v1/categorias')
+      .then(res => {
+        if (!isActive()) return
+        setCategories(res.data)
+      })
+      .catch(err => {
+        if (isActive()) setError(apiErrorMessage(err, 'No se pudieron cargar las categorías.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoadingCats(false)
+      })
+  }, [])
 
-  const fetchCategories = async () => {
-    setLoadingCats(true)
-    try {
-      const res = await apiClient.get('/api/v1/categorias')
-      setCategories(res.data)
-    } catch (err) {
-      setError(apiErrorMessage(err, 'No se pudieron cargar las categorías.'))
-    } finally { setLoadingCats(false) }
-  }
+  useEffect(() => {
+    let active = true
+    fetchCategories(() => active)
+    return () => { active = false }
+  }, [fetchCategories])
 
   const openEdit = (cat: Category) => {
     setEditingId(cat.id)
@@ -548,28 +556,33 @@ export default function TransactionsPage() {
   const [loadError, setLoadError] = useState('')
   const { confirm, notify } = useDialog()
 
+  // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
+  const fetchData = useCallback((isActive: () => boolean = () => true) => {
+    return Promise.all([
+      apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
+      apiClient.get('/api/v1/categorias')
+    ])
+      .then(([transRes, catRes]) => {
+        if (!isActive()) return
+        setTransactions(transRes.data)
+        setCategories(catRes.data)
+        setLoadError('')
+      })
+      .catch(err => {
+        if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus transacciones.'))
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+  }, [currentMonth])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) { router.push('/auth/login'); return }
-    fetchData()
-  }, [currentMonth])
-
-  const fetchData = async () => {
-    setLoading(true)
-    setLoadError('')
-    try {
-      const [transRes, catRes] = await Promise.all([
-        apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
-        apiClient.get('/api/v1/categorias')
-      ])
-      setTransactions(transRes.data)
-      setCategories(catRes.data)
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus transacciones.'))
-    } finally {
-      setLoading(false)
-    }
-  }
+    let active = true
+    fetchData(() => active)
+    return () => { active = false }
+  }, [fetchData, router])
 
   const handleDelete = async (id: string) => {
     const ok = await confirm({
@@ -672,7 +685,7 @@ export default function TransactionsPage() {
         </div>
         <div className="lg:col-span-2">
           {loadError ? (
-            <ErrorState message={loadError} onRetry={fetchData} />
+            <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
           ) : (
           <CategorizedView
             transactions={transactions}

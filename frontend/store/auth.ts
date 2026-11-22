@@ -18,26 +18,22 @@ interface AuthStore {
   loadAuth: () => void
 }
 
-export const useAuthStore = create<AuthStore>((set) => {
-  // Load auth from localStorage on initialization
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token')
-    const user = localStorage.getItem('user')
-    
-    if (token && user) {
-      set({
-        token,
-        user: JSON.parse(user),
-        isAuthenticated: true,
-      })
-    }
+// Sesión guardada en el navegador (en el servidor no existe localStorage)
+function readStoredAuth(): Pick<AuthStore, 'token' | 'user' | 'isAuthenticated'> {
+  if (typeof window === 'undefined') return { token: null, user: null, isAuthenticated: false }
+  const token = localStorage.getItem('token')
+  const user = localStorage.getItem('user')
+  if (!token || !user) return { token: null, user: null, isAuthenticated: false }
+  try {
+    return { token, user: JSON.parse(user), isAuthenticated: true }
+  } catch {
+    return { token: null, user: null, isAuthenticated: false }
   }
+}
 
-  return {
-    token: null,
-    user: null,
-    isAuthenticated: false,
-    
+export const useAuthStore = create<AuthStore>((set) => ({
+    ...readStoredAuth(),
+
     setToken: (token: string) => {
       localStorage.setItem('token', token)
       document.cookie = `token=${token}; path=/; max-age=86400; SameSite=Lax`
@@ -56,19 +52,5 @@ export const useAuthStore = create<AuthStore>((set) => {
       set({ token: null, user: null, isAuthenticated: false })
     },
     
-    loadAuth: () => {
-      if (typeof window !== 'undefined') {
-        const token = localStorage.getItem('token')
-        const user = localStorage.getItem('user')
-        
-        if (token && user) {
-          set({
-            token,
-            user: JSON.parse(user),
-            isAuthenticated: true,
-          })
-        }
-      }
-    },
-  }
-})
+    loadAuth: () => set(readStoredAuth()),
+}))
