@@ -24,7 +24,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const { setToken, setUser } = useAuthStore()
+  const { setUser } = useAuthStore()
   const codeRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // ── Paso 1: registro ──────────────────────────────────────────────────────
@@ -56,9 +56,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       const res = await apiClient.post('/api/v1/auth/verify-email', { email, code: fullCode })
-      setToken(res.data.access_token)
       setUser({ id: res.data.user_id, email, full_name: res.data.full_name })
-      document.cookie = `token=${res.data.access_token}; path=/; max-age=1800; SameSite=Lax`
       router.push('/dashboard')
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Código incorrecto o expirado'))

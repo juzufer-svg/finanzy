@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import apiClient from '@/lib/api-client'
+import apiClient, { hasStoredSession } from '@/lib/api-client'
 import DashboardSummary from '@/components/DashboardSummary'
 import TransactionList from '@/components/TransactionList'
 import ErrorState from '@/components/ErrorState'
@@ -39,8 +39,7 @@ export default function Dashboard() {
   }, [currentMonth])
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) { router.push('/auth/login'); return }
+    if (!hasStoredSession()) { router.push('/auth/login'); return }
     let active = true
     fetchData(() => active)
     return () => { active = false }

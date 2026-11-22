@@ -164,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           )}
           <button
-            onClick={() => { logout(); router.push('/') }}
+            onClick={async () => { await logout(); router.push('/') }}
             title={!sidebarOpen ? 'Cerrar sesión' : undefined}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-all duration-150"
           >
@@ -235,7 +235,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               </div>
               <button
-                onClick={() => { logout(); router.push('/') }}
+                onClick={async () => { await logout(); router.push('/') }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-all duration-150"
               >
                 <IconLogout />

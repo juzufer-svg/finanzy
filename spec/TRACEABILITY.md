@@ -9,7 +9,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ | UC | Contrato | Implementación | Pruebas / BDD | Estado |
 |---|---|---|---|---|---|
 | REQ-F-001 | UC-001, WF-001 | CT-001 `register`, `verify-email`, `resend-code` | `be/api/routes/auth.py`, `be/utils/email.py`, `be/models/user.py`, `fe/app/auth/register/page.tsx` | `t/test_auth.py` (registro, verificación, 409, INV-014) · BDD-AUTH | Verificado (CA-4 limpieza de 1 h: sin prueba, depende de Supabase) |
-| REQ-F-002 | UC-002 | CT-001 `login` | `be/api/routes/auth.py`, `be/core/security.py`, `fe/app/auth/login/page.tsx`, `fe/store/auth.ts` | `t/test_auth.py` (login, INV-006, bloqueo, INV-011, INV-015) · BDD-AUTH | Verificado |
+| REQ-F-002 | UC-002 | CT-001 `login` | `be/api/routes/auth.py`, `be/core/security.py`, `fe/app/auth/login/page.tsx`, `fe/store/auth.ts`, `fe/app/api/v1/[...path]/route.ts` (cookie HttpOnly, ADR-005) | `t/test_auth.py` (login, INV-006, bloqueo, INV-011, INV-015) · BDD-AUTH | Verificado |
 | REQ-F-003 | UC-003 | CT-001 `forgot-password`, `reset-password` | `be/api/routes/auth.py`, `be/models/user.py`, `be/api/sesion.py`, `fe/app/auth/forgot-password/page.tsx`, `fe/lib/code-input.ts` | `t/test_codigos.py`, `t/test_sesiones.py` (CA-4, INV-016) · BDD-RECUPERACION | Verificado |
 | REQ-F-004 | UC-004 | CT-003 | `be/api/routes/plataapp.py`, `be/schemas/plataapp.py`, `be/models/plataapp.py`, `fe/app/dashboard/transactions/page.tsx`, `fe/components/TransactionForm.tsx` | `t/test_propiedad.py`, `t/test_validaciones.py` · BDD-TRANSACCIONES, BDD-PROPIEDAD | Verificado |
 | REQ-F-005 | UC-008 | CT-003 `GET`, `resumen/{mes}` | `be/api/routes/plataapp.py`, `fe/app/dashboard/page.tsx`, `fe/components/DashboardSummary.tsx`, `fe/components/TransactionList.tsx` | `t/test_validaciones.py::test_resumen_del_mes`, `::test_inv005_meses_invalidos_se_rechazan` · BDD-TRANSACCIONES | Verificado |
@@ -55,6 +55,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-017 | `test_endurecimiento.py::test_inv017_*` |
 | INV-018 | `test_endurecimiento.py::test_inv018_*` |
 | INV-019 | `test_endurecimiento.py` (configuración y CORS) |
+| INV-020 | `frontend/e2e/sesion-cookie.mjs` (prueba de punta a punta con Playwright; manual, sin CI todavía) |
 
 ## Huérfanos (deben quedar vacíos)
 - REQ sin prueba automatizada: REQ-F-010, REQ-F-011, REQ-F-012, REQ-F-013, REQ-F-014 (lógica en frontend o de bajo riesgo; sin pruebas de frontend todavía — ver backlog).
