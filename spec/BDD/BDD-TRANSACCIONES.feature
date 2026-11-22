@@ -47,3 +47,10 @@ Característica: Transacciones y resumen
     Entonces solo aparece ese gasto
     # Prueba: frontend/tests/month-stats.test.mjs (buscador)
 
+  @BDD-TRANSACCIONES @CHG-007 @invariante @INV-022
+  Escenario: Medio de pago de una transacción
+    Dado que registro un gasto con medio de pago "efectivo"
+    Cuando lo edito sin enviar el medio de pago
+    Entonces conserva "efectivo"; si envío null queda sin especificar; y un valor como "bitcoin" se rechaza con 422
+    # Prueba: backend/tests/test_medio_pago.py
+

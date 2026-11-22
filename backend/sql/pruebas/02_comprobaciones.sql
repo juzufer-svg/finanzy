@@ -37,5 +37,14 @@ begin
     raise exception 'se pudo insertar una categoría huérfana';
   exception when foreign_key_violation then null;
   end;
-  raise notice 'OK: migraciones de huérfanos verificadas';
+  -- CHG-007: medio de pago opcional y solo con códigos permitidos
+  insert into public.users(id, email) values ('44444444-4444-4444-4444-444444444444', 'b@x');
+  insert into public.transacciones(usuario_id, monto, fecha, tipo) values ('44444444-4444-4444-4444-444444444444', 1, '2026-11-01', 'gasto');
+  insert into public.transacciones(usuario_id, monto, fecha, tipo, medio_pago) values ('44444444-4444-4444-4444-444444444444', 1, '2026-11-01', 'gasto', 'nequi_daviplata');
+  begin
+    insert into public.transacciones(usuario_id, monto, fecha, tipo, medio_pago) values ('44444444-4444-4444-4444-444444444444', 1, '2026-11-01', 'gasto', 'bitcoin');
+    raise exception 'se aceptó un medio de pago no permitido';
+  exception when check_violation then null;
+  end;
+  raise notice 'OK: migraciones de huérfanos y de medio de pago verificadas';
 end $$;

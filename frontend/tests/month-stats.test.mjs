@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   monthOf, shiftMonth, daysInMonth, elapsedDays, sumByTipo, dailyAverage, projectMonthEnd,
   pctChange, totalsByCategory, compareByCategory, cumulativeByDay, totalBudget, normalizeText,
-  filterTransactions,
+  filterTransactions, totalsByPaymentMethod, comparablePrevious,
 } from '../lib/month-stats.ts'
 
 const hoy = new Date(2026, 10, 22) // 22 de noviembre de 2026 (hora local)
@@ -94,4 +94,23 @@ test('buscador: sin tildes ni mayúsculas, por descripción o categoría', () =>
   assert.deepEqual(filterTransactions(items, { medioPago: 'debito' }, cats).map(t => t.id), ['1'])
   assert.deepEqual(filterTransactions(items, { medioPago: '__sin__' }, cats).map(t => t.id), ['3'])
   assert.equal(filterTransactions(items, {}, cats).length, 3)
+})
+
+test('gasto por medio de pago, de mayor a menor (CHG-007)', () => {
+  const items = [
+    tx('1', '2026-11-01', 10, 'gasto', 'c1', '', 'debito'),
+    tx('2', '2026-11-02', 50, 'gasto', 'c1', '', 'efectivo'),
+    tx('3', '2026-11-03', 15, 'gasto', 'c1', '', 'debito'),
+    tx('4', '2026-11-04', 5, 'gasto', 'c1', '', null),
+    tx('5', '2026-11-05', 999, 'ingreso', 'c1', '', 'transferencia'),
+  ]
+  assert.deepEqual(totalsByPaymentMethod(items), [
+    { medio: 'efectivo', total: 50 }, { medio: 'debito', total: 25 }, { medio: '', total: 5 },
+  ])
+})
+
+test('en el mes en curso se compara con el mes anterior hasta el mismo día', () => {
+  const octubre = [tx('1', '2026-10-05', 10), tx('2', '2026-10-22', 20), tx('3', '2026-10-28', 40)]
+  assert.deepEqual(comparablePrevious(octubre, '2026-11', hoy).map(t => t.id), ['1', '2'])
+  assert.equal(comparablePrevious(octubre, '2026-10', hoy).length, 3) // mes cerrado: completo
 })

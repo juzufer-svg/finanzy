@@ -9,9 +9,10 @@ import SpendingChart from '@/components/SpendingChart'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import {
   type CategoriaBase, type MovimientoBase, type PresupuestoBase,
-  compareByCategory, cumulativeByDay, dailyAverage, daysInMonth, elapsedDays, monthOf, pctChange,
-  projectMonthEnd, shiftMonth, sumByTipo, totalBudget,
+  comparablePrevious, compareByCategory, cumulativeByDay, dailyAverage, daysInMonth, elapsedDays, monthOf, pctChange,
+  projectMonthEnd, shiftMonth, sumByTipo, totalBudget, totalsByPaymentMethod,
 } from '@/lib/month-stats'
+import { medioPagoLabel } from '@/lib/payment-methods'
 
 interface Datos {
   actuales: MovimientoBase[]
@@ -25,6 +26,8 @@ const VACIO: Datos = { actuales: [], anteriores: [], categorias: [], presupuesto
 const nombreMes = (mes: string, conAnio = true) =>
   new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)) - 1, 1)
     .toLocaleDateString('es-ES', conAnio ? { month: 'long', year: 'numeric' } : { month: 'long' })
+
+const mayuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 const pct = (n: number) => `${Math.round(Math.abs(n)).toLocaleString('es-CO')} %`
 
@@ -85,8 +88,10 @@ export default function ReportsPage() {
   const { actuales, anteriores, categorias, presupuestos } = datos
   const ingresos = sumByTipo(actuales, 'ingreso')
   const gastos = sumByTipo(actuales, 'gasto')
-  const gastosAnt = sumByTipo(anteriores, 'gasto')
-  const ingresosAnt = sumByTipo(anteriores, 'ingreso')
+  // En el mes en curso se compara con el mes anterior hasta el mismo día (no con el mes completo)
+  const comparables = comparablePrevious(anteriores, currentMonth, hoy)
+  const gastosAnt = sumByTipo(comparables, 'gasto')
+  const ingresosAnt = sumByTipo(comparables, 'ingreso')
   const balance = ingresos - gastos
   const dias = daysInMonth(currentMonth)
   const transcurridos = elapsedDays(currentMonth, hoy)
@@ -94,13 +99,15 @@ export default function ReportsPage() {
   const proyeccion = projectMonthEnd(gastos, currentMonth, hoy)
   const presupuesto = totalBudget(presupuestos, categorias)
   const esMesActual = currentMonth === monthOf(hoy)
-  const anteriorCorto = nombreMes(mesAnterior, false)
+  const anteriorCorto = nombreMes(mesAnterior, false) + (currentMonth === monthOf(hoy) ? ` al día ${hoy.getDate()}` : '')
   const actualCorto = nombreMes(currentMonth, false)
   const nombreCat = (id: string) => categorias.find(c => c.id === id)?.nombre || 'Sin categoría'
   const iconoCat = (id: string) => categorias.find(c => c.id === id)?.icono || '📁'
-  const comparacion = compareByCategory(actuales, anteriores, 'gasto')
+  const comparacion = compareByCategory(actuales, comparables, 'gasto')
   const ahorro = ingresos > 0 ? (balance / ingresos) * 100 : null
   const variacionTotal = pctChange(gastos, gastosAnt)
+  const porMedio = totalsByPaymentMethod(actuales, 'gasto')
+  const maxMedio = porMedio[0]?.total || 1
 
   // Frase principal: la conclusión primero
   let titular = `Aún no hay gastos en ${actualCorto}.`
@@ -191,7 +198,7 @@ export default function ReportsPage() {
           {/* Gráfico */}
           <div className="card p-5">
             <h2 className="text-sm font-bold text-slate-900 mb-3">Gasto acumulado día a día</h2>
-            {gastos === 0 && gastosAnt === 0 ? (
+            {gastos === 0 && sumByTipo(anteriores, 'gasto') === 0 ? (
               <p className="text-sm text-slate-500 py-8 text-center">Registra gastos para ver cómo avanza tu mes.</p>
             ) : (
               <SpendingChart
@@ -205,6 +212,25 @@ export default function ReportsPage() {
             )}
           </div>
 
+          {/* Gasto por medio de pago (CHG-007) */}
+          {porMedio.length > 0 && (
+            <div className="card p-5">
+              <h2 className="text-sm font-bold text-slate-900 mb-3">Gastos por medio de pago</h2>
+              <ul className="space-y-2.5">
+                {porMedio.map(m => (
+                  <li key={m.medio || 'sin'} className="grid grid-cols-[8.5rem_minmax(0,1fr)_auto] sm:grid-cols-[10rem_minmax(0,1fr)_7.5rem_3rem] items-center gap-3 text-sm">
+                    <span className="text-slate-800 truncate">{medioPagoLabel(m.medio)}</span>
+                    <span className="h-3 rounded-r bg-slate-100 dark:bg-slate-700" aria-hidden>
+                      <span className="block h-full rounded-r bg-blue-600 dark:bg-blue-500" style={{ width: `${Math.max((m.total / maxMedio) * 100, 1)}%` }} />
+                    </span>
+                    <span className="text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{fmt(m.total)}</span>
+                    <span className="hidden sm:block text-right tabular-nums text-xs text-slate-500">{gastos > 0 ? pct((m.total / gastos) * 100) : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Comparación por categoría */}
           <div className="card p-5">
             <h2 className="text-sm font-bold text-slate-900 mb-3">Gastos por categoría: {actualCorto} vs {anteriorCorto}</h2>
@@ -216,8 +242,8 @@ export default function ReportsPage() {
                   <thead>
                     <tr className="text-left text-xs text-slate-500 border-b border-slate-200 dark:border-slate-700">
                       <th scope="col" className="py-2 pr-2 font-medium">Categoría</th>
-                      <th scope="col" className="py-2 px-2 font-medium text-right capitalize">{actualCorto}</th>
-                      <th scope="col" className="py-2 px-2 font-medium text-right capitalize">{anteriorCorto}</th>
+                      <th scope="col" className="py-2 px-2 font-medium text-right">{mayuscula(actualCorto)}</th>
+                      <th scope="col" className="py-2 px-2 font-medium text-right">{mayuscula(anteriorCorto)}</th>
                       <th scope="col" className="py-2 pl-2 font-medium text-right">Variación</th>
                     </tr>
                   </thead>

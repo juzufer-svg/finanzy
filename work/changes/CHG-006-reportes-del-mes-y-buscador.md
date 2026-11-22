@@ -15,8 +15,10 @@
   Resuelve la pregunta abierta 2 / BL-007 con lo que pidió el dueño.
 - **Proyección** solo para el mes en curso; se compara con el **presupuesto total** = suma de los presupuestos de
   categorías de gasto del mes (Finanzy no tiene un presupuesto global; se reutiliza `GET /presupuestos/{mes}`).
-- **Comparación** con el mes anterior: tarjetas del tablero (`DashboardSummary`, una llamada extra a
-  `resumen/{mes-1}`; si falla, solo se omite la comparación) y en Reportes, total y tabla por categoría.
+- **Comparación** con el mes anterior. En el mes en curso se compara **hasta el mismo día** del mes anterior (p. ej.
+  "octubre al día 22"), para no comparar medio mes con un mes completo. En meses cerrados, mes completo.
+  Dónde: tarjetas del tablero (`DashboardSummary`, una llamada extra a
+  `transacciones?mes={mes-1}`; si falla, solo se omite la comparación) y en Reportes, total y tabla por categoría.
 - **Gráfico** SVG propio (`components/SpendingChart.tsx`), sin librerías: mes elegido (azul), mes anterior (gris,
   contexto) y presupuesto (punteado). Leyenda + etiqueta directa del presupuesto, tooltip con el puntero y con las
   flechas del teclado, `aria-label` con el resumen. Colores validados (contraste ≥ 3:1 en claro y oscuro).
@@ -26,6 +28,8 @@
 - **Buscador**: texto en descripción o nombre de categoría, sin tildes ni mayúsculas, + filtro por categoría
   (incluida "Sin categoría"). Con filtro activo los grupos se abren solos. Las transacciones "Sin categoría" ahora
   tienen editar y eliminar (antes no se podían corregir).
+- **Celular:** el contenedor principal del tablero (`dashboard/layout.tsx`) tenía `flex-1` sin `min-w-0` y la página
+  se desbordaba a lo ancho (ya pasaba en el Dashboard); se corrigió.
 - Cálculos puros en `frontend/lib/month-stats.ts`, probados con `node --test` (`npm test`), sin dependencias nuevas;
   se agregó al CI.
 
@@ -33,5 +37,5 @@
 REQ-F-005 (CA-4, CA-5), REQ-F-010 (CA-2..5), UC-008, BDD-TRANSACCIONES, pregunta abierta 2 (resuelta), BL-007, BL-010.
 
 ## 4. Evidencia
-`npm test` → 11 pruebas pasan · `npx eslint .` 0 problemas · `npx next build` correcto · revisión visual en el
+`npm test` → 12 pruebas de este cambio pasan (13 con la de CHG-007) · `npx eslint .` 0 problemas · `npx next build` correcto · revisión visual en el
 navegador con datos de prueba (claro y oscuro, escritorio y celular).

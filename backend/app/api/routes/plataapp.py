@@ -56,7 +56,8 @@ async def crear_transaccion(transaccion: TransaccionCreate, authorization: str =
         monto=transaccion.monto,
         descripcion=transaccion.descripcion,
         fecha=transaccion.fecha,
-        tipo=transaccion.tipo
+        tipo=transaccion.tipo,
+        medio_pago=transaccion.medio_pago,
     )
 
 
@@ -86,7 +87,11 @@ async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCr
     usuario_id = await get_user_id(authorization)
     _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
-    actualizada = await TransaccionDB.actualizar(transaccion_id, usuario_id, **transaccion.model_dump())
+    datos = transaccion.model_dump()
+    # Si el cliente no envía medio_pago, se conserva el que tenía (null explícito = quitarlo)
+    if "medio_pago" not in transaccion.model_fields_set:
+        datos.pop("medio_pago")
+    actualizada = await TransaccionDB.actualizar(transaccion_id, usuario_id, **datos)
     if not actualizada:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     return actualizada

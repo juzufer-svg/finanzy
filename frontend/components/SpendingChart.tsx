@@ -21,6 +21,12 @@ interface SpendingChartProps {
 }
 
 const ALTO = 260
+
+function pasoRedondo(bruto: number): number {
+  const base = Math.pow(10, Math.floor(Math.log10(Math.max(bruto, 1))))
+  const f = bruto / base
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * base
+}
 const M = { top: 16, right: 16, bottom: 28, left: 64 }
 
 export default function SpendingChart({ actual, anterior, dias, presupuesto, etiquetaActual, etiquetaAnterior }: SpendingChartProps) {
@@ -43,7 +49,10 @@ export default function SpendingChart({ actual, anterior, dias, presupuesto, eti
 
   const estrecho = ancho < 480
   const left = estrecho ? 48 : M.left
-  const maxY = Math.max(presupuesto, ...actual, ...anterior.slice(0, dias), 1) * 1.08
+  // Eje Y con pasos "redondos" (1, 2, 2,5 o 5 × 10ⁿ) para que las etiquetas se lean bien
+  const maxDato = Math.max(presupuesto, ...actual, ...anterior.slice(0, dias), 1)
+  const paso = pasoRedondo(maxDato / 4)
+  const maxY = Math.max(Math.ceil((maxDato * 1.05) / paso) * paso, paso)
   const x = (d: number) => left + ((d - 1) / Math.max(dias - 1, 1)) * (ancho - left - M.right)
   const y = (v: number) => M.top + (1 - v / maxY) * (ALTO - M.top - M.bottom)
   const linea = (serie: number[]) => serie.map((v, i) => `${i ? 'L' : 'M'}${x(i + 1).toFixed(1)},${y(v).toFixed(1)}`).join('')
@@ -52,12 +61,13 @@ export default function SpendingChart({ actual, anterior, dias, presupuesto, eti
   const simbolo = fmt(0).replace(/[\d.,\s]/g, '') || '$'
   const compacto = (v: number) => {
     const c = convert(v)
-    if (Math.abs(c) >= 1e6) return `${simbolo}${(c / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 1 })} M`
+    if (Math.abs(c) >= 999_500) return `${simbolo}${(c / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 1 })} M`
     if (Math.abs(c) >= 1e3) return `${simbolo}${Math.round(c / 1e3).toLocaleString('es-CO')} mil`
     return `${simbolo}${Math.round(c)}`
   }
 
-  const marcasY = [0, 1, 2, 3, 4].map(k => (maxY / 1.08 / 4) * k)
+  const marcasY: number[] = []
+  for (let v = 0; v <= maxY + paso / 2; v += paso) marcasY.push(v)
   const pasoX = estrecho ? 7 : 5
   const marcasX: number[] = []
   for (let d = 1; d <= dias; d += pasoX) marcasX.push(d)
@@ -81,7 +91,10 @@ export default function SpendingChart({ actual, anterior, dias, presupuesto, eti
   }
 
   const valorDia = (serie: number[], d: number) => (d <= serie.length ? serie[d - 1] : null)
-  const tooltipIzq = diaActivo ? Math.min(Math.max(x(diaActivo) + 12, 0), ancho - 190) : 0
+  // El recuadro va al lado contrario del cursor para no tapar la línea que se está leyendo
+  const tooltipIzq = diaActivo
+    ? Math.min(Math.max(x(diaActivo) > ancho / 2 ? x(diaActivo) - 192 : x(diaActivo) + 12, 0), ancho - 190)
+    : 0
 
   return (
     <div>

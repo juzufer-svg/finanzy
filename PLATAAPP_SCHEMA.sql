@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS transacciones (
   descripcion TEXT,
   fecha DATE NOT NULL,
   tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('ingreso', 'gasto')),
+  -- Medio de pago opcional (CHG-007, INV-022); NULL = sin especificar
+  medio_pago VARCHAR(20) CONSTRAINT transacciones_medio_pago_check
+    CHECK (medio_pago IS NULL OR medio_pago IN ('debito', 'credito', 'efectivo', 'transferencia', 'nequi_daviplata')),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

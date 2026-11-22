@@ -8,6 +8,7 @@ import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 import { filterTransactions } from '@/lib/month-stats'
+import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 
 interface Transaction {
   id: string
@@ -16,6 +17,7 @@ interface Transaction {
   monto: number
   descripcion: string
   fecha: string
+  medio_pago?: string | null
 }
 
 interface Category {
@@ -261,11 +263,12 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
   onSaved: () => void
 }) {
   const [formData, setFormData] = useState({
-    categoria_id: transaction.categoria_id,
+    categoria_id: transaction.categoria_id || '',
     monto: String(transaction.monto),
     descripcion: transaction.descripcion || '',
     fecha: transaction.fecha,
     tipo: transaction.tipo as 'gasto' | 'ingreso',
+    medio_pago: transaction.medio_pago || '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -278,7 +281,8 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
     try {
       await apiClient.put(`/api/v1/transacciones/${transaction.id}`, {
         ...formData,
-        monto: parseFloat(formData.monto)
+        monto: parseFloat(formData.monto),
+        medio_pago: formData.medio_pago || null,
       })
       onSaved()
       onClose()
@@ -319,6 +323,14 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
               className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white">
               <option value="">Selecciona una categoría</option>
               {filteredCats.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="txe-medio" className="block text-xs font-semibold text-slate-700 mb-1.5">Medio de pago</label>
+            <select id="txe-medio" value={formData.medio_pago} onChange={e => setFormData(p => ({...p, medio_pago: e.target.value}))}
+              className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white">
+              {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              <option value="">Sin especificar</option>
             </select>
           </div>
           <div>
@@ -370,16 +382,18 @@ function CategorizedView({
   // Buscador y filtros (CHG-006): texto en descripción o categoría, sin importar tildes ni mayúsculas
   const [texto, setTexto] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
-  const filtrando = texto.trim() !== '' || categoriaFiltro !== ''
+  const [medioFiltro, setMedioFiltro] = useState('')
+  const filtrando = texto.trim() !== '' || categoriaFiltro !== '' || medioFiltro !== ''
 
   // Con un filtro activo los grupos se muestran abiertos, salvo que el usuario cierre alguno
   const isOpen = (id: string) => (filtrando ? expanded[id] !== false : !!expanded[id])
   const toggle = (id: string) => setExpanded(p => ({ ...p, [id]: !isOpen(id) }))
 
   const porTipo = activeTab === 'todos' ? transactions : transactions.filter(t => t.tipo === activeTab)
-  const filteredTxs = filterTransactions(porTipo, { texto, categoriaId: categoriaFiltro }, categories)
+  const filteredTxs = filterTransactions(porTipo, { texto, categoriaId: categoriaFiltro, medioPago: medioFiltro }, categories)
   const categoriasDelTab = categories.filter(c => activeTab === 'todos' || c.tipo === activeTab)
-  const limpiarFiltros = () => { setTexto(''); setCategoriaFiltro('') }
+  const netoFiltrado = filteredTxs.reduce((s, t) => s + (t.tipo === 'gasto' ? -t.monto : t.monto), 0)
+  const limpiarFiltros = () => { setTexto(''); setCategoriaFiltro(''); setMedioFiltro('') }
 
   // Group by category
   const groups = categories
@@ -397,18 +411,26 @@ function CategorizedView({
   return (
     <div className="space-y-4">
       {/* Buscador y filtro por categoría */}
-      <div className="card p-3 flex flex-col sm:flex-row gap-2 sm:items-end">
-        <div className="flex-1 min-w-0">
+      <div className="card p-3 flex flex-wrap gap-2 items-end">
+        <div className="basis-full min-w-0">
           <label htmlFor="tx-buscar" className="label">Buscar</label>
           <input id="tx-buscar" type="search" value={texto} onChange={e => setTexto(e.target.value)}
             placeholder="Descripción o categoría…" autoComplete="off" className="input-field" />
         </div>
-        <div className="sm:w-56">
+        <div className="flex-1 min-w-[10rem]">
           <label htmlFor="tx-filtro-categoria" className="label">Categoría</label>
           <select id="tx-filtro-categoria" value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)} className="input-field">
             <option value="">Todas</option>
             {categoriasDelTab.map(c => <option key={c.id} value={c.id}>{c.icono ? `${c.icono} ${c.nombre}` : c.nombre}</option>)}
             <option value="__sin__">Sin categoría</option>
+          </select>
+        </div>
+        <div className="flex-1 min-w-[10rem]">
+          <label htmlFor="tx-filtro-medio" className="label">Medio de pago</label>
+          <select id="tx-filtro-medio" value={medioFiltro} onChange={e => setMedioFiltro(e.target.value)} className="input-field">
+            <option value="">Todos</option>
+            {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <option value="__sin__">Sin especificar</option>
           </select>
         </div>
         {filtrando && (
@@ -430,7 +452,7 @@ function CategorizedView({
           </button>
         ))}
         <span className="ml-auto text-xs text-slate-500 self-center" aria-live="polite">
-          {filteredTxs.length} {filteredTxs.length === 1 ? 'registro' : 'registros'}{filtrando ? ` · ${fmt(filteredTxs.reduce((s, t) => s + (t.tipo === 'gasto' ? -t.monto : t.monto), 0))} neto` : ''}
+          {filteredTxs.length} {filteredTxs.length === 1 ? 'registro' : 'registros'}{filtrando ? ` · neto ${netoFiltrado < 0 ? '-' : '+'}${fmt(Math.abs(netoFiltrado))}` : ''}
         </span>
       </div>
 
@@ -502,7 +524,7 @@ function CategorizedView({
                             <p className="text-xs font-semibold text-slate-700 truncate">
                               {tx.descripcion || cat.nombre}
                             </p>
-                            <p className="text-xs text-slate-400">{tx.fecha}</p>
+                            <p className="text-xs text-slate-500">{tx.fecha}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <span className={`text-xs font-bold ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -561,7 +583,7 @@ function CategorizedView({
                     <div key={tx.id} className="flex items-center gap-3 px-4 py-3 bg-slate-50/50 dark:bg-slate-700/30 group">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-slate-700 truncate">{tx.descripcion || '—'}</p>
-                        <p className="text-xs text-slate-400">{tx.fecha}</p>
+                        <p className="text-xs text-slate-500">{tx.fecha}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className={`text-xs font-bold ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>

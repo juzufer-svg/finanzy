@@ -1,24 +1,12 @@
 import React, { useState } from 'react'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
+import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
 
 interface TransactionFormProps {
   categories: any[]
   onSuccess?: () => void
 }
-
-const DEFAULT_CATEGORIES = [
-  { id: 'default-salario',        nombre: 'Salario',          icono: '💼', tipo: 'ingreso' },
-  { id: 'default-freelance',      nombre: 'Freelance',        icono: '💻', tipo: 'ingreso' },
-  { id: 'default-otros-ingresos', nombre: 'Otros ingresos',   icono: '💰', tipo: 'ingreso' },
-  { id: 'default-comida',         nombre: 'Comida',           icono: '🍔', tipo: 'gasto' },
-  { id: 'default-transporte',     nombre: 'Transporte',       icono: '🚗', tipo: 'gasto' },
-  { id: 'default-hogar',          nombre: 'Hogar',            icono: '🏠', tipo: 'gasto' },
-  { id: 'default-salud',          nombre: 'Salud',            icono: '💊', tipo: 'gasto' },
-  { id: 'default-entretenimiento',nombre: 'Entretenimiento',  icono: '🎮', tipo: 'gasto' },
-  { id: 'default-ropa',           nombre: 'Ropa',             icono: '👗', tipo: 'gasto' },
-  { id: 'default-educacion',      nombre: 'Educación',        icono: '🎓', tipo: 'gasto' },
-]
 
 export default function TransactionForm({ categories, onSuccess }: TransactionFormProps) {
   const [loading, setLoading] = useState(false)
@@ -31,7 +19,8 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     monto: '',
     descripcion: '',
     fecha: todayStr,
-    tipo: 'gasto'
+    tipo: 'gasto',
+    medio_pago: MEDIO_POR_DEFECTO as string,
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -46,11 +35,13 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     try {
       await apiClient.post('/api/v1/transacciones', {
         ...formData,
-        monto: parseFloat(formData.monto)
+        monto: parseFloat(formData.monto),
+        medio_pago: formData.medio_pago || null,
       })
       const t2 = new Date()
       const t2str = `${t2.getFullYear()}-${String(t2.getMonth() + 1).padStart(2, '0')}-${String(t2.getDate()).padStart(2, '0')}`
-      setFormData({ categoria_id: '', monto: '', descripcion: '', fecha: t2str, tipo: 'gasto' })
+      // Se conservan el tipo y el medio de pago para registrar varios seguidos más rápido
+      setFormData(prev => ({ ...prev, categoria_id: '', monto: '', descripcion: '', fecha: t2str }))
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2000)
       if (onSuccess) onSuccess()
@@ -61,8 +52,7 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     }
   }
 
-  const effectiveCategories = categories.length > 0 ? categories : DEFAULT_CATEGORIES
-  const filteredCategories = effectiveCategories.filter(cat => cat.tipo === formData.tipo)
+  const filteredCategories = categories.filter(cat => cat.tipo === formData.tipo)
 
   return (
     <div className="card p-5">
@@ -131,9 +121,18 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
               <option key={cat.id} value={cat.id}>{cat.icono ? `${cat.icono} ${cat.nombre}` : cat.nombre}</option>
             ))}
           </select>
-          {categories.length === 0 && (
-            <p className="text-xs text-blue-600 mt-1">Usando categorías predeterminadas. Puedes crear las tuyas con el botón Categorías.</p>
+          {filteredCategories.length === 0 && (
+            <p className="text-xs text-slate-500 mt-1">Aún no tienes categorías de este tipo. Créalas con el botón «Crear Categorías».</p>
           )}
+        </div>
+
+        {/* Medio de pago (CHG-007) */}
+        <div>
+          <label htmlFor="txf-medio" className="label">Medio de pago</label>
+          <select id="txf-medio" name="medio_pago" value={formData.medio_pago} onChange={handleChange} className="input-field">
+            {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <option value="">Sin especificar</option>
+          </select>
         </div>
 
         {/* Monto */}

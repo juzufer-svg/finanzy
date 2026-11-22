@@ -1,5 +1,6 @@
 import React from 'react'
 import { useCurrencyStore } from '@/store/currency'
+import { medioPagoLabel } from '@/lib/payment-methods'
 
 interface TransactionListProps {
   transactions: any[]
@@ -69,7 +70,7 @@ export default function TransactionList({ transactions, categories, onDelete, on
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5 truncate">
-              {transaction.descripcion || 'Sin descripción'} · {transaction.fecha}
+              {transaction.descripcion || 'Sin descripción'} · {transaction.fecha}{transaction.medio_pago ? ` · ${medioPagoLabel(transaction.medio_pago)}` : ''}
             </p>
           </div>
 

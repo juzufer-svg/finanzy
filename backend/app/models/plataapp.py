@@ -39,9 +39,9 @@ class TransaccionDB:
 
     @staticmethod
     async def crear(usuario_id: str, categoria_id: str, monto: float,
-                    descripcion: str, fecha: str, tipo: str) -> dict:
+                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None) -> dict:
         if not _supabase_ok():
-            return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo)
+            return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago)
         try:
             client = SupabaseDB.get_client()
             row = {
@@ -53,6 +53,8 @@ class TransaccionDB:
                 "fecha": fecha,
                 "tipo": tipo,
             }
+            if medio_pago is not None:  # columna de CHG-007; sin dato se deja NULL
+                row["medio_pago"] = medio_pago
             result = client.table("transacciones").insert(row).execute()
             return result.data[0]
         except Exception as e:
@@ -96,6 +98,8 @@ class TransaccionDB:
         try:
             allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo'}
             updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+            if "medio_pago" in kwargs:  # None aquí significa "quitar el medio de pago"
+                updates["medio_pago"] = kwargs["medio_pago"]
             client = SupabaseDB.get_client()
             result = client.table("transacciones").update(updates).eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None

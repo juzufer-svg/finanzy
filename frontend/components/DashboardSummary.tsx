@@ -3,7 +3,7 @@ import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
-import { pctChange, shiftMonth } from '@/lib/month-stats'
+import { comparablePrevious, monthOf, pctChange, shiftMonth, sumByTipo, type MovimientoBase } from '@/lib/month-stats'
 
 interface SummaryCardProps {
   title: string
@@ -99,8 +99,10 @@ export default function DashboardSummary({ mes }: { mes: string }) {
   const [summary, setSummary] = useState({ ingresos: 0, gastos: 0, balance: 0 })
   const [previous, setPrevious] = useState<{ ingresos: number; gastos: number; balance: number } | null>(null)
   const previousMonth = shiftMonth(mes, -1)
+  const today = new Date()
+  // En el mes en curso se compara con el mes anterior hasta el mismo día
   const previousLabel = new Date(Number(previousMonth.slice(0, 4)), Number(previousMonth.slice(5, 7)) - 1, 1)
-    .toLocaleDateString('es-ES', { month: 'long' })
+    .toLocaleDateString('es-ES', { month: 'long' }) + (mes === monthOf(today) ? ` al día ${today.getDate()}` : '')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -109,8 +111,13 @@ export default function DashboardSummary({ mes }: { mes: string }) {
   const fetchSummary = useCallback(() => {
     let active = true
     // El mes anterior es solo para comparar: si falla, la tarjeta dice "Período actual".
-    const anterior = apiClient.get(`/api/v1/transacciones/resumen/${shiftMonth(mes, -1)}`)
-      .then(r => r.data)
+    const anterior = apiClient.get<MovimientoBase[]>(`/api/v1/transacciones?mes=${shiftMonth(mes, -1)}`)
+      .then(r => {
+        const items = comparablePrevious(r.data, mes, new Date())
+        const ingresos = sumByTipo(items, 'ingreso')
+        const gastos = sumByTipo(items, 'gasto')
+        return { ingresos, gastos, balance: ingresos - gastos }
+      })
       .catch(() => null)
     Promise.all([apiClient.get(`/api/v1/transacciones/resumen/${mes}`), anterior])
       .then(([response, prev]) => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005) y de medio de pago (CHG-007) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -20,4 +20,7 @@ for i in 1 2; do
   run ../2026-11-22_huerfanos_3_llaves_foraneas.sql
 done
 run ../2026-11-22_quitar_vista_resumen.sql
+# CHG-007: medio de pago (dos veces para comprobar que se puede repetir)
+run ../2026-11-22_medio_pago.sql
+run ../2026-11-22_medio_pago.sql
 PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 02_comprobaciones.sql

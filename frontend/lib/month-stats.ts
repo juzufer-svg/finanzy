@@ -157,3 +157,24 @@ export function filterTransactions<T extends MovimientoBase>(items: T[], filtro:
     return desc.includes(q) || cat.includes(q)
   })
 }
+
+/** Gasto por medio de pago (CHG-007), de mayor a menor; la clave `''` = sin especificar. */
+export function totalsByPaymentMethod(items: MovimientoBase[], tipo = 'gasto'): { medio: string; total: number }[] {
+  const out: Record<string, number> = {}
+  for (const t of items) {
+    if (t.tipo !== tipo) continue
+    const k = t.medio_pago || ''
+    out[k] = (out[k] || 0) + Number(t.monto)
+  }
+  return Object.entries(out).map(([medio, total]) => ({ medio, total })).sort((a, b) => b.total - a.total)
+}
+
+/**
+ * Movimientos del mes anterior que se pueden comparar con `mes`: si `mes` es el mes en curso,
+ * solo hasta el mismo día (p. ej. del 1 al 22), para no comparar medio mes con un mes completo.
+ */
+export function comparablePrevious<T extends MovimientoBase>(anteriores: T[], mes: string, today: Date): T[] {
+  if (mes !== monthOf(today)) return anteriores
+  const dia = today.getDate()
+  return anteriores.filter(t => Number(t.fecha.slice(8, 10)) <= dia)
+}

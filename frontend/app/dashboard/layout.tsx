@@ -247,7 +247,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* ── Main content ── */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 min-h-screen ${sidebarOpen ? 'md:ml-60' : 'md:ml-16'}`}>
+      <div className={`flex-1 min-w-0 flex flex-col transition-all duration-300 min-h-screen ${sidebarOpen ? 'md:ml-60' : 'md:ml-16'}`}>
         {/* Top Header */}
         <header className={`border-b px-4 md:px-6 py-3 md:py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-sm ${dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
