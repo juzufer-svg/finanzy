@@ -1,0 +1,82 @@
+# CLAUDE.md — Finanzy
+
+> Breve a propósito. Contexto completo (arquitectura, API, BD, infraestructura): `CONTEXTO_PROYECTO_CLAUDE.md`.
+> Especificación (fuente de verdad del comportamiento): `spec/`. Proceso: `docs/`.
+
+Finanzy es una app personal de finanzas: Next.js 16 (`frontend/`, Vercel) + FastAPI (`backend/`, Railway) +
+Supabase (PostgreSQL) + Brevo (correo). Producción: https://finanzyapp.vercel.app · cada push a `main` despliega.
+
+## Reglas del proyecto
+
+1. Leer `CONTEXTO_PROYECTO_CLAUDE.md` antes de trabajar.
+2. Consultar `spec/` antes de modificar funcionalidades. La especificación aprobada es la fuente de verdad.
+3. No inventar requerimientos. Si falta información: listar el vacío y preguntar.
+4. No modificar reglas de negocio sin autorización humana explícita.
+5. Todo cambio de comportamiento debe tener pruebas (`backend/tests/`).
+6. Mantener la trazabilidad (`spec/TRACEABILITY.md`) en el mismo cambio que el código (skill `sdd-trazabilidad`).
+7. No alterar contratos API sin actualizar antes su especificación (`spec/CONTRACTS/`).
+8. No ejecutar cambios destructivos ni tocar producción. Nunca leer ni imprimir `.env` o secretos.
+   **No hacer `git push` a `main` sin aprobación explícita**: el push despliega a producción.
+9. Un agente no aprueba su propio trabajo: la calidad se demuestra con pruebas y revisión independiente.
+10. No debilitar la seguridad existente (ver `spec/05-INVARIANTS.md` y `CONTEXTO_PROYECTO_CLAUDE.md` §8).
+11. Mantener costos mínimos (planes gratuitos); avisar antes de cualquier cosa que implique pagar.
+12. Textos de la interfaz, mensajes de error, documentación y comentarios en **español**.
+
+## Flujo obligatorio
+
+Analizar → Especificar → Diseñar → Validar spec → Coordinar → Implementar → Validar → Revisar → Documentar → Aprobar
+
+- Para empezar un cambio: `/sdd-nuevo-cambio <pedido>`. Para revisar la spec: `/sdd-validar-spec`.
+- **Modo proporcional**: los cambios de riesgo bajo (textos, estilos, accesibilidad, docs) usan el modo `ligero`;
+  todo lo que toque datos, dinero, seguridad, contratos o infraestructura usa el modo `completo`.
+  Detalle: `docs/PROTOCOLO-AGENTES.md` y `docs/CICLO-SDD.md`.
+
+## Los 5 agentes (`.claude/agents/`)
+
+| Agente | Rol | Modelo | Puede escribir código |
+|---|---|---|---|
+| `coordinador` | Orquesta, divide tareas, mantiene estado, escala a humano | opus | No (solo `work/` y spec aprobada) |
+| `clasificador` | Clasifica la entrada, riesgo y modo | haiku | No |
+| `generador` | Implementa lo ya especificado | sonnet | Sí |
+| `validador` | Protege invariantes, ejecuta pruebas, puede bloquear | sonnet | No |
+| `revisor` | Audita contra spec: regresiones, seguridad, evidencia | opus | No |
+
+## Parámetros del proyecto
+
+- Umbral de confianza para decidir sin humano: **85 %**.
+- Máximo de ciclos Generador→Validador/Revisor antes de escalar: **3**.
+- Stack y decisiones: `spec/ADR/`.
+- **Pruebas backend** (desde `backend/`):
+  `python -m pytest -q` (dependencias: `pip install -r requirements-dev.txt`)
+- **Auditoría de dependencias backend**: `python -m pip_audit -r requirements.txt`
+- **Lint y build frontend** (desde `frontend/`): `npx eslint .` (debe dar 0 problemas) y `npx next build`
+
+## Convenciones de código
+
+**Backend**
+- Capas: `schemas` (validación Pydantic) → `api/routes` (reglas, `_ensure_owner`, errores HTTP) → `models` (Supabase).
+- Toda operación por ID verifica el dueño (INV-001). Los errores de Supabase se propagan; nunca guardar en memoria en producción.
+- Endpoints que envían correos: usar `_issue_code(...)` y los limitadores de `core/rate_limit.py`.
+- Fechas con `datetime.now(timezone.utc)`. JWT solo con `core/security.py` (PyJWT, HMAC).
+
+**Frontend**
+- API solo con `apiClient` y rutas relativas `/api/v1/...`. Errores con `apiErrorMessage`; avisos y confirmaciones con `useDialog()`; fallos de carga con `<ErrorState onRetry>`. Nunca `alert`/`confirm`.
+- Cargas de datos con guardia `isActive` (ver `CONTEXTO_PROYECTO_CLAUDE.md` §9); sin `setState` síncrono en efectos.
+- Accesibilidad: `<label htmlFor>` + `id`, `autoComplete`, foco visible, radios `sr-only`, `role="alert"` en errores.
+- Diseño: reutilizar las clases de `globals.css` (`card`, `btn-*`, `input-field`, `label`, `page-*`) y los colores de marca.
+  Para trabajo visual nuevo, seguir el flujo de skills de diseño de la configuración global del usuario.
+
+## Mapa de la documentación
+
+- Qué hace la app → `spec/REQUIREMENTS.md` · Dominio → `spec/01..05-*.md`
+- API → `spec/CONTRACTS/` · Casos de uso → `spec/USE-CASES/` · Escenarios → `spec/BDD/`
+- Decisiones técnicas → `spec/ADR/` · No funcionales → `spec/NFR/NFR.md`
+- Estado de cada trabajo → `work/BACKLOG.md` y `work/changes/`
+- Cómo trabajan los agentes → `docs/PROTOCOLO-AGENTES.md`
+- Los archivos antiguos de la raíz (`API_REFERENCE.md`, `ARCHITECTURE.md`, `QUICKSTART.md`, `START_HERE.md`, etc.)
+  están **desactualizados**: no usarlos como referencia.
+
+## Al cerrar una tarea, informar siempre
+
+Decisiones tomadas · archivos modificados · pruebas ejecutadas y resultado · pendientes · si requiere desplegar
+(push a `main`) o cambiar variables de entorno.

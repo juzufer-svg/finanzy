@@ -6,40 +6,6 @@ from typing import Optional, Dict, List
 import uuid
 
 
-class DemoUserDB:
-    """In-memory user database for demo/testing"""
-    
-    _users: Dict[str, dict] = {}
-    
-    @staticmethod
-    async def get_by_username(username: str) -> Optional[dict]:
-        """Get user by username"""
-        for user in DemoUserDB._users.values():
-            if user.get("username") == username:
-                return user
-        return None
-    
-    @staticmethod
-    async def get_by_id(user_id: str) -> Optional[dict]:
-        """Get user by ID"""
-        return DemoUserDB._users.get(user_id)
-    
-    @staticmethod
-    async def create(username: str, password: str) -> dict:
-        """Create a new user"""
-        from app.core.security import get_password_hash
-        
-        user_id = str(uuid.uuid4())
-        user = {
-            "id": user_id,
-            "username": username,
-            "hashed_password": get_password_hash(password),
-            "is_active": True
-        }
-        DemoUserDB._users[user_id] = user
-        return user
-
-
 class DemoTransaccionDB:
     """In-memory transacciones database"""
     

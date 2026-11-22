@@ -1,7 +1,7 @@
 """
 Authentication schemas
 """
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
 
 
 class UserRegistration(BaseModel):
@@ -66,8 +66,7 @@ class UserResponse(BaseModel):
     full_name: str | None = None
     currency: str = "USD"
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UpdateCurrencyRequest(BaseModel):
