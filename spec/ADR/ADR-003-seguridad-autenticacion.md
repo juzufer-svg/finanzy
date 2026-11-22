@@ -18,4 +18,7 @@ Los endpoints de correo podían usarse para agotar el cupo de Brevo o enviar cor
 - Positivas: 0 vulnerabilidades conocidas; abuso de correo acotado.
 - Deuda aceptada: límites en memoria (se reinician con cada despliegue); quien llame directo a la URL de Railway
   puede falsear la IP, pero los límites por correo y el tope global siguen aplicando.
-- Pendiente: invalidar sesiones al cambiar la contraseña (pregunta abierta 4).
+- Resuelto (2026-11-22, CHG-001): al restablecer la contraseña se invalidan las sesiones con una versión de sesión
+  por usuario (`users.session_version`, claim `sv` en el JWT, INV-016). Se eligió un entero en vez de una lista de
+  tokens revocados porque no requiere tablas ni limpieza y cuesta una consulta corta por petición. Costo aceptado:
+  cada ruta protegida consulta la versión en Supabase; si la BD falla se responde 503 (no se cierra la sesión).

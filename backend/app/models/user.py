@@ -1,6 +1,6 @@
 """
 User model and database operations - Supabase
-Tabla: users(id, email, hashed_password, full_name, currency, is_active, created_at, updated_at)
+Tabla: users(id, email, hashed_password, full_name, currency, is_active, session_version, created_at, updated_at)
 """
 from typing import Optional
 import uuid
@@ -16,6 +16,7 @@ def _map_user(row: dict) -> dict:
         "hashed_password": row.get("hashed_password", ""),
         "currency": row.get("currency", "USD"),
         "is_active": row.get("is_active", False),
+        "session_version": int(row.get("session_version") or 0),
     }
 
 
@@ -92,17 +93,65 @@ class UserDB:
 
     @staticmethod
     async def update_password(email: str, new_password: str) -> bool:
-        """Actualiza la contraseña (y activa la cuenta: el código prueba que el correo es suyo)."""
+        """Actualiza la contraseña (y activa la cuenta: el código prueba que el correo es suyo).
+
+        También sube la versión de sesión del usuario: así todos los tokens emitidos
+        antes del cambio dejan de servir (INV-016). Los errores de Supabase se propagan.
+        """
         if not UserDB._is_supabase_available():
             return False
         client = SupabaseDB.get_client()
+        nuevo_hash = get_password_hash(new_password)
+        # Actualización condicional (compare-and-set): solo escribe si la versión sigue
+        # siendo la que se leyó. Si otro cambio se adelantó, se vuelve a leer y reintenta;
+        # así cada restablecimiento sube la versión al menos una vez.
+        for _ in range(5):
+            actual = (
+                client.table(UserDB.TABLE_NAME)
+                .select("session_version")
+                .eq("email", email.lower())
+                .limit(1)
+                .execute()
+            )
+            if not actual.data:
+                return False
+            version = int(actual.data[0].get("session_version") or 0)
+            result = (
+                client.table(UserDB.TABLE_NAME)
+                .update({
+                    "hashed_password": nuevo_hash,
+                    "is_active": True,
+                    "session_version": version + 1,
+                })
+                .eq("email", email.lower())
+                .eq("session_version", version)
+                .execute()
+            )
+            if result.data:
+                return True
+        raise RuntimeError("No se pudo actualizar la contraseña: la versión de sesión cambió varias veces seguidas")
+
+    @staticmethod
+    async def get_session_version(user_id: str) -> Optional[int]:
+        """Versión de sesión vigente del usuario (INV-016).
+
+        Devuelve None si el usuario ya no existe. Sin Supabase (modo demo local)
+        devuelve 0. Los errores de Supabase se propagan: quien llama decide
+        responder 503 en vez de cerrar la sesión por un fallo pasajero.
+        """
+        if not UserDB._is_supabase_available():
+            return 0
+        client = SupabaseDB.get_client()
         result = (
             client.table(UserDB.TABLE_NAME)
-            .update({"hashed_password": get_password_hash(new_password), "is_active": True})
-            .eq("email", email.lower())
+            .select("session_version")
+            .eq("id", user_id)
+            .limit(1)
             .execute()
         )
-        return bool(result.data)
+        if not result.data:
+            return None
+        return int(result.data[0].get("session_version") or 0)
 
     @staticmethod
     async def delete_by_id(user_id: str) -> bool:

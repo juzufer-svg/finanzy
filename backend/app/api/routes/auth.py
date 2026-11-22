@@ -145,7 +145,7 @@ async def verify_email(data: VerifyEmailRequest, request: Request):
     await UserDB.activate(email)
 
     access_token = create_access_token(
-        data={"sub": user["id"]},
+        data={"sub": user["id"], "sv": user.get("session_version", 0)},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return Token(access_token=access_token, user_id=user["id"], full_name=user.get("full_name"))
@@ -196,7 +196,7 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
         )
 
     access_token = create_access_token(
-        data={"sub": user["id"]},
+        data={"sub": user["id"], "sv": user.get("session_version", 0)},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return Token(access_token=access_token, user_id=user["id"])

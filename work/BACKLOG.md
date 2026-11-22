@@ -7,7 +7,7 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 |---|---|---|---|---|---|
 | BL-001 | Evitar la pausa de Supabase por inactividad (tarea programada en GitHub Actions) | nueva-funcionalidad | medio | Pendiente | REQ-N-007 |
 | BL-002 | Respaldo semanal automático de la base de datos + prueba de restauración | nueva-funcionalidad | alto | Pendiente | REQ-N-008 |
-| BL-003 | Cerrar las sesiones abiertas al cambiar la contraseña (versión de sesión por usuario) | cambio-de-regla | alto | Pendiente | Pregunta abierta 4 |
+| BL-003 | Cerrar las sesiones abiertas al cambiar la contraseña (versión de sesión por usuario) | cambio-de-regla | alto | En revisión (CHG-001) | Pregunta abierta 4 |
 | BL-004 | CI en GitHub Actions: pytest + pip-audit del backend, lint + build del frontend en cada push | deuda-tecnica | medio | Pendiente | REQ-N-009 |
 | BL-005 | Revisar RLS de Supabase con Security Advisor | deuda-tecnica | medio | Pendiente | Contexto §11 |
 | BL-006 | Unificar la longitud mínima de contraseña (registro 6 vs. recuperación 8) | cambio-de-regla | medio | Pendiente | Pregunta abierta 1 |

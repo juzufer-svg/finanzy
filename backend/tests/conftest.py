@@ -64,7 +64,7 @@ def users(monkeypatch):
         store[email.lower()] = {
             "id": f"id-{email.lower()}", "email": email.lower(), "full_name": full_name,
             "hashed_password": security.get_password_hash(password),
-            "is_active": is_active, "currency": currency,
+            "is_active": is_active, "currency": currency, "session_version": 0,
         }
         return store[email.lower()]
 
@@ -78,10 +78,16 @@ def users(monkeypatch):
             return False
         user["hashed_password"] = security.get_password_hash(new_password)
         user["is_active"] = True
+        user["session_version"] = user.get("session_version", 0) + 1  # INV-016
         return True
 
+    async def get_session_version(user_id):
+        user = await get_by_id(user_id)
+        return None if user is None else user.get("session_version", 0)
+
     for name, fn in [("get_by_email", get_by_email), ("get_by_id", get_by_id), ("create", create),
-                     ("activate", activate), ("update_password", update_password)]:
+                     ("activate", activate), ("update_password", update_password),
+                     ("get_session_version", get_session_version)]:
         monkeypatch.setattr(UserDB, name, staticmethod(fn))
     return store
 

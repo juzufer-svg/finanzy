@@ -10,7 +10,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 |---|---|---|---|---|---|
 | REQ-F-001 | UC-001, WF-001 | CT-001 `register`, `verify-email`, `resend-code` | `be/api/routes/auth.py`, `be/utils/email.py`, `be/models/user.py`, `fe/app/auth/register/page.tsx` | `t/test_auth.py` (registro, verificación, 409, INV-014) · BDD-AUTH | Verificado (CA-4 limpieza de 1 h: sin prueba, depende de Supabase) |
 | REQ-F-002 | UC-002 | CT-001 `login` | `be/api/routes/auth.py`, `be/core/security.py`, `fe/app/auth/login/page.tsx`, `fe/store/auth.ts` | `t/test_auth.py` (login, INV-006, bloqueo, INV-011, INV-015) · BDD-AUTH | Verificado |
-| REQ-F-003 | UC-003 | CT-001 `forgot-password`, `reset-password` | `be/api/routes/auth.py`, `be/models/user.py`, `fe/app/auth/forgot-password/page.tsx`, `fe/lib/code-input.ts` | `t/test_codigos.py` · BDD-RECUPERACION | Verificado |
+| REQ-F-003 | UC-003 | CT-001 `forgot-password`, `reset-password` | `be/api/routes/auth.py`, `be/models/user.py`, `be/api/sesion.py`, `fe/app/auth/forgot-password/page.tsx`, `fe/lib/code-input.ts` | `t/test_codigos.py`, `t/test_sesiones.py` (CA-4, INV-016) · BDD-RECUPERACION | Verificado |
 | REQ-F-004 | UC-004 | CT-003 | `be/api/routes/plataapp.py`, `be/schemas/plataapp.py`, `be/models/plataapp.py`, `fe/app/dashboard/transactions/page.tsx`, `fe/components/TransactionForm.tsx` | `t/test_propiedad.py`, `t/test_validaciones.py` · BDD-TRANSACCIONES, BDD-PROPIEDAD | Verificado |
 | REQ-F-005 | UC-008 | CT-003 `GET`, `resumen/{mes}` | `be/api/routes/plataapp.py`, `fe/app/dashboard/page.tsx`, `fe/components/DashboardSummary.tsx`, `fe/components/TransactionList.tsx` | `t/test_validaciones.py::test_resumen_del_mes`, `::test_inv005_meses_invalidos_se_rechazan` · BDD-TRANSACCIONES | Verificado |
 | REQ-F-006 | UC-005 | CT-004 | `be/api/routes/plataapp.py`, `be/models/plataapp.py` (categorías por defecto), `fe/app/dashboard/transactions/page.tsx` (CategoriesManagerModal) | `t/test_propiedad.py`, `t/test_validaciones.py::test_inv004_tipo_debe_ser_ingreso_o_gasto` · BDD-PROPIEDAD | Verificado |
@@ -50,6 +50,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-013 | `test_app_seguridad.py::test_inv013_*` |
 | INV-014 | `test_auth.py::test_inv014_correo_se_normaliza_a_minusculas` |
 | INV-015 | `test_auth.py::test_inv015_*` |
+| INV-016 | `test_sesiones.py::test_inv016_*`, `test_sesiones.py::test_login_y_verificacion_emiten_la_version_de_sesion_vigente` |
 
 ## Huérfanos (deben quedar vacíos)
 - REQ sin prueba automatizada: REQ-F-010, REQ-F-011, REQ-F-012, REQ-F-013, REQ-F-014 (lógica en frontend o de bajo riesgo; sin pruebas de frontend todavía — ver backlog).
