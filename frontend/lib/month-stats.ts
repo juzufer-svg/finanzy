@@ -53,6 +53,13 @@ export function shortDate(fecha: string, conAnio = false): string {
   return `${Number(m[3])} ${mes}${conAnio ? ` ${m[1]}` : ''}`
 }
 
+/** `true` si el texto es un mes válido `YYYY-MM` (años 2000-2100). Protege lo que se lee del almacenamiento. */
+export function isValidMonth(mes: unknown): mes is string {
+  if (typeof mes !== 'string') return false
+  const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(mes)
+  return !!m && Number(m[1]) >= 2000 && Number(m[1]) <= 2100
+}
+
 /** Mes anterior o siguiente (`delta` = -1 / +1) de un mes `YYYY-MM`. */
 export function shiftMonth(mes: string, delta: number): string {
   const [y, m] = mes.split('-').map(Number)

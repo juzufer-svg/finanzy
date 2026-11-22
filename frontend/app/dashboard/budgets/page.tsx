@@ -6,8 +6,8 @@ import BudgetCard from '@/components/BudgetCard'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
-import MonthNavigator from '@/components/MonthNavigator'
-import { monthTitle } from '@/lib/month-stats'
+import PeriodPicker from '@/components/PeriodPicker'
+import { usePeriodStore } from '@/store/period'
 import { useRouter } from 'next/navigation'
 
 interface Transaction {
@@ -100,7 +100,11 @@ export default function BudgetsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
-  const [currentMonth, setCurrentMonth] = useState(new Date().toISOString().slice(0, 7))
+  // Período compartido por todas las vistas (CHG-009)
+  const currentMonth = usePeriodStore(s => s.mes)
+  // Mes de los datos en pantalla: si no coincide con el período, se está cargando el nuevo
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null)
+  const stale = loadedMonth !== null && loadedMonth !== currentMonth
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({ categoria_id: '', limite_mensual: '' })
   const [saving, setSaving] = useState(false)
@@ -126,7 +130,7 @@ export default function BudgetsPage() {
         if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus presupuestos.'))
       })
       .finally(() => {
-        if (isActive()) setLoading(false)
+        if (isActive()) { setLoading(false); setLoadedMonth(currentMonth) }
       })
   }, [currentMonth])
 
@@ -185,10 +189,11 @@ export default function BudgetsPage() {
         />
       )}
       <PageHeader
+        wideActions
         title="Presupuestos"
-        subtitle={monthTitle(currentMonth)}
+        subtitle="Límites de gasto del período"
         actions={<>
-          <MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />
+          <PeriodPicker />
           <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary" aria-expanded={showForm}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showForm ? "M6 18 18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} />
@@ -242,7 +247,7 @@ export default function BudgetsPage() {
       {/* Cards */}
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
-      ) : loading ? (
+      ) : loading || stale ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <div key={i} className="card h-44 animate-pulse bg-slate-100" />)}
         </div>

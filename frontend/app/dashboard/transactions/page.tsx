@@ -7,9 +7,10 @@ import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
-import { filterTransactions, monthTitle, shortDate } from '@/lib/month-stats'
+import { filterTransactions, shortDate } from '@/lib/month-stats'
 import PageHeader from '@/components/PageHeader'
-import MonthNavigator from '@/components/MonthNavigator'
+import PeriodPicker from '@/components/PeriodPicker'
+import { usePeriodStore } from '@/store/period'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 
 interface Transaction {
@@ -627,8 +628,11 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
-  const _now = new Date()
-  const [currentMonth, setCurrentMonth] = useState(`${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`)
+  // Período compartido por todas las vistas (CHG-009)
+  const currentMonth = usePeriodStore(s => s.mes)
+  // Mes de los datos en pantalla: si no coincide con el período, se está cargando el nuevo
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null)
+  const stale = loadedMonth !== null && loadedMonth !== currentMonth
   const [showCategoriesManager, setShowCategoriesManager] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [loadError, setLoadError] = useState('')
@@ -650,7 +654,7 @@ export default function TransactionsPage() {
         if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus transacciones.'))
       })
       .finally(() => {
-        if (isActive()) setLoading(false)
+        if (isActive()) { setLoading(false); setLoadedMonth(currentMonth) }
       })
   }, [currentMonth])
 
@@ -699,8 +703,9 @@ export default function TransactionsPage() {
       )}
 
       <PageHeader
+        wideActions
         title="Transacciones"
-        subtitle={monthTitle(currentMonth)}
+        subtitle="Ingresos y gastos del período"
         actions={<>
           <button
             type="button"
@@ -714,12 +719,12 @@ export default function TransactionsPage() {
             </svg>
             Categorías
           </button>
-          <MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />
+          <PeriodPicker />
         </>}
       />
 
       {/* Mini stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 transition-opacity ${stale ? 'opacity-50' : ''}`} aria-busy={stale}>
         <div className="card p-3 sm:p-4 border-l-4 border-emerald-400 min-w-0">
           <p className="text-xs text-slate-500">Ingresos</p>
           <p className="text-base sm:text-xl font-bold text-emerald-600 mt-0.5 tabular-nums break-words">{fmt(income)}</p>
@@ -748,7 +753,7 @@ export default function TransactionsPage() {
           <CategorizedView
             transactions={transactions}
             categories={categories}
-            loading={loading}
+            loading={loading || stale}
             onDelete={handleDelete}
             onEdit={setEditingTransaction}
             fmt={fmt}

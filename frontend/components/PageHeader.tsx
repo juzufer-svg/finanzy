@@ -4,10 +4,12 @@ import React from 'react'
  * Encabezado común de las vistas del dashboard: título, subtítulo y acciones.
  * En el celular las acciones bajan a su propia línea solo si no caben al lado del título.
  */
-export default function PageHeader({ title, subtitle, actions }: {
+export default function PageHeader({ title, subtitle, actions, wideActions = false }: {
   title: string
   subtitle?: React.ReactNode
   actions?: React.ReactNode
+  /** En el celular las acciones ocupan todo el ancho (p. ej. el selector de período). */
+  wideActions?: boolean
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
@@ -15,7 +17,7 @@ export default function PageHeader({ title, subtitle, actions }: {
         <h1 className="page-title">{title}</h1>
         {subtitle && <p className="page-subtitle">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className={`flex flex-wrap items-center gap-2 ${wideActions ? 'w-full sm:w-auto' : ''}`}>{actions}</div>}
     </div>
   )
 }

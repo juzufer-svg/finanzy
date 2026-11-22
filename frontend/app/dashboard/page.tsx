@@ -9,14 +9,17 @@ import ErrorState from '@/components/ErrorState'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/PageHeader'
-import MonthNavigator from '@/components/MonthNavigator'
-import { monthTitle } from '@/lib/month-stats'
+import PeriodPicker from '@/components/PeriodPicker'
+import { usePeriodStore } from '@/store/period'
 
 export default function Dashboard() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const now = new Date()
-  const [currentMonth, setCurrentMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+  // Período compartido por todas las vistas (CHG-009)
+  const currentMonth = usePeriodStore(s => s.mes)
+  // Mes de los datos en pantalla: si no coincide con el período, se está cargando el nuevo
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null)
+  const stale = loadedMonth !== null && loadedMonth !== currentMonth
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -37,7 +40,7 @@ export default function Dashboard() {
         if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus datos.'))
       })
       .finally(() => {
-        if (isActive()) setLoading(false)
+        if (isActive()) { setLoading(false); setLoadedMonth(currentMonth) }
       })
   }, [currentMonth])
 
@@ -124,9 +127,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader
+        wideActions
         title="Dashboard"
-        subtitle={<>Resumen de <span className="font-medium text-slate-700">{monthTitle(currentMonth)}</span></>}
-        actions={<MonthNavigator mes={currentMonth} onChange={setCurrentMonth} />}
+        subtitle="Resumen de tu actividad financiera"
+        actions={<PeriodPicker />}
       />
 
       {/* Summary Cards */}
@@ -146,7 +150,9 @@ export default function Dashboard() {
             </svg>
           </Link>
         </div>
-        <TransactionList transactions={transactions.slice(0, 5)} categories={categories} />
+        <div aria-busy={stale} className={`transition-opacity ${stale ? 'opacity-50' : ''}`}>
+          <TransactionList transactions={transactions.slice(0, 5)} categories={categories} />
+        </div>
       </div>
 
       {/* Quick Access */}
