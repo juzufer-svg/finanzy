@@ -1,0 +1,109 @@
+# Respaldo semanal cifrado de la base de Supabase (plan gratis, sin respaldos propios).
+# Exporta el esquema "public" (tablas, datos, funciones, triggers y políticas RLS) a un
+# archivo SQL, lo cifra con AES-256 y lo guarda como artefacto de GitHub por 90 días.
+# El repositorio es público: cualquiera puede descargar el artefacto, pero sin la
+# frase de BACKUP_PASSPHRASE no puede leerlo. Nunca se sube el archivo sin cifrar.
+# Secretos necesarios: SUPABASE_DB_URL y BACKUP_PASSPHRASE (ver docs/RESPALDOS_SUPABASE.md).
+name: Respaldo semanal de Supabase
+
+on:
+  schedule:
+    # Domingos a las 08:41 UTC (3:41 a. m. hora de Colombia).
+    - cron: "41 8 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-backup
+  cancel-in-progress: false
+
+env:
+  # pg_dump debe ser igual o más nuevo que la versión de Postgres de Supabase.
+  PG_VERSION: "17"
+
+jobs:
+  respaldo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Revisar secretos
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          faltan=0
+          [ -n "${SUPABASE_DB_URL}" ] || { echo "::error::Falta el secreto SUPABASE_DB_URL."; faltan=1; }
+          [ -n "${BACKUP_PASSPHRASE}" ] || { echo "::error::Falta el secreto BACKUP_PASSPHRASE."; faltan=1; }
+          if [ -n "${BACKUP_PASSPHRASE}" ] && [ "${#BACKUP_PASSPHRASE}" -lt 20 ]; then
+            echo "::error::BACKUP_PASSPHRASE debe tener al menos 20 caracteres."; faltan=1
+          fi
+          exit "${faltan}"
+
+      - name: Instalar cliente de PostgreSQL ${{ env.PG_VERSION }}
+        run: |
+          set -euo pipefail
+          if ! apt-cache policy "postgresql-client-${PG_VERSION}" | grep -q 'Candidate: [0-9]'; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg-respaldo.list >/dev/null
+            sudo apt-get update -qq
+          fi
+          sudo apt-get install -y -qq "postgresql-client-${PG_VERSION}"
+          "/usr/lib/postgresql/${PG_VERSION}/bin/pg_dump" --version
+
+      - name: Exportar y cifrar
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/respaldo" salida
+          crudo="${RUNNER_TEMP}/respaldo/crudo.sql"
+          limpio="${RUNNER_TEMP}/respaldo/limpio.sql"
+          nombre="finanzy-respaldo-$(date -u +%Y-%m-%d).sql.gpg"
+
+          # --clean --if-exists: al restaurar, reemplaza las tablas existentes.
+          # --column-inserts: INSERT normales, para poder pegarlo en el SQL Editor de Supabase.
+          "/usr/lib/postgresql/${PG_VERSION}/bin/pg_dump" "${SUPABASE_DB_URL}" \
+            --schema=public --no-owner --no-privileges --clean --if-exists \
+            --column-inserts --rows-per-insert=200 --file="${crudo}"
+
+          # Quita lo que no sirve en Supabase: borrar/crear el esquema public (rompería sus
+          # permisos) y las órdenes \restrict de psql (el SQL Editor no las entiende).
+          sed -E \
+            -e '/^\\(un)?restrict /d' \
+            -e '/^DROP SCHEMA IF EXISTS public;$/d' \
+            -e '/^CREATE SCHEMA public;$/d' \
+            -e '/^COMMENT ON SCHEMA public IS/d' \
+            "${crudo}" > "${limpio}"
+
+          # Comprobación básica: deben estar todas las tablas de la app.
+          for tabla in users categorias transacciones presupuestos metas; do
+            grep -q "^CREATE TABLE public.${tabla} (" "${limpio}" \
+              || { echo "::error::El respaldo no contiene la tabla ${tabla}."; exit 1; }
+          done
+
+          export GNUPGHOME="${RUNNER_TEMP}/gnupg"
+          mkdir -p -m 700 "${GNUPGHOME}"
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+            --symmetric --cipher-algo AES256 --output "salida/${nombre}" "${limpio}" \
+            3<<<"${BACKUP_PASSPHRASE}"
+
+          # Nada sin cifrar se queda en el equipo de GitHub.
+          shred -u "${crudo}" "${limpio}"
+          rm -rf "${GNUPGHOME}"
+          echo "NOMBRE=${nombre}" >> "${GITHUB_ENV}"
+          echo "Respaldo cifrado listo: ${nombre}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Guardar el respaldo cifrado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NOMBRE }}
+          path: salida/${{ env.NOMBRE }}
+          retention-days: 90
+          if-no-files-found: error
+          compression-level: 0
