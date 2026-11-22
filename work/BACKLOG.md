@@ -25,6 +25,7 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-018 | Medio de pago en las transacciones (Débito, Crédito, Efectivo, Transferencia, Nequi / Daviplata) | nueva-funcionalidad | medio | En revisión (CHG-007; SQL antes del despliegue) | Pedido del dueño 2026-11-22 |
 | BL-019 | Decidir si se borra la columna sin uso `presupuestos."mes_año"` (2 filas NULL; el código usa `mes_ano`) | datos | bajo | Pendiente (decisión del dueño) | CHG-005 |
 | BL-020 | Diseño profesional y responsive en PC y iPhone (logo duplicado, mes en mayúsculas, zona segura, botones táctiles) | mejora | bajo | Hecho (CHG-008, PR #10) | Pedido del dueño 2026-11-22 |
-| BL-021 | Filtro de período compartido por todas las pestañas y rediseñado (se mantiene al navegar y recargar) | mejora | bajo | En revisión (CHG-009) | Pedido del dueño 2026-11-22 |
-| BL-022 | Decidir si la nueva transacción propone una fecha del mes que se está viendo | mejora | bajo | Pendiente (decisión del dueño) | CHG-009 |
+| BL-021 | Filtro de período compartido por todas las pestañas y rediseñado (se mantiene al navegar y recargar) | mejora | bajo | Hecho (CHG-009, PR #11) | Pedido del dueño 2026-11-22 |
+| BL-022 | Decidir si la nueva transacción propone una fecha del mes que se está viendo | mejora | bajo | Descartado: el dueño decidió (2026-11-22) que siga proponiendo hoy; la fecha se elige en el campo Fecha | CHG-009 |
 | BL-023 | Asistente con Claude para preguntar por las finanzas en lenguaje natural (tool use, solo lectura, Haiku) | nueva-funcionalidad | medio | En revisión (CHG-010; requiere `ANTHROPIC_API_KEY` en Railway y saldo en la Claude Console) | Pedido del dueño 2026-11-22 |
+| BL-024 | Menú «Asistente IA» y, en el celular, que el menú lateral no reaparezca solo al abrir el asistente | mejora | bajo | En revisión (CHG-011) | Pedido del dueño 2026-11-22 |

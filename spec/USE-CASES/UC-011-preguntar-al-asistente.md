@@ -2,7 +2,7 @@
 
 - **REQ:** REQ-F-015 · **Contrato:** CT-007 · **ADR:** ADR-006
 - **Actor principal:** Usuario
-- **Disparador:** Abre «Asistente» (menú lateral o ícono de chat de la barra superior) y escribe una pregunta
+- **Disparador:** Abre «Asistente IA» (menú lateral o ícono de chat de la barra superior) y escribe una pregunta
 - **Precondiciones:** Sesión activa; `ANTHROPIC_API_KEY` configurada en el backend
 - **Postcondiciones:** Ninguna sobre los datos (solo lectura). La conversación no se guarda
 - **Invariantes involucrados:** INV-001, INV-023, INV-024
