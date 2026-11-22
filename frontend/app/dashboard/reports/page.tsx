@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
-import MonthNavigator from '@/components/MonthNavigator'
+import PeriodPicker from '@/components/PeriodPicker'
+import { usePeriodStore } from '@/store/period'
 import SpendingChart from '@/components/SpendingChart'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import {
@@ -52,7 +53,11 @@ export default function ReportsPage() {
   const [datos, setDatos] = useState<Datos>(VACIO)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [currentMonth, setCurrentMonth] = useState(() => monthOf(new Date()))
+  // Período compartido por todas las vistas (CHG-009)
+  const currentMonth = usePeriodStore(s => s.mes)
+  // Mes de los datos en pantalla: si no coincide con el período, se está cargando el nuevo
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null)
+  const stale = loadedMonth !== null && loadedMonth !== currentMonth
   const mesAnterior = shiftMonth(currentMonth, -1)
 
   // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
@@ -72,7 +77,7 @@ export default function ReportsPage() {
         if (isActive()) setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus reportes.'))
       })
       .finally(() => {
-        if (isActive()) setLoading(false)
+        if (isActive()) { setLoading(false); setLoadedMonth(currentMonth) }
       })
   }, [currentMonth])
 
@@ -82,8 +87,6 @@ export default function ReportsPage() {
     fetchData(() => active)
     return () => { active = false }
   }, [fetchData, router])
-
-  const cambiarMes = (mes: string) => { setLoading(true); setCurrentMonth(mes) }
 
   // ---- Cálculos (CHG-006) ----
   const hoy = new Date()
@@ -160,14 +163,15 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        wideActions
         title="Reportes y análisis"
-        subtitle={monthTitle(currentMonth)}
-        actions={<MonthNavigator mes={currentMonth} onChange={cambiarMes} />}
+        subtitle="Análisis del período elegido"
+        actions={<PeriodPicker />}
       />
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
-      ) : loading ? (
+      ) : loading || stale ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="card h-24 animate-pulse bg-slate-100" />)}
         </div>

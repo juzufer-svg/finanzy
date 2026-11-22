@@ -5,7 +5,7 @@ import {
   monthOf, shiftMonth, daysInMonth, elapsedDays, sumByTipo, dailyAverage, projectMonthEnd,
   pctChange, totalsByCategory, compareByCategory, cumulativeByDay, totalBudget, normalizeText,
   filterTransactions, totalsByPaymentMethod, comparablePrevious,
-  upToToday, monthTitle, shortDate,
+  upToToday, monthTitle, shortDate, isValidMonth,
 } from '../lib/month-stats.ts'
 
 const hoy = new Date(2026, 10, 22) // 22 de noviembre de 2026 (hora local)
@@ -137,4 +137,13 @@ test('fecha corta para listas', () => {
   assert.equal(shortDate('2026-11-05'), '5 nov')
   assert.equal(shortDate('2027-01-31', true), '31 ene 2027')
   assert.equal(shortDate('sin fecha'), 'sin fecha')
+})
+
+test('mes válido para el período compartido', () => {
+  assert.equal(isValidMonth('2026-11'), true)
+  assert.equal(isValidMonth('2026-13'), false)
+  assert.equal(isValidMonth('2026-1'), false)
+  assert.equal(isValidMonth('1999-12'), false)
+  assert.equal(isValidMonth(null), false)
+  assert.equal(isValidMonth('2026-11<script>'), false)
 })

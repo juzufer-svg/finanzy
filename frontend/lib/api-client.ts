@@ -2,6 +2,7 @@
 
 import axios from 'axios'
 import { CSRF_HEADER, CSRF_VALUE, LEGACY_TOKEN_KEY, STORED_USER_KEY } from '@/lib/session'
+import { PERIOD_STORAGE_KEY } from '@/store/period'
 
 // Rutas relativas: el proxy de Next.js (app/api/v1/[...path]/route.ts) las envía al
 // backend y añade la sesión desde la cookie HttpOnly. El navegador nunca ve el token.
@@ -60,6 +61,8 @@ apiClient.interceptors.response.use(
     // Un 401 en login o en un código es un error del formulario, no una sesión vencida
     if (error.response?.status === 401 && !url.includes('/api/v1/auth/') && typeof window !== 'undefined') {
       try { localStorage.removeItem(STORED_USER_KEY) } catch { /* sin almacenamiento */ }
+      // El período elegido (CHG-009) no pasa a la siguiente sesión
+      try { sessionStorage.removeItem(PERIOD_STORAGE_KEY) } catch { /* sin almacenamiento */ }
       // Fuera de un componente no hay router de Next: se fuerza una carga
       // completa para limpiar todo el estado de la sesión expirada.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination

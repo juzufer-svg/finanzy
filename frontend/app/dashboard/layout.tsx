@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import { useThemeStore } from '@/store/theme'
 import { useCurrencyStore } from '@/store/currency'
+import { usePeriodStore } from '@/store/period'
 import FinanzyLogo from '@/components/FinanzyLogo'
 import apiClient from '@/lib/api-client'
 
@@ -102,6 +103,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
   const { dark, toggle: toggleTheme } = useThemeStore()
   const { loadRates } = useCurrencyStore()
+  const resetPeriod = usePeriodStore(s => s.resetMes)
 
   useEffect(() => {
     loadAuth()
@@ -139,7 +141,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
   const currentSection = menuItems.find(item => isActive(item.href))?.label ?? 'Dashboard'
   const displayName = user?.full_name || user?.email || 'Usuario'
-  const handleLogout = async () => { await logout(); router.push('/') }
+  // Al cerrar sesión el período vuelve al mes actual (la siguiente persona no hereda el filtro)
+  const handleLogout = async () => { resetPeriod(); await logout(); router.push('/') }
 
   const themeButton = (
     <button
