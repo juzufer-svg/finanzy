@@ -180,7 +180,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 ```powershell
 # Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (102)
+.venv\Scripts\python -m pytest          # pruebas (103)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # Frontend (BACKEND_URL por defecto http://localhost:8000)
@@ -218,3 +218,9 @@ Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la pla
 - No poner claves, contraseñas ni correos personales en el código ni en la documentación.
 - Todo cambio de comportamiento actualiza la spec y `spec/TRACEABILITY.md` y trae pruebas.
 - Al terminar un cambio: pruebas del backend, lint + build del frontend, y comprobar en producción tras el despliegue.
+
+## 14. Registro de cambios recientes
+
+- **2026-11-22 · PR #5 (CHG-002)**: configuración segura que nunca impide arrancar, filtro por dueño en la BD, cuenta activa, moneda sin éxito falso, contraseña 8-128, CI en GitHub Actions.
+- **2026-11-22 · PR #6 (CHG-003)**: sesión en cookie HttpOnly con proxy de Next.js y CSRF; el token ya no está en el navegador.
+- **2026-11-22 · PR #7 (CHG-004)**: abono a metas atómico con la función SQL `abonar_meta` (ejecutar su SQL en Supabase).
