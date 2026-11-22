@@ -24,3 +24,4 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-017 | Alinear el tope de montos (1e12) con `NUMERIC(12,2)` y limitar a 2 decimales | correccion-de-bug | medio | Pendiente | Revisión CHG-004 |
 | BL-018 | Medio de pago en las transacciones (Débito, Crédito, Efectivo, Transferencia, Nequi / Daviplata) | nueva-funcionalidad | medio | En revisión (CHG-007; SQL antes del despliegue) | Pedido del dueño 2026-11-22 |
 | BL-019 | Decidir si se borra la columna sin uso `presupuestos."mes_año"` (2 filas NULL; el código usa `mes_ano`) | datos | bajo | Pendiente (decisión del dueño) | CHG-005 |
+| BL-020 | Diseño profesional y responsive en PC y iPhone (logo duplicado, mes en mayúsculas, zona segura, botones táctiles) | mejora | bajo | En revisión (CHG-008) | Pedido del dueño 2026-11-22 |

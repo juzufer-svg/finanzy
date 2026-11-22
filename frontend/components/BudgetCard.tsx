@@ -26,11 +26,11 @@ export default function BudgetCard({ categoria, limite, gastado, onEdit, onDelet
   const c = config[status]
 
   return (
-    <div className={`card p-5 border-l-4 ${c.accent}`}>
+    <div className={`card p-4 sm:p-5 border-l-4 ${c.accent}`}>
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-sm font-bold text-slate-900 truncate">{categoria}</h3>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+            <h3 className="text-sm font-bold text-slate-900 truncate max-w-full">{categoria}</h3>
             <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold border ${c.badge}`}>
               {c.label}
             </span>
@@ -39,16 +39,16 @@ export default function BudgetCard({ categoria, limite, gastado, onEdit, onDelet
         </div>
         <div className="flex-shrink-0 text-right ml-2 min-w-0 max-w-[45%]">
           <p className="text-xs text-slate-400 uppercase tracking-wide">Límite</p>
-          <p className="text-sm sm:text-lg font-bold text-slate-900 truncate">{fmt(limite)}</p>
+          <p className="text-base sm:text-lg font-bold text-slate-900 tabular-nums break-words">{fmt(limite)}</p>
         </div>
       </div>
 
       <div className="space-y-2 mb-4">
         <div className="flex justify-between text-xs text-slate-500">
           <span>Gastado: <span className="font-semibold text-slate-700">{fmt(gastado)}</span></span>
-          <span className="font-semibold">{percentage.toFixed(0)}%</span>
+          <span className="font-semibold tabular-nums">{percentage.toFixed(0)} %</span>
         </div>
-        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden" role="progressbar" aria-label={`Uso del presupuesto de ${categoria}`} aria-valuenow={Math.round(percentage)} aria-valuemin={0} aria-valuemax={100}>
           <div
             className={`h-2 rounded-full transition-all duration-500 ${c.bar}`}
             style={{ width: `${percentage}%` }}
@@ -58,7 +58,7 @@ export default function BudgetCard({ categoria, limite, gastado, onEdit, onDelet
 
       <div className={`flex items-center justify-between p-3 rounded-lg ${remaining >= 0 ? 'bg-slate-50' : 'bg-red-50'}`}>
         <span className="text-xs text-slate-500">{remaining >= 0 ? 'Disponible' : 'Excedido'}</span>
-        <span className={`text-sm font-bold ${remaining >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+        <span className={`text-sm font-bold tabular-nums ${remaining >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
           {fmt(Math.abs(remaining))}
         </span>
       </div>
@@ -66,8 +66,8 @@ export default function BudgetCard({ categoria, limite, gastado, onEdit, onDelet
       {(onEdit || onDelete) && (
         <div className="flex items-center gap-2 pt-3 mt-1 border-t border-slate-100">
           {onEdit && (
-            <button onClick={onEdit}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+            <button type="button" onClick={onEdit} aria-label={`Editar presupuesto de ${categoria}`}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 text-xs font-semibold text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" />
               </svg>
@@ -75,8 +75,8 @@ export default function BudgetCard({ categoria, limite, gastado, onEdit, onDelet
             </button>
           )}
           {onDelete && (
-            <button onClick={onDelete}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+            <button type="button" onClick={onDelete} aria-label={`Eliminar presupuesto de ${categoria}`}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
               </svg>

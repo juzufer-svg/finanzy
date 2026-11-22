@@ -5,12 +5,14 @@ import apiClient, { hasStoredSession } from '@/lib/api-client'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 import ErrorState from '@/components/ErrorState'
+import PageHeader from '@/components/PageHeader'
+import MonthNavigator from '@/components/MonthNavigator'
 import SpendingChart from '@/components/SpendingChart'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import {
   type CategoriaBase, type MovimientoBase, type PresupuestoBase,
   comparablePrevious, compareByCategory, cumulativeByDay, dailyAverage, daysInMonth, elapsedDays, monthOf, pctChange,
-  projectMonthEnd, shiftMonth, sumByTipo, totalBudget, totalsByPaymentMethod, upToToday,
+  monthTitle, projectMonthEnd, shiftMonth, sumByTipo, totalBudget, totalsByPaymentMethod, upToToday,
 } from '@/lib/month-stats'
 import { medioPagoLabel } from '@/lib/payment-methods'
 
@@ -81,7 +83,7 @@ export default function ReportsPage() {
     return () => { active = false }
   }, [fetchData, router])
 
-  const cambiarMes = (delta: number) => { setLoading(true); setCurrentMonth(m => shiftMonth(m, delta)) }
+  const cambiarMes = (mes: string) => { setLoading(true); setCurrentMonth(mes) }
 
   // ---- Cálculos (CHG-006) ----
   const hoy = new Date()
@@ -157,55 +159,39 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="page-header mb-0">
-          <h1 className="page-title">Reportes y Análisis</h1>
-          <p className="page-subtitle capitalize">{nombreMes(currentMonth)}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => cambiarMes(-1)} className="btn-secondary" aria-label="Mes anterior">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5 8.25 12l7.5-7.5" />
-            </svg>
-            <span className="hidden sm:inline">Anterior</span>
-          </button>
-          <button onClick={() => cambiarMes(1)} className="btn-primary" aria-label="Mes siguiente">
-            <span className="hidden sm:inline">Siguiente</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Reportes y análisis"
+        subtitle={monthTitle(currentMonth)}
+        actions={<MonthNavigator mes={currentMonth} onChange={cambiarMes} />}
+      />
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
       ) : loading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="card h-24 animate-pulse bg-slate-100" />)}
         </div>
       ) : (
         <>
           {/* Conclusión del mes */}
-          <div className="card p-5">
+          <div className="card p-4 sm:p-5">
             <p className="text-lg sm:text-xl font-bold text-slate-900">{titular}</p>
             {subtitular && <p className="text-sm text-slate-500 mt-1">{subtitular}</p>}
           </div>
 
           {/* Indicadores */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
             {tarjetas.map(t => (
-              <div key={t.titulo} className={`card p-4 border-l-4 ${t.borde} min-w-0`}>
+              <div key={t.titulo} className={`card p-3 sm:p-4 border-l-4 ${t.borde} min-w-0`}>
                 <p className="text-xs text-slate-500 font-medium">{t.titulo}</p>
-                <p className="text-xl font-bold text-slate-900 mt-1 truncate">{t.valor}</p>
+                <p className="text-lg sm:text-xl font-bold text-slate-900 mt-1 tabular-nums break-words">{t.valor}</p>
                 <p className="text-xs mt-1">{t.detalle}</p>
               </div>
             ))}
           </div>
 
           {/* Gráfico */}
-          <div className="card p-5">
+          <div className="card p-4 sm:p-5">
             <h2 className="text-sm font-bold text-slate-900 mb-3">Gasto acumulado día a día</h2>
             {gastos === 0 && sumByTipo(anteriores, 'gasto') === 0 ? (
               <p className="text-sm text-slate-500 py-8 text-center">Registra gastos para ver cómo avanza tu mes.</p>
@@ -215,15 +201,15 @@ export default function ReportsPage() {
                 anterior={cumulativeByDay(anteriores, mesAnterior, 'gasto')}
                 dias={dias}
                 presupuesto={presupuesto}
-                etiquetaActual={nombreMes(currentMonth)}
-                etiquetaAnterior={nombreMes(mesAnterior)}
+                etiquetaActual={monthTitle(currentMonth)}
+                etiquetaAnterior={monthTitle(mesAnterior)}
               />
             )}
           </div>
 
           {/* Gasto por medio de pago (CHG-007) */}
           {porMedio.length > 0 && (
-            <div className="card p-5">
+            <div className="card p-4 sm:p-5">
               <h2 className="text-sm font-bold text-slate-900 mb-3">Gastos por medio de pago</h2>
               <ul className="space-y-2.5">
                 {porMedio.map(m => (
@@ -241,7 +227,7 @@ export default function ReportsPage() {
           )}
 
           {/* Comparación por categoría */}
-          <div className="card p-5">
+          <div className="card p-4 sm:p-5">
             <h2 className="text-sm font-bold text-slate-900 mb-3">Gastos por categoría: {actualCorto} vs {anteriorCorto}</h2>
             {comparacion.length === 0 ? (
               <p className="text-sm text-slate-500">No hay gastos en estos dos meses.</p>

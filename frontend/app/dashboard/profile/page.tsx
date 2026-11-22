@@ -1,15 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { useThemeStore } from '@/store/theme'
 import { useCurrencyStore, AVAILABLE_CURRENCIES } from '@/store/currency'
 import apiClient from '@/lib/api-client'
-import { apiErrorMessage } from '@/components/DialogProvider'
-
-type ToastType = 'success' | 'error'
-interface Toast { msg: string; type: ToastType }
+import { apiErrorMessage, useDialog } from '@/components/DialogProvider'
+import PageHeader from '@/components/PageHeader'
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -23,14 +21,9 @@ export default function ProfilePage() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [updatingCurrency, setUpdatingCurrency] = useState(false)
-  const [toast, setToast] = useState<Toast | null>(null)
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  function showToast(msg: string, type: ToastType) {
-    setToast({ msg, type })
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 3000)
-  }
+  // Avisos con el sistema común (DialogProvider): se ven bien en PC y no tapan la barra del iPhone
+  const { notify } = useDialog()
+  const showToast = (msg: string, type: 'success' | 'error') => notify(msg, type)
 
   useEffect(() => {
     if (!user) return
@@ -44,9 +37,9 @@ export default function ProfilePage() {
           setCurrency(res.data.currency)
         }
       })
-      .catch(() => showToast('No se pudo cargar tu perfil. Recarga la página.', 'error'))
+      .catch(() => notify('No se pudo cargar tu perfil. Recarga la página.', 'error'))
       .finally(() => setLoading(false))
-  }, [user, setCurrency])
+  }, [user, setCurrency, notify])
 
   async function handleDeleteAccount() {
     setDeleting(true)
@@ -80,39 +73,16 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      {/* Toast notification */}
-      {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-sm font-semibold transition-all duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-600 text-white'
-            : 'bg-red-600 text-white'
-        }`}>
-          {toast.type === 'success' ? (
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-            </svg>
-          )}
-          {toast.msg}
-        </div>
-      )}
-
-      <div className="page-header">
-        <h1 className="page-title">Mi Perfil</h1>
-        <p className="page-subtitle">Información de tu cuenta</p>
-      </div>
+      <PageHeader title="Mi perfil" subtitle="Información de tu cuenta" />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Avatar card */}
-        <div className="card p-6 flex flex-col items-center text-center gap-4">
+        <div className="card p-5 sm:p-6 flex flex-col items-center text-center gap-4">
           <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg">
-            {(user?.email || 'U').charAt(0).toUpperCase()}
+            {(user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()}
           </div>
           <div>
-            <p className="text-lg font-bold text-slate-900">{user?.full_name || user?.email || 'Usuario'}</p>
+            <p className="text-lg font-bold text-slate-900 break-words">{user?.full_name || user?.email || 'Usuario'}</p>
             <span className="inline-flex items-center gap-1.5 mt-1 px-2.5 py-1 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
               Cuenta activa
@@ -121,7 +91,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Info card */}
-        <div className="card p-6 lg:col-span-2">
+        <div className="card p-5 sm:p-6 lg:col-span-2">
           <h2 className="text-sm font-bold text-slate-900 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
             <div className="w-6 h-6 bg-blue-100 rounded flex items-center justify-center">
               <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,8 +260,8 @@ export default function ProfilePage() {
 
       {/* Modal de confirmación */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6 space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex flex-col items-center text-center gap-3">
               <div className="w-14 h-14 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center">
                 <svg className="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

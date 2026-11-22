@@ -59,6 +59,20 @@ const IconLogout = () => (
   </svg>
 )
 
+const IconSun = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+  </svg>
+)
+
+const IconMoon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+  </svg>
+)
+
 const subscribeNoop = () => () => {}
 
 const menuItems = [
@@ -69,6 +83,10 @@ const menuItems = [
   { href: '/dashboard/reports', label: 'Reportes', Icon: IconReport },
   { href: '/dashboard/profile', label: 'Perfil', Icon: IconProfile },
 ]
+
+/** Inicial del nombre (o del correo) para el avatar. */
+const initialOf = (user: { full_name?: string; email?: string } | null) =>
+  (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -82,7 +100,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // false en el servidor y durante la hidratación, true después en el cliente
   const hydrated = useSyncExternalStore(subscribeNoop, () => true, () => false)
   const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
-  const { dark } = useThemeStore()
+  const { dark, toggle: toggleTheme } = useThemeStore()
   const { loadRates } = useCurrencyStore()
 
   useEffect(() => {
@@ -106,30 +124,75 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (hydrated && !isAuthenticated) router.push('/auth/login')
   }, [hydrated, isAuthenticated, router])
 
+  // Esc cierra el menú móvil
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileMenuPath(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileMenuOpen])
+
   if (!hydrated) return null
   if (!isAuthenticated) return null
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+  const currentSection = menuItems.find(item => isActive(item.href))?.label ?? 'Dashboard'
+  const displayName = user?.full_name || user?.email || 'Usuario'
+  const handleLogout = async () => { await logout(); router.push('/') }
+
+  const themeButton = (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={dark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      title={dark ? 'Modo claro' : 'Modo oscuro'}
+      className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${dark ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-100'}`}
+    >
+      {dark ? <IconSun /> : <IconMoon />}
+    </button>
+  )
+
+  const userCard = (
+    <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800">
+      <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" aria-hidden>
+        {initialOf(user)}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-white truncate">{displayName}</p>
+        {user?.email && user.email !== displayName && <p className="text-xs text-slate-400 truncate">{user.email}</p>}
+      </div>
+    </div>
+  )
+
+  const navLinkClass = (active: boolean) =>
+    `flex items-center gap-3 px-3 rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+      active
+        ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
+        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+    }`
 
   return (
-    <div className={`flex h-screen ${dark ? 'bg-slate-900' : 'bg-slate-100'}`}>
-      {/* ── Desktop Sidebar (hidden on mobile) ── */}
-      <aside className={`hidden md:flex flex-col ${sidebarOpen ? 'w-60' : 'w-16'} bg-slate-900 text-white transition-all duration-300 fixed h-screen left-0 top-0 z-40 shadow-xl`}>
-        {/* Logo – Desktop Sidebar */}
-        <div
-          className="flex items-center gap-3 px-4 py-5 border-b border-slate-700/60 cursor-pointer"
-          onClick={() => router.push('/dashboard')}
+    <div className={`min-h-viewport ${dark ? 'bg-slate-900' : 'bg-slate-100'}`}>
+      {/* ── Barra lateral de escritorio (oculta en móvil) ── */}
+      <aside
+        aria-label="Menú principal"
+        className={`hidden md:flex flex-col ${sidebarOpen ? 'w-60' : 'w-16'} bg-slate-900 text-white transition-[width] duration-300 fixed h-screen left-0 top-0 z-40 border-r border-slate-800`}
+      >
+        {/* Logo: el único de la vista en escritorio */}
+        <Link
+          href="/dashboard"
+          aria-label="Finanzy, ir al inicio"
+          className={`flex items-center h-16 border-b border-slate-700/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400 ${sidebarOpen ? 'px-5' : 'justify-center'}`}
         >
           {sidebarOpen ? (
-            <FinanzyLogo variant="horizontal" size={32} lightText />
+            <FinanzyLogo variant="horizontal" size={30} lightText />
           ) : (
-            <FinanzyLogo variant="icon" size={32} />
+            <FinanzyLogo variant="icon" size={30} />
           )}
-        </div>
+        </Link>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {menuItems.map(({ href, label, Icon }) => {
             const active = isActive(href)
             return (
@@ -137,11 +200,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={href}
                 href={href}
                 title={!sidebarOpen ? label : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
-                  active
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                }`}
+                aria-label={!sidebarOpen ? label : undefined}
+                aria-current={active ? 'page' : undefined}
+                className={`${navLinkClass(active)} py-2.5 ${sidebarOpen ? '' : 'justify-center'}`}
               >
                 <Icon />
                 {sidebarOpen && <span className="text-sm font-medium">{label}</span>}
@@ -150,72 +211,66 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        {/* User info + logout */}
+        {/* Usuario + cerrar sesión */}
         <div className="border-t border-slate-700/60 p-3 space-y-2">
-          {sidebarOpen && (
-            <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800">
-              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold uppercase flex-shrink-0">
-                {(user?.email || 'U').charAt(0).toUpperCase()}
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-semibold text-white truncate">{user?.full_name || user?.email || 'Usuario'}</p>
-                <p className="text-xs text-slate-400 truncate">{user?.email || ''}</p>
-              </div>
-            </div>
-          )}
+          {sidebarOpen && userCard}
           <button
-            onClick={async () => { await logout(); router.push('/') }}
+            type="button"
+            onClick={handleLogout}
             title={!sidebarOpen ? 'Cerrar sesión' : undefined}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-all duration-150"
+            aria-label={!sidebarOpen ? 'Cerrar sesión' : undefined}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${sidebarOpen ? '' : 'justify-center'}`}
           >
             <IconLogout />
             {sidebarOpen && <span className="text-sm font-medium">Cerrar sesión</span>}
           </button>
         </div>
 
-        {/* Toggle */}
+        {/* Contraer / expandir */}
         <button
+          type="button"
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute -right-3 top-7 w-6 h-6 bg-slate-700 hover:bg-blue-600 text-white rounded-full flex items-center justify-center shadow-md transition-all duration-150 text-xs"
+          aria-label={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
+          aria-expanded={sidebarOpen}
+          className="absolute -right-3 top-5 w-6 h-6 bg-slate-700 hover:bg-blue-600 text-white rounded-full flex items-center justify-center shadow-md ring-2 ring-slate-900 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-teal-400"
         >
-          {sidebarOpen ? '‹' : '›'}
+          <svg className={`w-3.5 h-3.5 transition-transform ${sidebarOpen ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
         </button>
       </aside>
 
-      {/* ── Mobile Drawer overlay ── */}
+      {/* ── Menú lateral móvil ── */}
       {mobileMenuOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/60 z-50"
+          className="md:hidden fixed inset-0 bg-black/60 z-50 animate-fade-in"
           onClick={() => setMobileMenuOpen(false)}
         >
           <aside
-            className="absolute left-0 top-0 h-full w-72 bg-slate-900 text-white flex flex-col shadow-2xl"
+            aria-label="Menú"
+            className="absolute left-0 top-0 h-full w-72 max-w-[85vw] bg-slate-900 text-white flex flex-col shadow-2xl animate-slide-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
             onClick={e => e.stopPropagation()}
           >
-            {/* Drawer logo */}
-            <div className="flex items-center justify-between px-4 py-5 border-b border-slate-700/60">
-              <FinanzyLogo variant="horizontal" size={30} lightText />
-              <button onClick={() => setMobileMenuOpen(false)} className="text-slate-400 hover:text-white p-1">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center justify-between px-4 h-16 border-b border-slate-700/60">
+              <FinanzyLogo variant="horizontal" size={28} lightText />
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Cerrar menú"
+                autoFocus
+                className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Drawer nav */}
-            <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
+            <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
               {menuItems.map(({ href, label, Icon }) => {
                 const active = isActive(href)
                 return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-150 ${
-                      active
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
+                  <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={`${navLinkClass(active)} py-3`}>
                     <Icon />
                     <span className="text-sm font-medium">{label}</span>
                   </Link>
@@ -223,20 +278,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               })}
             </nav>
 
-            {/* Drawer user + logout */}
             <div className="border-t border-slate-700/60 p-3 space-y-2">
-              <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800">
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold uppercase flex-shrink-0">
-                  {(user?.full_name || user?.email || 'U').charAt(0).toUpperCase()}
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-semibold text-white truncate">{user?.full_name || user?.email || 'Usuario'}</p>
-                  <p className="text-xs text-slate-400 truncate">{user?.email || ''}</p>
-                </div>
-              </div>
+              {userCard}
               <button
-                onClick={async () => { await logout(); router.push('/') }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-all duration-150"
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:bg-red-600/20 hover:text-red-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
               >
                 <IconLogout />
                 <span className="text-sm font-medium">Cerrar sesión</span>
@@ -246,58 +293,80 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
-      {/* ── Main content ── */}
-      <div className={`flex-1 min-w-0 flex flex-col transition-all duration-300 min-h-screen ${sidebarOpen ? 'md:ml-60' : 'md:ml-16'}`}>
-        {/* Top Header */}
-        <header className={`border-b px-4 md:px-6 py-3 md:py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-sm ${dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <div className="flex items-center gap-2">
-            {/* Mobile hamburger */}
-            <button
-              className={`md:hidden p-1.5 rounded-lg mr-1 ${dark ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-100'}`}
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-              </svg>
-            </button>
-            <FinanzyLogo variant="horizontal" size={26} lightText={dark} />
-            <span className={`hidden sm:inline ${dark ? 'text-slate-500' : 'text-slate-300'}`}>·</span>
-            <span className={`hidden sm:inline text-sm ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Control Financiero Total</span>
-          </div>
-          <div className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${dark ? 'bg-teal-900/40 text-teal-300 border border-teal-700/50' : 'bg-blue-50 text-blue-700 border border-blue-100'}`}>
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${dark ? 'bg-teal-600 text-white' : 'bg-blue-600 text-white'}`}>
-              {(user?.full_name || user?.email || 'U').charAt(0).toUpperCase()}
+      {/* ── Contenido ── */}
+      <div className={`min-w-0 flex flex-col min-h-viewport transition-[margin] duration-300 ${sidebarOpen ? 'md:ml-60' : 'md:ml-16'}`}>
+        {/* Barra superior: en móvil lleva el logo (no hay barra lateral); en escritorio, la sección actual */}
+        <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur ${dark ? 'bg-slate-800/95 border-slate-700' : 'bg-white/95 border-slate-200'}`}>
+          <div className="h-14 md:h-16 px-3 md:px-6 flex items-center justify-between gap-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:pl-6 md:pr-6">
+            <div className="flex items-center gap-1 min-w-0">
+              <button
+                type="button"
+                className={`md:hidden w-10 h-10 flex items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${dark ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Abrir menú"
+                aria-expanded={mobileMenuOpen}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                </svg>
+              </button>
+              <Link href="/dashboard" aria-label="Finanzy, ir al inicio" className="md:hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                <FinanzyLogo variant="horizontal" size={26} lightText={dark} />
+              </Link>
+              <div className="hidden md:flex items-baseline gap-2 min-w-0">
+                <span className={`text-base font-semibold truncate ${dark ? 'text-white' : 'text-slate-900'}`}>{currentSection}</span>
+                <span className={`text-sm ${dark ? 'text-slate-500' : 'text-slate-400'}`}>·</span>
+                <span className={`text-sm truncate ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Control financiero total</span>
+              </div>
             </div>
-            <div className="flex flex-col leading-tight">
-              <span className={`text-[9px] font-medium ${dark ? 'text-teal-400/70' : 'text-blue-500/70'}`}>Bienvenido,</span>
-              <span className="text-xs font-bold truncate max-w-[110px] sm:max-w-[180px]">{user?.full_name || user?.email || 'Usuario'}</span>
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              {themeButton}
+              <Link
+                href="/dashboard/profile"
+                aria-label={`Bienvenido, ${displayName}: ir a tu perfil`}
+                className={`flex items-center gap-2 rounded-full sm:rounded-lg p-1 sm:pl-1.5 sm:pr-3 sm:py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${dark ? 'sm:bg-slate-700/60 hover:bg-slate-700 text-slate-100' : 'sm:bg-slate-100 hover:bg-slate-200 text-slate-800'}`}
+              >
+                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${dark ? 'bg-teal-600' : 'bg-blue-600'}`} aria-hidden>
+                  {initialOf(user)}
+                </span>
+                <span className="hidden sm:flex flex-col leading-tight text-left">
+                  <span className={`text-[11px] ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Bienvenido,</span>
+                  <span className="text-xs font-semibold truncate max-w-[160px]">{displayName}</span>
+                </span>
+              </Link>
             </div>
           </div>
         </header>
 
-        {/* Content */}
-        <main className={`flex-1 overflow-auto p-3 md:p-6 pb-24 md:pb-6 ${dark ? 'bg-slate-900' : ''}`}>
+        {/* Contenido de la página (desplaza la ventana: así Safari en iPhone oculta sus barras al bajar) */}
+        <main className="flex-1 px-3 py-4 sm:px-4 md:p-6 lg:p-8 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-4 sm:pr-4 md:pl-6 md:pr-6 lg:pl-8 lg:pr-8">
           <div className="animate-fade-in max-w-7xl mx-auto">{children}</div>
         </main>
       </div>
 
-      {/* ── Mobile Bottom Navigation ── */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 border-t z-40 shadow-lg ${dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-        <div className="grid grid-cols-6 h-16">
-          {menuItems.map(({ href, label, Icon }) => {
+      {/* ── Navegación inferior móvil ── */}
+      <nav
+        aria-label="Navegación principal"
+        className={`md:hidden fixed bottom-0 inset-x-0 border-t z-40 pb-[env(safe-area-inset-bottom)] backdrop-blur ${dark ? 'bg-slate-800/95 border-slate-700' : 'bg-white/95 border-slate-200'}`}
+      >
+        {/* Perfil no va aquí: se abre desde el avatar de la barra superior (5 botones caben sin cortar textos) */}
+        <div className="grid grid-cols-5 h-16 px-[env(safe-area-inset-left)]">
+          {menuItems.filter(item => item.href !== '/dashboard/profile').map(({ href, label, Icon }) => {
             const active = isActive(href)
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center justify-center gap-0.5 transition-colors ${
-                  active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+                aria-current={active ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center gap-1 transition-colors focus-visible:outline-none focus-visible:bg-blue-500/10 ${
+                  active
+                    ? (dark ? 'text-teal-300' : 'text-blue-600')
+                    : (dark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700')
                 }`}
               >
+                {active && <span className={`absolute top-0 h-0.5 w-8 rounded-full ${dark ? 'bg-teal-300' : 'bg-blue-600'}`} aria-hidden />}
                 <Icon />
-                <span className="text-[9px] font-medium leading-none truncate px-0.5">
-                  {label === 'Transacciones' ? 'Transacc.' : label}
-                </span>
+                <span className="text-[10px] font-medium leading-none max-w-full truncate px-0.5">{label}</span>
               </Link>
             )
           })}

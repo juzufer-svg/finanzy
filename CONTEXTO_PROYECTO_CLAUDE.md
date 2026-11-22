@@ -86,11 +86,17 @@ frontend/
   app/dashboard/{page,transactions,budgets,goals,reports,profile}
   components/DialogProvider.tsx   confirmaciones y avisos (toasts) propios: useDialog(), apiErrorMessage()
   components/ErrorState.tsx       bloque de error con "Reintentar"
+  components/PageHeader.tsx       encabezado común de las vistas: título, subtítulo y acciones (CHG-008)
+  components/MonthNavigator.tsx   botones mes anterior / siguiente (solo flechas en el celular) (CHG-008)
   components/…                    BudgetCard, DashboardSummary, GoalProgressCard, TransactionForm, TransactionList, FinanzyLogo, ThemeProvider
   app/api/v1/[...path]/route.ts   proxy al backend: guarda el JWT en cookie HttpOnly y lo envía como Bearer; CSRF (ADR-005)
   lib/api-client.ts               Axios con encabezado CSRF; migra sesiones antiguas; 401 → va a /auth/login
   lib/session.ts                  constantes de sesión (encabezado CSRF, claves de localStorage)
   lib/code-input.ts               lógica de las 6 casillas del código (admite pegar/autocompletar)
+  lib/month-stats.ts              cálculos del mes: promedio diario real, proyección, vs mes anterior, acumulado, buscador (CHG-006)
+  lib/payment-methods.ts          medios de pago y sus etiquetas (CHG-007)
+  components/SpendingChart.tsx    gráfico SVG propio del gasto acumulado con línea de presupuesto (sin librerías)
+  tests/month-stats.test.mjs      pruebas del frontend: `npm test` (node --test, sin dependencias)
   lib/currency.ts                 tasas de cambio (open.er-api.com, caché 4 h, valores de respaldo)
   store/auth.ts                   datos no sensibles del usuario (el token NO está en el navegador)
   store/currency.ts               moneda de visualización; los montos se guardan en base COP
@@ -105,11 +111,12 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 |---|---|
 | `users` | id, email (único, en minúsculas), hashed_password (bcrypt), full_name, currency, is_active, session_version (entero, sube al restablecer la contraseña), created_at |
 | `categorias` | id, usuario_id, nombre, icono, tipo (`ingreso`/`gasto`) |
-| `transacciones` | id, usuario_id, categoria_id (SET NULL), monto NUMERIC(12,2), descripcion, fecha DATE, tipo |
+| `transacciones` | id, usuario_id, categoria_id (SET NULL), monto NUMERIC(12,2), descripcion, fecha DATE, tipo, medio_pago (opcional: `debito`, `credito`, `efectivo`, `transferencia`, `nequi_daviplata`) |
 | `presupuestos` | id, usuario_id, categoria_id, limite_mensual, mes_ano (`YYYY-MM`) |
 | `metas` | id, usuario_id, nombre, monto_objetivo, monto_actual, fecha_objetivo, estado |
 
 - Cada usuario recibe sus categorías por defecto la primera vez que las pide.
+- Llaves foráneas y registros huérfanos (CHG-005, PR #9): la base real no tenía FKs y había 64 filas huérfanas. Scripts `backend/sql/2026-11-22_huerfanos_{1_diagnostico,2_respaldo_y_borrado,3_llaves_foraneas}.sql` (en ese orden) + `2026-11-22_quitar_vista_resumen.sql`. El paso 2 copia lo borrado al esquema privado `respaldo` (sin acceso para `anon`/`authenticated`). Se prueban en CI con PostgreSQL (`backend/sql/pruebas/probar.sh`). La columna sobrante `presupuestos."mes_año"` queda pendiente (BL-019). **Ejecutados en Supabase el 2026-11-22** (junto con `2026-11-22_medio_pago.sql`).
 - Las cuentas sin verificar (`is_active = false`) se borran solas tras 1 hora.
 - Cambiar una contraseña a mano (SQL Editor; también cierra sus sesiones): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true, session_version = session_version + 1 where email = '…';`
 - Migraciones manuales en `backend/sql/` (se ejecutan en el SQL Editor **antes** del push que las usa).
@@ -126,7 +133,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 
 **Usuario (`/users`)**: `GET me`, `PUT me/currency`, `DELETE me`
 
-**Finanzas**: `transacciones` (GET con `?mes=YYYY-MM`, POST, GET/PUT/DELETE `/{id}`, GET `resumen/{mes}`),
+**Finanzas**: `transacciones` (GET con `?mes=YYYY-MM`, POST, GET/PUT/DELETE `/{id}`, GET `resumen/{mes}`; campo opcional `medio_pago`, CT-003 v1.1),
 `categorias` (GET, POST, PUT/DELETE `/{id}`), `presupuestos` (GET `/{mes_ano}`, POST, PUT/DELETE `/{id}`),
 `metas` (GET, POST, PUT/DELETE `/{id}`, POST `/{id}/abonar` → crea un gasto en la categoría "Ahorro" y suma a la meta)
 
@@ -167,6 +174,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
   - Cargas de datos: `useCallback((isActive = () => true) => apiClient.get(...).then(...))` y en el `useEffect` una guardia `let active = true … return () => { active = false }` (evita respuestas tardías y cumple las reglas del React Compiler).
   - Accesibilidad: cada `<label>` con `htmlFor` + `id` en el campo, `autoComplete`, foco visible (`focus-visible:`), radios con `sr-only` (no `hidden`), avisos con `role="alert"`/`aria-live`.
   - Clases utilitarias propias en `globals.css`: `card`, `btn-primary`, `btn-secondary`, `btn-danger`, `input-field`, `label`, `page-header`, `page-title`, `page-subtitle`, `badge-*`.
+  - Diseño responsive (CHG-008): cada vista usa `<PageHeader>` y, si cambia de mes, `<MonthNavigator>`; títulos de mes con `monthTitle()` ("Noviembre de 2026", nunca la clase `capitalize`) y fechas de listas con `shortDate()` ("5 nov"), ambos en `lib/month-stats.ts`. El logo aparece una sola vez por pantalla (barra lateral en PC, barra superior en el celular). Botones de fila con `reveal-on-hover` (en táctil siempre visibles). iPhone: `viewport-fit=cover` + `env(safe-area-inset-*)` en barra superior, barra inferior, menú y modales; campos a 16 px en pantallas pequeñas (evita el zoom de Safari); la página desplaza la ventana, no un contenedor interno. Modales con `max-h-[calc(100dvh-2rem)]`.
   - Colores de marca: azul marino `#0D1B4B`, verde azulado `#00B89C`; primario Tailwind `#2563eb`. Modo oscuro por clase `dark` (ojo: `globals.css` fuerza `.dark .bg-white` a oscuro; para fondos que deben seguir blancos usar `bg-[#fff]`).
   - Antes de terminar: `npx eslint .` (0 problemas) y `npx next build`.
 - **Backend**
@@ -180,7 +188,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 ```powershell
 # Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (102)
+.venv\Scripts\python -m pytest          # pruebas (103)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # Frontend (BACKEND_URL por defecto http://localhost:8000)
@@ -193,10 +201,10 @@ La lista viva está en `work/BACKLOG.md`. Los principales:
 
 1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
 2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
-3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). Abono atómico (BL-013, CHG-004: falta ejecutar su SQL).
-3b. Códigos y límites persistentes en PostgreSQL (BL-014) y FKs/huérfanos en Supabase (BL-015).
+3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). ~~Abono atómico~~ (BL-013, CHG-004).
+3b. Códigos y límites persistentes en PostgreSQL (BL-014). ~~FKs/huérfanos (BL-015) y limpieza (BL-009)~~: hechos en PR #9, SQL ejecutados en Supabase el 2026-11-22.
 4. **Revisar RLS** en Supabase (BL-005).
-5. Preguntas abiertas de la spec (BL-006 a BL-008) y limpieza de documentos viejos de la raíz (BL-009).
+5. Preguntas abiertas de la spec (BL-006, BL-008) y decidir la columna `presupuestos."mes_año"` (BL-019).
 
 ## 12. Metodología: SDD con 5 agentes (Claude Code)
 
@@ -218,3 +226,12 @@ Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la pla
 - No poner claves, contraseñas ni correos personales en el código ni en la documentación.
 - Todo cambio de comportamiento actualiza la spec y `spec/TRACEABILITY.md` y trae pruebas.
 - Al terminar un cambio: pruebas del backend, lint + build del frontend, y comprobar en producción tras el despliegue.
+
+## 14. Registro de cambios recientes
+
+- **2026-11-22 · PR #5 (CHG-002)**: configuración segura que nunca impide arrancar, filtro por dueño en la BD, cuenta activa, moneda sin éxito falso, contraseña 8-128, CI en GitHub Actions.
+- **2026-11-22 · PR #6 (CHG-003)**: sesión en cookie HttpOnly con proxy de Next.js y CSRF; el token ya no está en el navegador.
+- **2026-11-22 · PR #7 (CHG-004)**: abono a metas atómico con la función SQL `abonar_meta`. SQL ejecutado en Supabase y fusionado; CI en verde.
+- **2026-11-22 · PR #2 cerrado** sin fusionar: lo útil ya está en PR #5, #6 y #7.
+- **2026-11-22 · PR #9 (CHG-005/006/007, fusionado; todos sus SQL ejecutados en Supabase)**: limpieza de código y documentos sin uso; SQL de registros huérfanos con respaldo y llaves foráneas; Reportes con promedio diario real, proyección al cierre, comparación con el mes anterior (hasta el mismo día) y gráfico acumulado con presupuesto; buscador y filtros en Transacciones; medio de pago (columna `medio_pago`, ejecutar `2026-11-22_medio_pago.sql` antes de fusionar). 121 pruebas backend + 14 frontend; revisión independiente aprobada con observaciones, ya corregidas.
+- **2026-11-22 · CHG-008 (diseño en PC y iPhone, PR pendiente)**: un solo logo por pantalla (antes salía dos veces en PC; en el celular el ícono se veía cortado por ids de degradado repetidos); "Noviembre de 2026" en vez de "Noviembre De 2026"; encabezados y navegación de mes iguales en todas las vistas; barra superior con sección actual, botón de modo claro/oscuro y acceso al perfil; barra inferior del celular de 5 botones sin textos cortados; zona segura del iPhone, sin zoom al escribir, editar/eliminar visibles en pantallas táctiles, avisos que no tapan la barra inferior; tarjetas de resumen legibles en el celular; fechas "5 nov". Solo frontend: sin cambios de API, base de datos ni variables de entorno.
