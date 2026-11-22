@@ -180,7 +180,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 ```powershell
 # Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (102)
+.venv\Scripts\python -m pytest          # pruebas (103)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # Frontend (BACKEND_URL por defecto http://localhost:8000)
@@ -193,7 +193,7 @@ La lista viva está en `work/BACKLOG.md`. Los principales:
 
 1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
 2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
-3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). Abono atómico (BL-013, CHG-004: falta ejecutar su SQL).
+3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). ~~Abono atómico~~ (BL-013, CHG-004).
 3b. Códigos y límites persistentes en PostgreSQL (BL-014) y FKs/huérfanos en Supabase (BL-015).
 4. **Revisar RLS** en Supabase (BL-005).
 5. Preguntas abiertas de la spec (BL-006 a BL-008) y limpieza de documentos viejos de la raíz (BL-009).
@@ -218,3 +218,10 @@ Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la pla
 - No poner claves, contraseñas ni correos personales en el código ni en la documentación.
 - Todo cambio de comportamiento actualiza la spec y `spec/TRACEABILITY.md` y trae pruebas.
 - Al terminar un cambio: pruebas del backend, lint + build del frontend, y comprobar en producción tras el despliegue.
+
+## 14. Registro de cambios recientes
+
+- **2026-11-22 · PR #5 (CHG-002)**: configuración segura que nunca impide arrancar, filtro por dueño en la BD, cuenta activa, moneda sin éxito falso, contraseña 8-128, CI en GitHub Actions.
+- **2026-11-22 · PR #6 (CHG-003)**: sesión en cookie HttpOnly con proxy de Next.js y CSRF; el token ya no está en el navegador.
+- **2026-11-22 · PR #7 (CHG-004)**: abono a metas atómico con la función SQL `abonar_meta`. SQL ejecutado en Supabase y fusionado; CI en verde.
+- **2026-11-22 · PR #2 cerrado** sin fusionar: lo útil ya está en PR #5, #6 y #7.
