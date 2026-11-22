@@ -21,3 +21,4 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-014 | Códigos, límites y bloqueos de login persistentes en PostgreSQL (sobreviven reinicios) | seguridad | medio | Pendiente | Revisión PR #2, prioridad 2 |
 | BL-015 | Verificar en Supabase las llaves foráneas `ON DELETE CASCADE` y conciliar los 64 registros huérfanos y `presupuestos.mes_año` NULL (solo con decisión del dueño) | datos | alto | Pendiente | Revisión PR #2 |
 | BL-016 | Cerrar el PR #2 (sus partes útiles pasaron a CHG-002) | deuda-tecnica | bajo | Pendiente (requiere el visto bueno del dueño) | Revisión PR #2 |
+| BL-017 | Alinear el tope de montos (1e12) con `NUMERIC(12,2)` y limitar a 2 decimales | correccion-de-bug | medio | Pendiente | Revisión CHG-004 |

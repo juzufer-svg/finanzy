@@ -92,3 +92,8 @@ def test_ruta_error_de_bd_responde_500_sin_usar_el_metodo_anterior(client, monke
     monkeypatch.setattr(MetaDB, "abonar", staticmethod(abonar))
     monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(no_debe_llamarse))
     assert client.post("/api/v1/metas/m1/abonar", json=ABONO, headers=A).status_code == 500
+
+
+def test_id_que_no_es_uuid_responde_como_meta_inexistente(monkeypatch):
+    _con_supabase(monkeypatch, _Rpc(error=APIError({"code": "22P02", "message": "invalid input syntax for type uuid"})))
+    assert asyncio.run(MetaDB.abonar("no-uuid", "user-a", 50, "2026-11-22", "x")) is None

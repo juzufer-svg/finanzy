@@ -87,10 +87,12 @@ frontend/
   components/DialogProvider.tsx   confirmaciones y avisos (toasts) propios: useDialog(), apiErrorMessage()
   components/ErrorState.tsx       bloque de error con "Reintentar"
   components/…                    BudgetCard, DashboardSummary, GoalProgressCard, TransactionForm, TransactionList, FinanzyLogo, ThemeProvider
-  lib/api-client.ts               Axios con Bearer token; 401 → limpia sesión y va a /auth/login
+  app/api/v1/[...path]/route.ts   proxy al backend: guarda el JWT en cookie HttpOnly y lo envía como Bearer; CSRF (ADR-005)
+  lib/api-client.ts               Axios con encabezado CSRF; migra sesiones antiguas; 401 → va a /auth/login
+  lib/session.ts                  constantes de sesión (encabezado CSRF, claves de localStorage)
   lib/code-input.ts               lógica de las 6 casillas del código (admite pegar/autocompletar)
   lib/currency.ts                 tasas de cambio (open.er-api.com, caché 4 h, valores de respaldo)
-  store/auth.ts                   sesión (token + user en localStorage)
+  store/auth.ts                   datos no sensibles del usuario (el token NO está en el navegador)
   store/currency.ts               moneda de visualización; los montos se guardan en base COP
   store/theme.ts                  modo claro/oscuro (clase `dark`)
 ```
@@ -111,8 +113,13 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 - Las cuentas sin verificar (`is_active = false`) se borran solas tras 1 hora.
 - Cambiar una contraseña a mano (SQL Editor; también cierra sus sesiones): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true, session_version = session_version + 1 where email = '…';`
 - Migraciones manuales en `backend/sql/` (se ejecutan en el SQL Editor **antes** del push que las usa).
+- Función `public.abonar_meta(meta, usuario, monto, fecha, descripcion)` (`backend/sql/2026-11-22_abonar_meta_atomico.sql`, CHG-004): abono en una sola transacción con la meta bloqueada. Solo la ejecuta `service_role`; **nunca** dar `EXECUTE` a `anon`/`authenticated` (recibe el `usuario_id` como parámetro). Sin la función, el backend usa el método anterior.
 
 ## 6. API (prefijo `/api/v1`, autenticación `Authorization: Bearer <JWT>`)
+
+El navegador no llama al backend: usa el proxy de Next.js, que convierte la cookie `__Host-finanzy_session` en el
+encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. Rutas propias del proxy:
+`POST /api/v1/auth/logout` y `POST /api/v1/auth/adopt` (ver `spec/CONTRACTS/CT-001-auth.md`).
 
 **Auth (`/auth`)**: `POST register`, `POST verify-email`, `POST resend-code`, `POST login`,
 `POST forgot-password`, `POST reset-password`
@@ -130,7 +137,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 - **Registro**: crea usuario inactivo → envía código de 6 dígitos (10 min) → `verify-email` activa y devuelve JWT.
 - **Login**: si la cuenta no está verificada, reenvía código y responde `status: pending`.
 - **Recuperar contraseña**: `/auth/forgot-password` → código por correo (prefijo interno `reset:`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
-- **Sesión**: JWT HS256 de 7 días guardado en `localStorage`, con la versión de sesión del usuario (`sv`). Restablecer la contraseña sube la versión y cierra todas las sesiones abiertas (INV-016).
+- **Sesión**: JWT HS256 de 7 días en una cookie HttpOnly + Secure + SameSite=Lax (ADR-005), con la versión de sesión del usuario (`sv`). Restablecer la contraseña sube la versión y cierra todas las sesiones abiertas (INV-016).
 - **Moneda**: los montos se almacenan en **COP** y se convierten a la moneda elegida al mostrarlos.
 
 ## 8. Seguridad implementada (no deshacer)
@@ -144,13 +151,18 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 - JWT con PyJWT: solo algoritmos HMAC, exige `exp` y `sub`.
 - **Cierre de sesiones al restablecer la contraseña** (`api/sesion.py`): toda ruta protegida compara el `sv` del token con `users.session_version`; si no coincide o el usuario ya no existe → 401; si Supabase falla → 503 (no cierra la sesión).
 - En producción sin `BREVO_API_KEY` el código **nunca** se escribe en logs.
+- **Configuración segura que nunca impide arrancar** (`core/config.py`, INV-019): `SECRET_KEY` vacía o de ejemplo → clave aleatoria temporal; solo HMAC; sesión 5 min–30 días; CORS sin comodines ni regex; `DEBUG` apagado en producción. Avisos `[CONFIG]` en los logs de Railway.
+- Toda consulta por ID filtra también por `usuario_id` en la base de datos (defensa en profundidad); un token de una cuenta no activa recibe 401 (INV-017).
+- **Token fuera del alcance de JavaScript** (INV-020): cookie HttpOnly gestionada por el proxy de Next.js; toda petición que cambia datos exige el encabezado `x-finanzy-csrf` y un `Origin` propio.
+- Abono a metas atómico en PostgreSQL (INV-008, CHG-004).
+- CI en GitHub Actions (`.github/workflows/ci.yml`): pytest, pip-audit, eslint y next build en cada PR y push a `main`.
 - Frontend sin la clave de Supabase; cabeceras de seguridad; diálogos propios (sin `alert`/`confirm`).
 
 ## 9. Convenciones de código y diseño
 
 - **Idioma**: textos de la interfaz, mensajes de error y comentarios en español.
 - **Frontend**
-  - Llamadas a la API siempre con `apiClient` (`@/lib/api-client`), rutas relativas `/api/v1/...`.
+  - Llamadas a la API siempre con `apiClient` (`@/lib/api-client`), rutas relativas `/api/v1/...` (un `fetch` directo que cambie datos recibe 403 por CSRF). Nunca leer ni guardar el token en el navegador.
   - Errores: `apiErrorMessage(err, 'mensaje por defecto')`; avisos con `notify()`; confirmaciones con `await confirm({...})` de `useDialog()`; fallos de carga con `<ErrorState onRetry>`.
   - Cargas de datos: `useCallback((isActive = () => true) => apiClient.get(...).then(...))` y en el `useEffect` una guardia `let active = true … return () => { active = false }` (evita respuestas tardías y cumple las reglas del React Compiler).
   - Accesibilidad: cada `<label>` con `htmlFor` + `id` en el campo, `autoComplete`, foco visible (`focus-visible:`), radios con `sr-only` (no `hidden`), avisos con `role="alert"`/`aria-live`.
@@ -168,7 +180,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 ```powershell
 # Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (64)
+.venv\Scripts\python -m pytest          # pruebas (102)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # Frontend (BACKEND_URL por defecto http://localhost:8000)
@@ -181,7 +193,8 @@ La lista viva está en `work/BACKLOG.md`. Los principales:
 
 1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
 2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
-3. **CI** (BL-004): ejecutar en GitHub Actions las pruebas del backend y el lint/build del frontend en cada push.
+3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). Abono atómico (BL-013, CHG-004: falta ejecutar su SQL).
+3b. Códigos y límites persistentes en PostgreSQL (BL-014) y FKs/huérfanos en Supabase (BL-015).
 4. **Revisar RLS** en Supabase (BL-005).
 5. Preguntas abiertas de la spec (BL-006 a BL-008) y limpieza de documentos viejos de la raíz (BL-009).
 

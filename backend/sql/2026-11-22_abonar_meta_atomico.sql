@@ -36,7 +36,9 @@ begin
     raise exception 'meta_no_encontrada' using errcode = 'P0002';
   end if;
 
-  -- Categoría especial «Ahorro» del usuario (se crea si no existe)
+  -- Categoría especial «Ahorro» del usuario (se crea si no existe). El bloqueo por usuario evita
+  -- crear dos «Ahorro» si llegan a la vez abonos a metas distintas.
+  perform pg_advisory_xact_lock(hashtext('finanzy_ahorro:' || p_usuario_id::text));
   select id into v_categoria_id
     from public.categorias
    where usuario_id = p_usuario_id and nombre = 'Ahorro'
@@ -60,6 +62,7 @@ end;
 $$;
 
 -- Por defecto PostgreSQL deja ejecutar funciones a todos: se restringe al backend.
+-- NUNCA dar EXECUTE a anon/authenticated: recibe el usuario como parámetro y permitiría suplantarlo.
 revoke all on function public.abonar_meta(uuid, uuid, numeric, date, text) from public, anon, authenticated;
 grant execute on function public.abonar_meta(uuid, uuid, numeric, date, text) to service_role;
 

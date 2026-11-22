@@ -402,7 +402,8 @@ class MetaDB:
         except Exception as e:
             codigo = str(getattr(e, "code", "") or "")
             mensaje = str(getattr(e, "message", "") or e)
-            if codigo == "P0002" or "meta_no_encontrada" in mensaje:
+            # 22P02: el id no es un UUID válido → se trata como meta inexistente (404)
+            if codigo in ("P0002", "22P02") or "meta_no_encontrada" in mensaje:
                 return None
             if codigo in MetaDB._RPC_NO_DISPONIBLE:
                 print(f"[Supabase] abonar_meta no disponible ({codigo}); se usa el método anterior")
