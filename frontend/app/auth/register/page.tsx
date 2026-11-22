@@ -32,7 +32,7 @@ export default function RegisterPage() {
     e.preventDefault()
     setError('')
     if (password !== confirmPassword) { setError('Las contraseñas no coinciden'); return }
-    if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return }
+    if (password.length < 8) { setError('La contraseña debe tener al menos 8 caracteres'); return }
     setLoading(true)
     try {
       const res = await apiClient.post('/api/v1/auth/register', {
@@ -171,11 +171,11 @@ export default function RegisterPage() {
                   </div>
                   <input id="reg-contrasena" autoComplete="new-password" type={showPassword ? 'text' : 'password'} value={password}
                          onChange={e => setPassword(e.target.value)}
-                         placeholder="Mínimo 6 caracteres"
+                         placeholder="Mínimo 8 caracteres"
                          className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-lg focus:outline-none transition-colors bg-gray-50 focus:bg-white placeholder-gray-400 text-gray-900"
                          onFocus={e => e.target.style.borderColor = '#00B89C'}
                          onBlur={e => e.target.style.borderColor = ''}
-                         required minLength={6}/>
+                         required minLength={8} maxLength={72}/>
                   <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                           className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
                     {showPassword

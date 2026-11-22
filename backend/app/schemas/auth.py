@@ -1,14 +1,21 @@
 """
 Authentication schemas
 """
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 
 class UserRegistration(BaseModel):
-    """Registro con contraseña de al menos 8 caracteres."""
+    """Registro con contraseña de al menos 8 caracteres y máximo 72 bytes UTF-8."""
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=100)
     password: str = Field(..., min_length=8, max_length=72)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede superar 72 bytes UTF-8")
+        return value
 
 
 class UserLogin(BaseModel):
@@ -38,6 +45,13 @@ class ResetPasswordRequest(BaseModel):
     email: EmailStr
     code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
     new_password: str = Field(..., min_length=8, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede superar 72 bytes UTF-8")
+        return value
 
 
 class MessageResponse(BaseModel):

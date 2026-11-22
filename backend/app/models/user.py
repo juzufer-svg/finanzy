@@ -126,11 +126,11 @@ class UserDB:
             return False
         try:
             client = SupabaseDB.get_client()
-            client.table(UserDB.TABLE_NAME)\
-                .update({"currency": currency})\
-                .eq("id", user_id)\
-                .execute()
-            return True
+            result = (client.table(UserDB.TABLE_NAME)
+                      .update({"currency": currency})
+                      .eq("id", user_id)
+                      .execute())
+            return bool(result.data)
         except Exception as e:
             print(f"[UserDB.update_currency] {e}")
             return False

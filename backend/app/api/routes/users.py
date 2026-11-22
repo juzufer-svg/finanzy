@@ -53,14 +53,13 @@ async def update_user_currency(request: UpdateCurrencyRequest, authorization: st
             detail="User not found"
         )
 
-    # Update currency (column may not exist yet in older DBs, handle gracefully)
-    try:
-        await UserDB.update_currency(user_id, request.currency)
-    except Exception:
-        # Column might not exist — still return user with requested currency applied
-        user["currency"] = request.currency
-        return UserResponse(**user)
-    
+    updated = await UserDB.update_currency(user_id, request.currency)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo actualizar la moneda.",
+        )
+
     # Fetch updated user
     updated_user = await UserDB.get_by_id(user_id)
     if not updated_user:
@@ -82,8 +81,3 @@ async def delete_current_user(authorization: str = Header(...)):
         detail="La eliminación de cuenta está temporalmente deshabilitada para proteger tus registros financieros.",
     )
 
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado"
-        )
