@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 from app.api.routes import auth as auth_routes  # noqa: E402
+from app.api.routes import asistente as asistente_routes  # noqa: E402
 from app.core import security  # noqa: E402
 from app.models import demo_db  # noqa: E402
 from app.models.user import UserDB  # noqa: E402
@@ -38,6 +39,9 @@ def estado_limpio():
         auth_routes._email_daily,
         auth_routes._global_daily,
         auth_routes._ip_auth_attempts,
+        asistente_routes._por_minuto,
+        asistente_routes._por_usuario_dia,
+        asistente_routes._global_dia,
     ):
         limiter.reset()
     auth_routes._login_fails.clear()

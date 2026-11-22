@@ -52,6 +52,7 @@ No hay roles de administrador en la app.
 | REQ-F-012 | El usuario debe poder usar modo claro u oscuro | Could | CA-1: la preferencia se recuerda en el navegador y por defecto sigue al sistema | Implementado |
 | REQ-F-013 | El usuario debe poder eliminar su cuenta | Must | CA-1: debe escribir su correo para confirmar. CA-2: se eliminan la cuenta y todos sus datos | Implementado |
 | REQ-F-014 | El usuario debe ver su perfil | Should | CA-1: muestra nombre y correo; permite cambiar moneda y tema | Implementado |
+| REQ-F-015 | El usuario debe poder preguntar en lenguaje natural por sus finanzas (asistente con Claude, CHG-010) | Could | CA-1: responde preguntas sobre totales del mes, movimientos más altos, categorías y presupuestos, medios de pago, búsquedas por texto y metas, usando solo sus datos. CA-2: el asistente no puede crear, editar ni borrar nada (INV-023). CA-3: entiende preguntas de seguimiento dentro de la misma conversación. CA-4: hay topes de uso para controlar el costo (INV-024) | Verificado |
 
 ## 6. Requerimientos no funcionales
 

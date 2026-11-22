@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = Field(default="")  # remitente verificado en Brevo
     FROM_NAME: str = Field(default="Finanzy")
 
+    # Asistente con Claude (CHG-010). Sin ANTHROPIC_API_KEY el asistente responde 503 y
+    # el resto de la app funciona igual. La clave vive SOLO en Railway, nunca en Vercel.
+    ANTHROPIC_API_KEY: str = Field(default="")
+    ANTHROPIC_MODEL: str = Field(default="claude-haiku-5-5")
+    # Topes de costo: preguntas por usuario al día y preguntas en total al día
+    ASISTENTE_PREGUNTAS_POR_USUARIO_DIA: int = Field(default=30)
+    ASISTENTE_PREGUNTAS_TOTALES_DIA: int = Field(default=300)
+
     # Environment
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=False)
