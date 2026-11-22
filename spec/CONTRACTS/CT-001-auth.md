@@ -51,7 +51,12 @@ Salida: `{ "message": "Tu contraseña fue actualizada. Ya puedes iniciar sesión
 |---|---|---|
 | 400 | Código de reset inválido/vencido o cuenta inexistente | "Código inválido o expirado" |
 
-Efectos: nuevo hash bcrypt, cuenta activa, desbloquea el login del correo.
+Efectos: nuevo hash bcrypt, cuenta activa, desbloquea el login del correo y **sube la versión de sesión**:
+todas las sesiones abiertas de la cuenta dejan de servir (INV-016).
+
+## Sesión (token de `verify-email` y `login`)
+JWT con `sub` (id del usuario), `exp` y `sv` (versión de sesión del usuario al emitirlo). Los tokens
+emitidos antes de agregar `sv` valen como versión 0. Ver los errores comunes de las rutas protegidas en CT-002.
 
 ## Compatibilidad
 Cambios incompatibles requieren nueva versión y ADR. El frontend depende de `status: "pending"` y de `detail` como texto.

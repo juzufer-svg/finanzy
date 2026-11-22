@@ -1,7 +1,7 @@
 # CT-005 — Presupuestos `/api/v1/presupuestos`
 
 - **Versión:** v1 · **UC:** UC-006 · **REQ:** F-007
-- **Permiso requerido:** sesión. Toda operación por ID verifica el dueño (INV-001).
+- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica el dueño (INV-001).
 
 Salida: `{ "id", "usuario_id", "categoria_id", "limite_mensual", "mes_ano" }`
 

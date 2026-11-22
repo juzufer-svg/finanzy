@@ -101,7 +101,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 
 | Tabla | Columnas principales |
 |---|---|
-| `users` | id, email (único, en minúsculas), hashed_password (bcrypt), full_name, currency, is_active, created_at |
+| `users` | id, email (único, en minúsculas), hashed_password (bcrypt), full_name, currency, is_active, session_version (entero, sube al restablecer la contraseña), created_at |
 | `categorias` | id, usuario_id, nombre, icono, tipo (`ingreso`/`gasto`) |
 | `transacciones` | id, usuario_id, categoria_id (SET NULL), monto NUMERIC(12,2), descripcion, fecha DATE, tipo |
 | `presupuestos` | id, usuario_id, categoria_id, limite_mensual, mes_ano (`YYYY-MM`) |
@@ -109,7 +109,8 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 
 - Cada usuario recibe sus categorías por defecto la primera vez que las pide.
 - Las cuentas sin verificar (`is_active = false`) se borran solas tras 1 hora.
-- Cambiar una contraseña a mano (SQL Editor): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true where email = '…';`
+- Cambiar una contraseña a mano (SQL Editor; también cierra sus sesiones): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true, session_version = session_version + 1 where email = '…';`
+- Migraciones manuales en `backend/sql/` (se ejecutan en el SQL Editor **antes** del push que las usa).
 
 ## 6. API (prefijo `/api/v1`, autenticación `Authorization: Bearer <JWT>`)
 
@@ -129,7 +130,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 - **Registro**: crea usuario inactivo → envía código de 6 dígitos (10 min) → `verify-email` activa y devuelve JWT.
 - **Login**: si la cuenta no está verificada, reenvía código y responde `status: pending`.
 - **Recuperar contraseña**: `/auth/forgot-password` → código por correo (prefijo interno `reset:`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
-- **Sesión**: JWT HS256 de 7 días guardado en `localStorage`. No hay revocación.
+- **Sesión**: JWT HS256 de 7 días guardado en `localStorage`, con la versión de sesión del usuario (`sv`). Restablecer la contraseña sube la versión y cierra todas las sesiones abiertas (INV-016).
 - **Moneda**: los montos se almacenan en **COP** y se convierten a la moneda elegida al mostrarlos.
 
 ## 8. Seguridad implementada (no deshacer)
@@ -141,6 +142,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 - Códigos con `secrets`, un solo uso, se invalidan tras 5 intentos.
 - **Límites de envío de correos** (`core/rate_limit.py`): 10 pedidos de código por IP/hora, 60 s entre códigos al mismo correo, 10 correos/día por destinatario, tope global 250/día; 30 intentos de login/verificación/reseteo por IP cada 10 min.
 - JWT con PyJWT: solo algoritmos HMAC, exige `exp` y `sub`.
+- **Cierre de sesiones al restablecer la contraseña** (`api/sesion.py`): toda ruta protegida compara el `sv` del token con `users.session_version`; si no coincide o el usuario ya no existe → 401; si Supabase falla → 503 (no cierra la sesión).
 - En producción sin `BREVO_API_KEY` el código **nunca** se escribe en logs.
 - Frontend sin la clave de Supabase; cabeceras de seguridad; diálogos propios (sin `alert`/`confirm`).
 
@@ -166,7 +168,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 ```powershell
 # Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (56)
+.venv\Scripts\python -m pytest          # pruebas (64)
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # Frontend (BACKEND_URL por defecto http://localhost:8000)
@@ -178,7 +180,7 @@ cd frontend; npm install; npm run dev
 La lista viva está en `work/BACKLOG.md`. Los principales:
 
 1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
-2. **Cerrar sesiones al cambiar la contraseña** (BL-003).
+2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
 3. **CI** (BL-004): ejecutar en GitHub Actions las pruebas del backend y el lint/build del frontend en cada push.
 4. **Revisar RLS** en Supabase (BL-005).
 5. Preguntas abiertas de la spec (BL-006 a BL-008) y limpieza de documentos viejos de la raíz (BL-009).
@@ -188,12 +190,12 @@ La lista viva está en `work/BACKLOG.md`. Los principales:
 Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la plantilla `D:\Proyecto Claude IA`:
 
 - **Fuente de verdad del comportamiento:** `spec/` — `REQUIREMENTS.md` (REQ-F/REQ-N), `05-INVARIANTS.md`
-  (INV-001…015, cada uno con su prueba), `CONTRACTS/` (CT-001…006), `USE-CASES/`, `BDD/`, `ADR/`, `TRACEABILITY.md`.
+  (INV-001…016, cada uno con su prueba), `CONTRACTS/` (CT-001…006), `USE-CASES/`, `BDD/`, `ADR/`, `TRACEABILITY.md`.
 - **Agentes** (`.claude/agents/`): coordinador, clasificador, generador, validador y revisor.
 - **Comandos:** `/sdd-nuevo-cambio <pedido>` (ciclo completo) y `/sdd-validar-spec`. Skill: `sdd-trazabilidad`.
 - **Modo proporcional:** riesgo bajo (textos, estilos, docs) → modo `ligero`; datos, dinero, seguridad,
   contratos o infraestructura → modo `completo` con aprobación de la spec.
-- **Pruebas:** `backend/tests/` (pytest, 56 pruebas) — `cd backend; python -m pytest`.
+- **Pruebas:** `backend/tests/` (pytest, 64 pruebas) — `cd backend; python -m pytest`.
 - **Reglas para agentes:** `CLAUDE.md` (y `AGENTS.md` para otras herramientas). `git push` siempre con aprobación.
 
 ## 13. Cómo pedir cambios (para Claude)

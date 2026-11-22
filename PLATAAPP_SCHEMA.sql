@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name VARCHAR(255),
   currency VARCHAR(3) DEFAULT 'USD' CHECK (currency IN ('USD', 'EUR', 'MXN', 'ARS', 'COP', 'CLP')),
   is_active BOOLEAN DEFAULT TRUE,
+  session_version INTEGER NOT NULL DEFAULT 0,  -- sube al restablecer la contraseña (INV-016)
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

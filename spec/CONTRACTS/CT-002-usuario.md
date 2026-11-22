@@ -5,8 +5,13 @@
 
 | Error común | Cuándo | `detail` |
 |---|---|---|
-| 401 | Sin cabecera, formato incorrecto o token inválido/vencido | "Not authenticated" / "Invalid token" |
-| 404 | El usuario del token ya no existe | "User not found" |
+| 401 | Formato incorrecto o token inválido/vencido | "Token inválido" |
+| 401 | Sesión cerrada por un cambio de contraseña, o el usuario del token ya no existe (INV-016) | "Tu sesión ya no es válida. Inicia sesión de nuevo." |
+| 422 | Sin cabecera `Authorization` | (FastAPI) |
+| 503 | No se pudo verificar la sesión porque la base de datos falló | "Servicio no disponible. Intenta de nuevo en unos minutos." |
+
+Estos errores comunes aplican a **todas** las rutas protegidas (CT-002 a CT-006). El frontend cierra la sesión
+ante un 401 y no ante un 503.
 
 ## `GET /users/me` → 200
 Salida: `{ "id", "email", "full_name", "currency" }` (nunca incluye el hash de la contraseña).
