@@ -19,6 +19,7 @@ mensuales, crea metas de ahorro y revisa reportes del mes. Interfaz en español.
 | Estado de los trabajos | [`work/BACKLOG.md`](work/BACKLOG.md) |
 | Esquema de la base de datos | [`PLATAAPP_SCHEMA.sql`](PLATAAPP_SCHEMA.sql) y migraciones en [`backend/sql/`](backend/sql/) |
 | Respaldos de Supabase | [`docs/RESPALDOS_SUPABASE.md`](docs/RESPALDOS_SUPABASE.md) |
+| Costos del asistente con Claude | [`docs/COSTOS_ASISTENTE.md`](docs/COSTOS_ASISTENTE.md) |
 
 ## Desarrollo local (PowerShell)
 

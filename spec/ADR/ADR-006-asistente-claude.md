@@ -28,3 +28,4 @@ el más económico. Clave `ANTHROPIC_API_KEY` solo en Railway.
 - Los datos consultados (montos, descripciones y categorías del usuario) se envían a la API de Anthropic para
   generar la respuesta; nunca el correo, la contraseña ni el id del usuario.
 - Sin `ANTHROPIC_API_KEY` el asistente responde 503 y el resto de la app sigue igual.
+- Costo por pregunta, cómo calcularlo y dónde ver el gasto real: `docs/COSTOS_ASISTENTE.md`.
