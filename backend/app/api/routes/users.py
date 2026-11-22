@@ -37,14 +37,18 @@ async def update_user_currency(request: UpdateCurrencyRequest, authorization: st
             detail="User not found"
         )
 
-    # Update currency (column may not exist yet in older DBs, handle gracefully)
+    # Si no se pudo guardar, se informa el error: nunca se simula un éxito (CHG-002)
     try:
-        await UserDB.update_currency(user_id, request.currency)
-    except Exception:
-        # Column might not exist — still return user with requested currency applied
-        user["currency"] = request.currency
-        return UserResponse(**user)
-    
+        guardado = await UserDB.update_currency(user_id, request.currency)
+    except Exception as e:
+        print(f"[users.update_currency] {type(e).__name__}")
+        guardado = False
+    if not guardado:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo guardar la moneda. Intenta de nuevo en unos minutos.",
+        )
+
     # Fetch updated user
     updated_user = await UserDB.get_by_id(user_id)
     if not updated_user:

@@ -89,7 +89,7 @@ Detalle medible en `NFR/NFR.md`.
 
 | # | Pregunta / ambigüedad | Afecta a | Respuesta | Estado |
 |---|---|---|---|---|
-| 1 | La contraseña de registro exige 6 caracteres y la de recuperación 8. ¿Unificar en 8? | REQ-F-001, REQ-F-003 | — | Abierta |
+| 1 | La contraseña de registro exige 6 caracteres y la de recuperación 8. ¿Unificar en 8? | REQ-F-001, REQ-F-003 | Sí, 8-128 en ambos (INV-018, CHG-002); el dueño delegó la decisión el 2026-11-22. Las contraseñas existentes siguen sirviendo | Resuelta |
 | 2 | El "gasto diario promedio" divide siempre entre 30 días. ¿Usar los días reales del mes (o los transcurridos si es el mes actual)? | REQ-F-010 | — | Abierta |
 | 3 | La columna `metas.estado` existe en la BD pero la API no la usa; "completada" se deriva de los montos. ¿Eliminar la columna o darle uso (p. ej. cancelar metas)? | REQ-F-008 | — | Abierta |
 | 4 | Cambiar la contraseña no cierra las sesiones abiertas. ¿Debe hacerlo? | REQ-F-003 | Sí: versión de sesión por usuario (INV-016, CHG-001), aprobado por el dueño el 2026-11-22 | Resuelta |

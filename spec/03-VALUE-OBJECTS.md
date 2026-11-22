@@ -5,7 +5,7 @@ Valores sin identidad propia, con validación incluida (implementada en `backend
 | Value Object | Composición | Validaciones | Igualdad | Ejemplo válido / inválido |
 |---|---|---|---|---|
 | Email | texto | Formato de correo válido (`EmailStr`); se normaliza a minúsculas | por valor, sin distinguir mayúsculas | `ana@gmail.com` / `ana@` |
-| Contraseña | texto | Registro ≥ 6 caracteres; restablecimiento 8-128. Solo cuentan los primeros 72 bytes (límite de bcrypt) | — (se compara con su hash) | `Clave123` / `abc` |
+| Contraseña | texto | Registro y restablecimiento 8-128 caracteres (INV-018). Solo cuentan los primeros 72 bytes (límite de bcrypt) | — (se compara con su hash) | `Clave123` / `abc` |
 | Monto | decimal | > 0 y ≤ 1 000 000 000 000; acepta texto numérico (`"12.5"`) | por valor | `42.5` / `0`, `-5` |
 | Monto ahorrado | decimal | ≥ 0 y ≤ 1 000 000 000 000 | por valor | `0` / `-1` |
 | Tipo de transacción | enumeración | `ingreso` o `gasto` | por valor | `gasto` / `otro` |

@@ -18,6 +18,8 @@ Salida: `{ "id", "email", "full_name", "currency" }` (nunca incluye el hash de l
 
 ## `PUT /users/me/currency` → 200
 Entrada: `{ "currency": "USD|EUR|MXN|ARS|COP|CLP" }` · Salida: igual que `GET /users/me`. Otro valor → 422.
+Si la base de datos no guardó el cambio → 503 «No se pudo guardar la moneda. Intenta de nuevo en unos minutos.»
+(nunca se responde 200 sin haber guardado; el frontend avisa que quedó solo en el navegador).
 
 ## `DELETE /users/me` → 204
 Elimina la cuenta y, por cascada, todas sus categorías, transacciones, presupuestos y metas. Irreversible.

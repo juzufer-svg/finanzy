@@ -83,7 +83,9 @@ def users(monkeypatch):
 
     async def get_session_version(user_id):
         user = await get_by_id(user_id)
-        return None if user is None else user.get("session_version", 0)
+        if user is None or not user.get("is_active"):  # INV-017
+            return None
+        return user.get("session_version", 0)
 
     for name, fn in [("get_by_email", get_by_email), ("get_by_id", get_by_id), ("create", create),
                      ("activate", activate), ("update_password", update_password),
