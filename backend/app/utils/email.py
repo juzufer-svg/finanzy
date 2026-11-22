@@ -2,7 +2,7 @@
 Email utility - sends verification codes via the Brevo transactional email API
 """
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import httpx
 from app.core.config import settings
 
@@ -21,7 +21,7 @@ def generate_code(length: int = 6) -> str:
 def save_code(email: str, code: str) -> None:
     _pending_codes[email.lower()] = {
         "code": code,
-        "expires_at": datetime.utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=CODE_EXPIRE_MINUTES),
         "attempts": 0,
     }
 
@@ -32,7 +32,7 @@ def code_recently_sent(email: str, min_seconds: int = 60) -> bool:
     if not entry:
         return False
     issued_at = entry["expires_at"] - timedelta(minutes=CODE_EXPIRE_MINUTES)
-    return (datetime.utcnow() - issued_at).total_seconds() < min_seconds
+    return (datetime.now(timezone.utc) - issued_at).total_seconds() < min_seconds
 
 
 def verify_code(email: str, code: str) -> bool:
@@ -40,7 +40,7 @@ def verify_code(email: str, code: str) -> bool:
     entry = _pending_codes.get(key)
     if not entry:
         return False
-    if datetime.utcnow() > entry["expires_at"]:
+    if datetime.now(timezone.utc) > entry["expires_at"]:
         _pending_codes.pop(key, None)
         return False
     if not secrets.compare_digest(entry["code"], code):

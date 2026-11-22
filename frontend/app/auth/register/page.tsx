@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import apiClient from '@/lib/api-client'
+import { apiErrorMessage } from '@/components/DialogProvider'
 import { applyCodeInput } from '@/lib/code-input'
 import { useAuthStore } from '@/store/auth'
 import FinanzyLogo from '@/components/FinanzyLogo'
@@ -40,7 +41,7 @@ export default function RegisterPage() {
       setInfo(res.data.message)
       setStep('verify')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Error al registrarse. Intenta de nuevo.')
+      setError(apiErrorMessage(err, 'Error al registrarse. Intenta de nuevo.'))
     } finally {
       setLoading(false)
     }
@@ -60,7 +61,7 @@ export default function RegisterPage() {
       document.cookie = `token=${res.data.access_token}; path=/; max-age=1800; SameSite=Lax`
       router.push('/dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Código incorrecto o expirado')
+      setError(apiErrorMessage(err, 'Código incorrecto o expirado'))
     } finally {
       setLoading(false)
     }
@@ -71,7 +72,7 @@ export default function RegisterPage() {
     try {
       const res = await apiClient.post('/api/v1/auth/resend-code', { email })
       setInfo(res.data.message)
-    } catch { setError('No se pudo reenviar el código') }
+    } catch (err) { setError(apiErrorMessage(err, 'No se pudo reenviar el código')) }
   }
 
   const handleCodeInput = (i: number, val: string) => {
