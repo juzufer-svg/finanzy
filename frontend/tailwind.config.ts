@@ -14,7 +14,7 @@ const config: Config = {
         secondary: '#64748b',
       },
       fontFamily: {
-        inter: ['Inter', 'sans-serif'],
+        inter: ['var(--font-inter)', 'Inter', 'sans-serif'],
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-out',

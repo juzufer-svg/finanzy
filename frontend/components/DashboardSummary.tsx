@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import axios from 'axios'
+import apiClient from '@/lib/api-client'
+import { apiErrorMessage } from '@/components/DialogProvider'
+import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
 
 interface SummaryCardProps {
@@ -71,18 +73,17 @@ function SummaryCard({ title, value, type }: SummaryCardProps) {
 export default function DashboardSummary({ mes }: { mes: string }) {
   const [summary, setSummary] = useState({ ingresos: 0, gastos: 0, balance: 0 })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => { fetchSummary() }, [mes])
 
   const fetchSummary = async () => {
+    setError('')
     try {
-      const token = localStorage.getItem('token')
-      const response = await axios.get(`/api/v1/transacciones/resumen/${mes}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const response = await apiClient.get(`/api/v1/transacciones/resumen/${mes}`)
       setSummary(response.data)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setError(apiErrorMessage(err, 'No se pudo cargar el resumen del mes.'))
     } finally {
       setLoading(false)
     }
@@ -96,6 +97,10 @@ export default function DashboardSummary({ mes }: { mes: string }) {
         ))}
       </div>
     )
+  }
+
+  if (error) {
+    return <ErrorState message={error} onRetry={() => { setLoading(true); fetchSummary() }} />
   }
 
   return (

@@ -91,6 +91,20 @@ class UserDB:
             return False
 
     @staticmethod
+    async def update_password(email: str, new_password: str) -> bool:
+        """Actualiza la contraseña (y activa la cuenta: el código prueba que el correo es suyo)."""
+        if not UserDB._is_supabase_available():
+            return False
+        client = SupabaseDB.get_client()
+        result = (
+            client.table(UserDB.TABLE_NAME)
+            .update({"hashed_password": get_password_hash(new_password), "is_active": True})
+            .eq("email", email.lower())
+            .execute()
+        )
+        return bool(result.data)
+
+    @staticmethod
     async def delete_by_id(user_id: str) -> bool:
         if not UserDB._is_supabase_available():
             return False

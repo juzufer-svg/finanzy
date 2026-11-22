@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import axios from 'axios'
+import apiClient from '@/lib/api-client'
+import { apiErrorMessage } from '@/components/DialogProvider'
 
 interface TransactionFormProps {
   categories: any[]
@@ -22,6 +23,7 @@ const DEFAULT_CATEGORIES = [
 export default function TransactionForm({ categories, onSuccess }: TransactionFormProps) {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [error, setError] = useState('')
   const today = new Date()
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const [formData, setFormData] = useState({
@@ -40,20 +42,20 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
     try {
-      const token = localStorage.getItem('token')
-      await axios.post('/api/v1/transacciones', {
+      await apiClient.post('/api/v1/transacciones', {
         ...formData,
         monto: parseFloat(formData.monto)
-      }, { headers: { Authorization: `Bearer ${token}` } })
+      })
       const t2 = new Date()
       const t2str = `${t2.getFullYear()}-${String(t2.getMonth() + 1).padStart(2, '0')}-${String(t2.getDate()).padStart(2, '0')}`
       setFormData({ categoria_id: '', monto: '', descripcion: '', fecha: t2str, tipo: 'gasto' })
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2000)
       if (onSuccess) onSuccess()
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setError(apiErrorMessage(err, 'No se pudo guardar la transacción.'))
     } finally {
       setLoading(false)
     }
@@ -76,6 +78,11 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
         </div>
       </div>
 
+      {error && (
+        <div role="alert" className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm font-medium text-red-700 dark:bg-red-950/40 dark:border-red-900/60 dark:text-red-200">
+          {error}
+        </div>
+      )}
       {success && (
         <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm font-medium animate-slide-in">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,10 +95,10 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Tipo */}
         <div>
-          <label className="label">Tipo</label>
+          <span className="label">Tipo</span>
           <div className="grid grid-cols-2 gap-2">
             {['gasto', 'ingreso'].map(tipo => (
-              <label key={tipo} className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm font-semibold ${
+              <label key={tipo} className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-2 transition-all text-sm font-semibold ${
                 formData.tipo === tipo
                   ? tipo === 'gasto'
                     ? 'border-red-500 bg-red-50 text-red-700'
@@ -99,7 +106,7 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
                   : 'border-slate-200 text-slate-500 hover:border-slate-300'
               }`}>
                 <input type="radio" name="tipo" value={tipo} checked={formData.tipo === tipo}
-                  onChange={handleChange} className="hidden" />
+                  onChange={handleChange} className="sr-only" />
                 {tipo === 'gasto' ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.51-5.511-3.181" />
@@ -117,8 +124,8 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
 
         {/* Categoría */}
         <div>
-          <label className="label">Categoría</label>
-          <select name="categoria_id" value={formData.categoria_id} onChange={handleChange} required className="input-field">
+          <label htmlFor="txf-categoria" className="label">Categoría</label>
+          <select id="txf-categoria" name="categoria_id" value={formData.categoria_id} onChange={handleChange} required className="input-field">
             <option value="">Selecciona una categoría</option>
             {filteredCategories.map(cat => (
               <option key={cat.id} value={cat.id}>{cat.icono ? `${cat.icono} ${cat.nombre}` : cat.nombre}</option>
@@ -131,10 +138,10 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
 
         {/* Monto */}
         <div>
-          <label className="label">Monto</label>
+          <label htmlFor="txf-monto" className="label">Monto</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-            <input type="number" name="monto" value={formData.monto} onChange={handleChange}
+            <input id="txf-monto" type="number" name="monto" value={formData.monto} onChange={handleChange}
               required step="0.01" min="0.01" placeholder="0.00"
               className="input-field !pl-8" />
           </div>
@@ -142,14 +149,14 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
 
         {/* Fecha */}
         <div>
-          <label className="label">Fecha</label>
-          <input type="date" name="fecha" value={formData.fecha} onChange={handleChange} className="input-field" />
+          <label htmlFor="txf-fecha" className="label">Fecha</label>
+          <input id="txf-fecha" type="date" name="fecha" value={formData.fecha} onChange={handleChange} className="input-field" />
         </div>
 
         {/* Descripción */}
         <div>
-          <label className="label">Descripción <span className="text-slate-400 font-normal">(opcional)</span></label>
-          <textarea name="descripcion" value={formData.descripcion} onChange={handleChange}
+          <label htmlFor="txf-descripcion" className="label">Descripción <span className="text-slate-400 font-normal">(opcional)</span></label>
+          <textarea id="txf-descripcion" name="descripcion" value={formData.descripcion} onChange={handleChange}
             className="input-field resize-none" rows={2} placeholder="Añade una nota..." />
         </div>
 

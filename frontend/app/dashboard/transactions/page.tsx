@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import TransactionForm from '@/components/TransactionForm'
 import TransactionList from '@/components/TransactionList'
+import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
+import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 
@@ -63,6 +65,7 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [filterTipo, setFilterTipo] = useState<'todos' | 'gasto' | 'ingreso'>('todos')
+  const { confirm, notify } = useDialog()
 
   useEffect(() => { fetchCategories() }, [])
 
@@ -71,7 +74,9 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
     try {
       const res = await apiClient.get('/api/v1/categorias')
       setCategories(res.data)
-    } catch { } finally { setLoadingCats(false) }
+    } catch (err) {
+      setError(apiErrorMessage(err, 'No se pudieron cargar las categorías.'))
+    } finally { setLoadingCats(false) }
   }
 
   const openEdit = (cat: Category) => {
@@ -103,18 +108,25 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
       setShowForm(false)
       setEditingId(null)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Error al guardar la categoría')
+      setError(apiErrorMessage(err, 'Error al guardar la categoría'))
     } finally { setSaving(false) }
   }
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('¿Eliminar esta categoría?')) return
+    const ok = await confirm({
+      title: '¿Eliminar esta categoría?',
+      description: 'Si tiene transacciones asociadas no se podrá eliminar.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(`/api/v1/categorias/${id}`)
       setCategories(prev => prev.filter(c => c.id !== id))
       onChanged()
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'No se pudo eliminar. Puede tener transacciones asociadas.')
+      notify('Categoría eliminada', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo eliminar. Puede tener transacciones asociadas.'), 'error')
     }
   }
 
@@ -146,12 +158,12 @@ function CategoriesManagerModal({ onClose, onChanged }: { onClose: () => void; o
             <form onSubmit={handleSubmit} className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 {(['gasto', 'ingreso'] as const).map(t => (
-                  <label key={t} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border-2 cursor-pointer text-xs font-semibold transition-all ${
+                  <label key={t} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border-2 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-2 text-xs font-semibold transition-all ${
                     formData.tipo === t
                       ? t === 'gasto' ? 'border-red-500 bg-red-50 text-red-700' : 'border-emerald-500 bg-emerald-50 text-emerald-700'
                       : 'border-slate-200 text-slate-500 hover:border-slate-300'
                   }`}>
-                    <input type="radio" className="hidden" checked={formData.tipo === t} onChange={() => setFormData(p => ({...p, tipo: t}))} />
+                    <input type="radio" className="sr-only" checked={formData.tipo === t} onChange={() => setFormData(p => ({...p, tipo: t}))} />
                     {t === 'gasto' ? '↓' : '↑'} {t.charAt(0).toUpperCase() + t.slice(1)}
                   </label>
                 ))}
@@ -255,15 +267,14 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
     setLoading(true)
     setError('')
     try {
-      const token = localStorage.getItem('token')
       await apiClient.put(`/api/v1/transacciones/${transaction.id}`, {
         ...formData,
         monto: parseFloat(formData.monto)
       })
       onSaved()
       onClose()
-    } catch {
-      setError('Error al actualizar la transacción')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Error al actualizar la transacción'))
     } finally {
       setLoading(false)
     }
@@ -279,45 +290,45 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-2">Tipo</label>
+            <span className="block text-xs font-semibold text-slate-700 mb-2">Tipo</span>
             <div className="grid grid-cols-2 gap-2">
               {(['gasto', 'ingreso'] as const).map(t => (
-                <label key={t} className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 cursor-pointer text-sm font-semibold transition-all ${
+                <label key={t} className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-2 text-sm font-semibold transition-all ${
                   formData.tipo === t
                     ? t === 'gasto' ? 'border-red-500 bg-red-50 text-red-700' : 'border-emerald-500 bg-emerald-50 text-emerald-700'
                     : 'border-slate-200 text-slate-500 hover:border-slate-300'
                 }`}>
-                  <input type="radio" className="hidden" checked={formData.tipo === t} onChange={() => setFormData(p => ({...p, tipo: t, categoria_id: ''}))} />
+                  <input type="radio" className="sr-only" checked={formData.tipo === t} onChange={() => setFormData(p => ({...p, tipo: t, categoria_id: ''}))} />
                   {t === 'gasto' ? '↓' : '↑'} {t.charAt(0).toUpperCase() + t.slice(1)}
                 </label>
               ))}
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Categoría</label>
-            <select value={formData.categoria_id} onChange={e => setFormData(p => ({...p, categoria_id: e.target.value}))} required
+            <label htmlFor="txe-categoria" className="block text-xs font-semibold text-slate-700 mb-1.5">Categoría</label>
+            <select id="txe-categoria" value={formData.categoria_id} onChange={e => setFormData(p => ({...p, categoria_id: e.target.value}))} required
               className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white">
               <option value="">Selecciona una categoría</option>
               {filteredCats.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Monto</label>
+            <label htmlFor="txe-monto" className="block text-xs font-semibold text-slate-700 mb-1.5">Monto</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-              <input type="number" value={formData.monto} onChange={e => setFormData(p => ({...p, monto: e.target.value}))}
+              <input id="txe-monto" type="number" value={formData.monto} onChange={e => setFormData(p => ({...p, monto: e.target.value}))}
                 required step="0.01" min="0.01"
                 className="w-full !pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Fecha</label>
-            <input type="date" value={formData.fecha} onChange={e => setFormData(p => ({...p, fecha: e.target.value}))}
+            <label htmlFor="txe-fecha" className="block text-xs font-semibold text-slate-700 mb-1.5">Fecha</label>
+            <input id="txe-fecha" type="date" value={formData.fecha} onChange={e => setFormData(p => ({...p, fecha: e.target.value}))}
               required className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Descripción <span className="text-slate-400 font-normal">(opcional)</span></label>
-            <textarea value={formData.descripcion} onChange={e => setFormData(p => ({...p, descripcion: e.target.value}))}
+            <label htmlFor="txe-descripcion" className="block text-xs font-semibold text-slate-700 mb-1.5">Descripción <span className="text-slate-400 font-normal">(opcional)</span></label>
+            <textarea id="txe-descripcion" value={formData.descripcion} onChange={e => setFormData(p => ({...p, descripcion: e.target.value}))}
               rows={2} className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white resize-none" />
           </div>
           <button type="submit" disabled={loading}
@@ -534,6 +545,8 @@ export default function TransactionsPage() {
   const [currentMonth, setCurrentMonth] = useState(`${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`)
   const [showCategoriesManager, setShowCategoriesManager] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const { confirm, notify } = useDialog()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -543,6 +556,7 @@ export default function TransactionsPage() {
 
   const fetchData = async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const [transRes, catRes] = await Promise.all([
         apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
@@ -550,19 +564,27 @@ export default function TransactionsPage() {
       ])
       setTransactions(transRes.data)
       setCategories(catRes.data)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus transacciones.'))
     } finally {
       setLoading(false)
     }
   }
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: '¿Eliminar esta transacción?',
+      description: 'Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(`/api/v1/transacciones/${id}`)
-      setTransactions(transactions.filter(t => t.id !== id))
-    } catch (error) {
-      console.error('Error:', error)
+      setTransactions(prev => prev.filter(t => t.id !== id))
+      notify('Transacción eliminada', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo eliminar la transacción.'), 'error')
     }
   }
 
@@ -649,6 +671,9 @@ export default function TransactionsPage() {
           <TransactionForm categories={categories} onSuccess={fetchData} />
         </div>
         <div className="lg:col-span-2">
+          {loadError ? (
+            <ErrorState message={loadError} onRetry={fetchData} />
+          ) : (
           <CategorizedView
             transactions={transactions}
             categories={categories}
@@ -657,6 +682,7 @@ export default function TransactionsPage() {
             onEdit={setEditingTransaction}
             fmt={fmt}
           />
+          )}
         </div>
       </div>
     </div>

@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
+import ErrorState from '@/components/ErrorState'
+import { apiErrorMessage } from '@/components/DialogProvider'
 
 export default function ReportsPage() {
   const router = useRouter()
@@ -14,6 +16,7 @@ export default function ReportsPage() {
   })
   const [transactions, setTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
 
@@ -24,6 +27,7 @@ export default function ReportsPage() {
   }, [currentMonth])
 
   const fetchData = async () => {
+    setLoadError('')
     setLoading(true)
     try {
       const [transRes, catRes] = await Promise.all([
@@ -50,8 +54,8 @@ export default function ReportsPage() {
         categoriaConMasGasto: { nombre: topCatName, monto: gastosPorCat[topCatId || ''] || 0 }
       })
       setTransactions(trans)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus reportes.'))
     } finally {
       setLoading(false)
     }
@@ -116,7 +120,9 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
+      ) : loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[1,2,3,4].map(i => <div key={i} className="card h-24 animate-pulse bg-slate-100" />)}
         </div>

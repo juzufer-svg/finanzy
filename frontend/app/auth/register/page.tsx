@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import apiClient from '@/lib/api-client'
+import { applyCodeInput } from '@/lib/code-input'
 import { useAuthStore } from '@/store/auth'
 import FinanzyLogo from '@/components/FinanzyLogo'
 
@@ -74,9 +75,9 @@ export default function RegisterPage() {
   }
 
   const handleCodeInput = (i: number, val: string) => {
-    const digit = val.replace(/\D/g, '').slice(-1)
-    const next = [...code]; next[i] = digit; setCode(next)
-    if (digit && i < 5) codeRefs.current[i + 1]?.focus()
+    const { code: next, focusIndex } = applyCodeInput(code, i, val)
+    setCode(next)
+    if (focusIndex !== i) codeRefs.current[focusIndex]?.focus()
   }
   const handleCodeKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace' && !code[i] && i > 0) codeRefs.current[i - 1]?.focus()
@@ -106,13 +107,13 @@ export default function RegisterPage() {
         <div className="px-6 md:px-8 py-6 md:py-8" style={{background: 'rgba(255,255,255,0.96)'}}>
 
           {error && (
-            <div className="mb-5 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg animate-slide-in flex gap-3">
+            <div role="alert" className="mb-5 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg animate-slide-in flex gap-3">
               <span className="text-red-500">⚠️</span>
               <p className="text-red-700 text-sm font-medium">{error}</p>
             </div>
           )}
           {info && !error && (
-            <div className="mb-5 p-4 bg-teal-50 border-l-4 rounded-lg animate-slide-in flex gap-3"
+            <div role="status" className="mb-5 p-4 bg-teal-50 border-l-4 rounded-lg animate-slide-in flex gap-3"
                  style={{borderColor: '#00B89C'}}>
               <span>📧</span>
               <p className="text-sm font-medium" style={{color: '#0a7a6b'}}>{info}</p>
@@ -124,14 +125,14 @@ export default function RegisterPage() {
             <form onSubmit={handleRegister} className="space-y-5">
               {/* Nombre completo */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre completo</label>
+                <label htmlFor="reg-nombre-completo" className="block text-sm font-semibold text-gray-700 mb-2">Nombre completo</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
                     </svg>
                   </div>
-                  <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}
+                  <input id="reg-nombre-completo" autoComplete="name" type="text" value={fullName} onChange={e => setFullName(e.target.value)}
                          placeholder="Tu nombre completo"
                          className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none transition-colors bg-gray-50 focus:bg-white placeholder-gray-400 text-gray-900"
                          onFocus={e => e.target.style.borderColor = '#00B89C'}
@@ -142,14 +143,14 @@ export default function RegisterPage() {
 
               {/* Email */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Correo electrónico</label>
+                <label htmlFor="reg-correo-electronico" className="block text-sm font-semibold text-gray-700 mb-2">Correo electrónico</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
                     </svg>
                   </div>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  <input id="reg-correo-electronico" autoComplete="email" type="email" value={email} onChange={e => setEmail(e.target.value)}
                          placeholder="tu@correo.com"
                          className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none transition-colors bg-gray-50 focus:bg-white placeholder-gray-400 text-gray-900"
                          onFocus={e => e.target.style.borderColor = '#00B89C'}
@@ -160,21 +161,21 @@ export default function RegisterPage() {
 
               {/* Password */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Contraseña</label>
+                <label htmlFor="reg-contrasena" className="block text-sm font-semibold text-gray-700 mb-2">Contraseña</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/>
                     </svg>
                   </div>
-                  <input type={showPassword ? 'text' : 'password'} value={password}
+                  <input id="reg-contrasena" autoComplete="new-password" type={showPassword ? 'text' : 'password'} value={password}
                          onChange={e => setPassword(e.target.value)}
                          placeholder="Mínimo 6 caracteres"
                          className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-lg focus:outline-none transition-colors bg-gray-50 focus:bg-white placeholder-gray-400 text-gray-900"
                          onFocus={e => e.target.style.borderColor = '#00B89C'}
                          onBlur={e => e.target.style.borderColor = ''}
                          required minLength={6}/>
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                           className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
                     {showPassword
                       ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/></svg>
@@ -186,21 +187,21 @@ export default function RegisterPage() {
 
               {/* Confirm password */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Confirmar contraseña</label>
+                <label htmlFor="reg-confirmar-contrasena" className="block text-sm font-semibold text-gray-700 mb-2">Confirmar contraseña</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"/>
                     </svg>
                   </div>
-                  <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword}
+                  <input id="reg-confirmar-contrasena" autoComplete="new-password" type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword}
                          onChange={e => setConfirmPassword(e.target.value)}
                          placeholder="Repite tu contraseña"
                          className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-lg focus:outline-none transition-colors bg-gray-50 focus:bg-white placeholder-gray-400 text-gray-900"
                          onFocus={e => e.target.style.borderColor = '#00B89C'}
                          onBlur={e => e.target.style.borderColor = ''}
                          required/>
-                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
                           className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
                     {showConfirmPassword
                       ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/></svg>
@@ -243,7 +244,7 @@ export default function RegisterPage() {
                 {code.map((digit, i) => (
                   <input key={i}
                          ref={el => { codeRefs.current[i] = el }}
-                         type="text" inputMode="numeric" maxLength={1} value={digit}
+                         type="text" inputMode="numeric" value={digit} aria-label={`Dígito ${i + 1} de 6`} autoComplete={i === 0 ? 'one-time-code' : 'off'}
                          onChange={e => handleCodeInput(i, e.target.value)}
                          onKeyDown={e => handleCodeKey(i, e)}
                          className="w-11 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none transition-colors bg-gray-50 focus:bg-white"
@@ -280,7 +281,7 @@ export default function RegisterPage() {
             <>
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"/></div>
-                <div className="relative flex justify-center text-xs"><span className="px-2 bg-white text-gray-500">O</span></div>
+                <div className="relative flex justify-center text-xs"><span className="px-2 bg-[#fff] text-gray-500">O</span></div>
               </div>
               <div className="text-center">
                 <p className="text-gray-600 text-sm">

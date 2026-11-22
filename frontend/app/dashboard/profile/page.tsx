@@ -45,7 +45,7 @@ export default function ProfilePage() {
           setCurrencyRef.current(res.data.currency)
         }
       })
-      .catch(console.error)
+      .catch(() => showToast('No se pudo cargar tu perfil. Recarga la página.', 'error'))
       .finally(() => setLoading(false))
   }, [user])
 
@@ -311,10 +311,10 @@ export default function ProfilePage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <label htmlFor="prof-confirm-email" className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                 Para confirmar, escribe tu correo: <span className="text-slate-900 dark:text-white font-mono">{user?.email}</span>
               </label>
-              <input
+              <input id="prof-confirm-email"
                 type="email"
                 value={deleteConfirm}
                 onChange={e => setDeleteConfirm(e.target.value)}

@@ -5,6 +5,8 @@ import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import DashboardSummary from '@/components/DashboardSummary'
 import TransactionList from '@/components/TransactionList'
+import ErrorState from '@/components/ErrorState'
+import { apiErrorMessage } from '@/components/DialogProvider'
 import { useRouter } from 'next/navigation'
 
 export default function Dashboard() {
@@ -14,6 +16,7 @@ export default function Dashboard() {
   const [currentMonth, setCurrentMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -22,6 +25,7 @@ export default function Dashboard() {
   }, [currentMonth])
 
   const fetchData = async () => {
+    setLoadError('')
     try {
       const [transRes, catRes] = await Promise.all([
         apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
@@ -29,8 +33,8 @@ export default function Dashboard() {
       ])
       setTransactions(transRes.data)
       setCategories(catRes.data)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus datos.'))
     } finally {
       setLoading(false)
     }
@@ -55,6 +59,17 @@ export default function Dashboard() {
           <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-slate-500">Cargando datos...</p>
         </div>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <div className="page-header">
+          <h1 className="page-title">Dashboard</h1>
+        </div>
+        <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
       </div>
     )
   }

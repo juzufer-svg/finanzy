@@ -28,6 +28,23 @@ class ResendCodeRequest(BaseModel):
     email: EmailStr
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Request a password reset code"""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password with emailed code"""
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class MessageResponse(BaseModel):
+    """Generic message response"""
+    message: str
+
+
 class Token(BaseModel):
     """JWT Token response"""
     access_token: str

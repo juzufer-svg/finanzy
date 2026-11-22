@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import GoalProgressCard from '@/components/GoalProgressCard'
+import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
+import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 
@@ -38,7 +40,7 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
       onSaved()
       onClose()
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Error al registrar el abono')
+      setError(apiErrorMessage(err, 'Error al registrar el abono'))
     } finally {
       setSaving(false)
     }
@@ -78,10 +80,10 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Monto a abonar</label>
+            <label htmlFor="goal-monto-a-abonar" className="block text-xs font-semibold text-slate-700 mb-1.5">Monto a abonar</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-              <input
+              <input id="goal-monto-a-abonar"
                 type="number" value={monto} autoFocus required step="0.01" min="0.01"
                 onChange={e => setMonto(e.target.value)}
                 className="w-full pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none"
@@ -90,8 +92,8 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Descripción</label>
-            <input
+            <label htmlFor="goal-descripcion" className="block text-xs font-semibold text-slate-700 mb-1.5">Descripción</label>
+            <input id="goal-descripcion"
               type="text" value={descripcion}
               onChange={e => setDescripcion(e.target.value)}
               className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none"
@@ -124,6 +126,7 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
     fecha_objetivo: goal.fecha_objetivo,
   })
   const [saving, setSaving] = useState(false)
+  const { notify } = useDialog()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -137,8 +140,9 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
       })
       onSaved()
       onClose()
-    } catch (error) {
-      console.error('Error:', error)
+      notify('Meta actualizada', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo actualizar la meta.'), 'error')
     } finally {
       setSaving(false)
     }
@@ -157,34 +161,34 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="label">Nombre</label>
-            <input type="text" value={formData.nombre} required
+            <label htmlFor="goal-nombre" className="label">Nombre</label>
+            <input id="goal-nombre" type="text" value={formData.nombre} required
               onChange={e => setFormData({ ...formData, nombre: e.target.value })}
               className="input-field" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label">Monto Objetivo</label>
+              <label htmlFor="goal-monto-objetivo" className="label">Monto Objetivo</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-                <input type="number" value={formData.monto_objetivo} required step="0.01" min="1"
+                <input id="goal-monto-objetivo" type="number" value={formData.monto_objetivo} required step="0.01" min="1"
                   onChange={e => setFormData({ ...formData, monto_objetivo: e.target.value })}
                   className="input-field !pl-8" />
               </div>
             </div>
             <div>
-              <label className="label">Ahorrado</label>
+              <label htmlFor="goal-ahorrado" className="label">Ahorrado</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-                <input type="number" value={formData.monto_actual} required step="0.01" min="0"
+                <input id="goal-ahorrado" type="number" value={formData.monto_actual} required step="0.01" min="0"
                   onChange={e => setFormData({ ...formData, monto_actual: e.target.value })}
                   className="input-field !pl-8" />
               </div>
             </div>
           </div>
           <div>
-            <label className="label">Fecha Objetivo</label>
-            <input type="date" value={formData.fecha_objetivo} required
+            <label htmlFor="goal-fecha-objetivo" className="label">Fecha Objetivo</label>
+            <input id="goal-fecha-objetivo" type="date" value={formData.fecha_objetivo} required
               onChange={e => setFormData({ ...formData, fecha_objetivo: e.target.value })}
               className="input-field" />
           </div>
@@ -214,6 +218,8 @@ export default function GoalsPage() {
   const [formData, setFormData] = useState({ nombre: '', monto_objetivo: '', fecha_objetivo: '' })
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null)
   const [abonarGoal, setAbonarGoal] = useState<Goal | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const { confirm, notify } = useDialog()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -222,11 +228,12 @@ export default function GoalsPage() {
   }, [])
 
   const fetchGoals = async () => {
+    setLoadError('')
     try {
       const res = await apiClient.get('/api/v1/metas')
       setGoals(res.data)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus metas.'))
     } finally {
       setLoading(false)
     }
@@ -243,20 +250,28 @@ export default function GoalsPage() {
       await fetchGoals()
       setShowForm(false)
       setFormData({ nombre: '', monto_objetivo: '', fecha_objetivo: '' })
-    } catch (error) {
-      console.error('Error:', error)
+      notify('Meta creada', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo crear la meta.'), 'error')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeleteGoal = async (goalId: string) => {
-    if (!confirm('¿Eliminar esta meta?')) return
+    const ok = await confirm({
+      title: '¿Eliminar esta meta?',
+      description: 'Se borrará la meta y su progreso. Los abonos ya registrados como gastos se mantienen.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(`/api/v1/metas/${goalId}`)
-      setGoals(goals.filter(g => g.id !== goalId))
-    } catch (error) {
-      console.error('Error:', error)
+      setGoals(prev => prev.filter(g => g.id !== goalId))
+      notify('Meta eliminada', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo eliminar la meta.'), 'error')
     }
   }
 
@@ -306,23 +321,23 @@ export default function GoalsPage() {
           <h2 className="text-sm font-bold text-slate-900 mb-4">Nueva Meta de Ahorro</h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
             <div>
-              <label className="label">Nombre de la meta</label>
-              <input type="text" value={formData.nombre}
+              <label htmlFor="goal-nombre-de-la-meta" className="label">Nombre de la meta</label>
+              <input id="goal-nombre-de-la-meta" type="text" value={formData.nombre}
                 onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                 required placeholder="Ej: Vacaciones, Auto..." className="input-field" />
             </div>
             <div>
-              <label className="label">Monto Objetivo</label>
+              <label htmlFor="goal-monto-objetivo-2" className="label">Monto Objetivo</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-                <input type="number" value={formData.monto_objetivo}
+                <input id="goal-monto-objetivo-2" type="number" value={formData.monto_objetivo}
                   onChange={(e) => setFormData({ ...formData, monto_objetivo: e.target.value })}
                   required step="0.01" min="1" placeholder="0.00" className="input-field !pl-8" />
               </div>
             </div>
             <div>
-              <label className="label">Fecha Objetivo</label>
-              <input type="date" value={formData.fecha_objetivo}
+              <label htmlFor="goal-fecha-objetivo-2" className="label">Fecha Objetivo</label>
+              <input id="goal-fecha-objetivo-2" type="date" value={formData.fecha_objetivo}
                 onChange={(e) => setFormData({ ...formData, fecha_objetivo: e.target.value })}
                 required className="input-field" />
             </div>
@@ -336,7 +351,9 @@ export default function GoalsPage() {
       )}
 
       {/* Goals Grid */}
-      {loading ? (
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchGoals() }} />
+      ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <div key={i} className="card h-52 animate-pulse bg-slate-100" />)}
         </div>

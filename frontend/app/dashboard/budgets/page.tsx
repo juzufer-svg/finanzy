@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import apiClient from '@/lib/api-client'
 import BudgetCard from '@/components/BudgetCard'
+import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
+import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
 
 interface Transaction {
@@ -49,8 +51,8 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
       })
       onSaved()
       onClose()
-    } catch {
-      setError('Error al actualizar el presupuesto')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Error al actualizar el presupuesto'))
     } finally {
       setLoading(false)
     }
@@ -71,10 +73,10 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nuevo Límite Mensual</label>
+            <label htmlFor="bud-nuevo-limite-mensual" className="block text-xs font-semibold text-slate-700 mb-1.5">Nuevo Límite Mensual</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-              <input type="number" value={limite} onChange={e => setLimite(e.target.value)}
+              <input id="bud-nuevo-limite-mensual" type="number" value={limite} onChange={e => setLimite(e.target.value)}
                 required step="0.01" min="1" autoFocus
                 className="w-full !pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
             </div>
@@ -100,6 +102,8 @@ export default function BudgetsPage() {
   const [formData, setFormData] = useState({ categoria_id: '', limite_mensual: '' })
   const [saving, setSaving] = useState(false)
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const { confirm, notify } = useDialog()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -108,6 +112,7 @@ export default function BudgetsPage() {
   }, [currentMonth])
 
   const fetchData = async () => {
+    setLoadError('')
     try {
       const [budRes, transRes, catRes] = await Promise.all([
         apiClient.get(`/api/v1/presupuestos/${currentMonth}`),
@@ -117,8 +122,8 @@ export default function BudgetsPage() {
       setBudgets(budRes.data)
       setTransactions(transRes.data)
       setCategories(catRes.data)
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar tus presupuestos.'))
     } finally {
       setLoading(false)
     }
@@ -136,19 +141,28 @@ export default function BudgetsPage() {
       await fetchData()
       setShowForm(false)
       setFormData({ categoria_id: '', limite_mensual: '' })
-    } catch (error) {
-      console.error('Error:', error)
+      notify('Presupuesto creado', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo crear el presupuesto.'), 'error')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeleteBudget = async (id: string) => {
+    const ok = await confirm({
+      title: '¿Eliminar este presupuesto?',
+      description: 'Tus transacciones no se borran, solo el límite mensual.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(`/api/v1/presupuestos/${id}`)
-      setBudgets(budgets.filter(b => b.id !== id))
-    } catch (error) {
-      console.error('Error:', error)
+      setBudgets(prev => prev.filter(b => b.id !== id))
+      notify('Presupuesto eliminado', 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudo eliminar el presupuesto.'), 'error')
     }
   }
 
@@ -205,8 +219,8 @@ export default function BudgetsPage() {
           </h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
             <div>
-              <label className="label">Categoría</label>
-              <select
+              <label htmlFor="bud-categoria" className="label">Categoría</label>
+              <select id="bud-categoria"
                 value={formData.categoria_id}
                 onChange={(e) => setFormData({ ...formData, categoria_id: e.target.value })}
                 required className="input-field"
@@ -218,10 +232,10 @@ export default function BudgetsPage() {
               </select>
             </div>
             <div>
-              <label className="label">Límite Mensual</label>
+              <label htmlFor="bud-limite-mensual" className="label">Límite Mensual</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
-                <input type="number" value={formData.limite_mensual}
+                <input id="bud-limite-mensual" type="number" value={formData.limite_mensual}
                   onChange={(e) => setFormData({ ...formData, limite_mensual: e.target.value })}
                   required step="0.01" min="1" placeholder="0.00" className="input-field !pl-8" />
               </div>
@@ -234,7 +248,9 @@ export default function BudgetsPage() {
       )}
 
       {/* Cards */}
-      {loading ? (
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />
+      ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <div key={i} className="card h-44 animate-pulse bg-slate-100" />)}
         </div>

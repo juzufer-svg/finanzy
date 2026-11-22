@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import apiClient from '@/lib/api-client'
+import { applyCodeInput } from '@/lib/code-input'
 import { useAuthStore } from '@/store/auth'
 import FinanzyLogo from '@/components/FinanzyLogo'
 
@@ -78,11 +79,9 @@ export default function LoginPage() {
   }
 
   const handleCodeInput = (i: number, val: string) => {
-    const digit = val.replace(/\D/g, '').slice(-1)
-    const next = [...code]
-    next[i] = digit
+    const { code: next, focusIndex } = applyCodeInput(code, i, val)
     setCode(next)
-    if (digit && i < 5) codeRefs.current[i + 1]?.focus()
+    if (focusIndex !== i) codeRefs.current[focusIndex]?.focus()
   }
 
   const handleCodeKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -118,16 +117,16 @@ export default function LoginPage() {
 
           {/* Error */}
           {error && (
-            <div className="mb-5 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg animate-slide-in flex gap-3">
-              <span className="text-red-500">⚠️</span>
+            <div role="alert" className="mb-5 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg animate-slide-in flex gap-3">
+              <span className="text-red-500" aria-hidden="true">⚠️</span>
               <p className="text-red-700 text-sm font-medium">{error}</p>
             </div>
           )}
           {/* Info */}
           {info && !error && (
-            <div className="mb-5 p-4 bg-teal-50 border-l-4 rounded-lg animate-slide-in flex gap-3"
+            <div role="status" className="mb-5 p-4 bg-teal-50 border-l-4 rounded-lg animate-slide-in flex gap-3"
                  style={{borderColor: '#00B89C'}}>
-              <span>📧</span>
+              <span aria-hidden="true">📧</span>
               <p className="text-sm font-medium" style={{color: '#0a7a6b'}}>{info}</p>
             </div>
           )}
@@ -136,7 +135,7 @@ export default function LoginPage() {
           {step === 'credentials' && (
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="login-email" className="block text-sm font-semibold text-gray-700 mb-2">
                   Correo electrónico
                 </label>
                 <div className="relative">
@@ -146,7 +145,11 @@ export default function LoginPage() {
                     </svg>
                   </div>
                   <input
+                    id="login-email"
+                    spellCheck={false}
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="tu@correo.com"
@@ -159,9 +162,14 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Contraseña
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="login-password" className="block text-sm font-semibold text-gray-700">
+                    Contraseña
+                  </label>
+                  <Link href="/auth/forgot-password" className="text-sm font-semibold hover:underline" style={{color: '#0a7a6b'}}>
+                    ¿Olvidaste tu contraseña?
+                  </Link>
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -169,6 +177,9 @@ export default function LoginPage() {
                     </svg>
                   </div>
                   <input
+                    id="login-password"
+                    name="password"
+                    autoComplete="current-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
@@ -179,7 +190,8 @@ export default function LoginPage() {
                     required
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)}
-                          className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
+                          aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                          className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors rounded-r-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00B89C]">
                     {showPassword
                       ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/></svg>
                       : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -192,7 +204,7 @@ export default function LoginPage() {
                       className="w-full text-white font-bold py-3 px-4 rounded-lg transition-all transform hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100 mt-6 shadow-lg flex items-center justify-center gap-2"
                       style={{background: 'linear-gradient(135deg, #0D1B4B 0%, #00B89C 100%)'}}>
                 {loading
-                  ? <><svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Verificando...</span></>
+                  ? <><svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Verificando…</span></>
                   : <><span>Iniciar Sesión</span><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg></>
                 }
               </button>
@@ -215,11 +227,14 @@ export default function LoginPage() {
                     ref={el => { codeRefs.current[i] = el }}
                     type="text"
                     inputMode="numeric"
-                    maxLength={1}
+                    autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                    aria-label={`Dígito ${i + 1} de 6`}
+                    spellCheck={false}
+                   
                     value={digit}
                     onChange={e => handleCodeInput(i, e.target.value)}
                     onKeyDown={e => handleCodeKey(i, e)}
-                    className="w-11 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none transition-colors bg-gray-50 focus:bg-white"
+                    className="w-11 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none focus:border-[#00B89C] focus:ring-2 focus:ring-[#00B89C]/30 transition-colors bg-gray-50 focus:bg-white"
                     style={digit ? {borderColor: '#00B89C', color: '#0D1B4B'} : {}}
                   />
                 ))}
@@ -229,7 +244,7 @@ export default function LoginPage() {
                       className="w-full text-white font-bold py-3 px-4 rounded-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100 shadow-lg flex items-center justify-center gap-2"
                       style={{background: 'linear-gradient(135deg, #0D1B4B 0%, #00B89C 100%)'}}>
                 {loading
-                  ? <><svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Verificando...</span></>
+                  ? <><svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Verificando…</span></>
                   : <><span>Confirmar código</span><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></>
                 }
               </button>
@@ -254,7 +269,7 @@ export default function LoginPage() {
             <>
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"/></div>
-                <div className="relative flex justify-center text-xs"><span className="px-2 bg-white text-gray-500">O</span></div>
+                <div className="relative flex justify-center text-xs"><span className="px-2 bg-[#fff] text-gray-500">O</span></div>
               </div>
               <div className="text-center">
                 <p className="text-gray-600 text-sm">

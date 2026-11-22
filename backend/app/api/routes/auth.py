@@ -6,11 +6,14 @@ from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from app.schemas.auth import (
     UserRegistration, UserLogin, Token, UserResponse,
     VerifyEmailRequest, ResendCodeRequest, PendingVerification,
+    ForgotPasswordRequest, ResetPasswordRequest, MessageResponse,
 )
 from app.models.user import UserDB
 from app.core.security import create_access_token, verify_password
 from app.core.config import settings
-from app.utils.email import generate_code, save_code, verify_code, send_verification_email
+from app.utils.email import (
+    generate_code, save_code, verify_code, send_verification_email, code_recently_sent,
+)
 
 router = APIRouter()
 
@@ -145,3 +148,38 @@ async def login(user_data: UserLogin, background_tasks: BackgroundTasks):
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return Token(access_token=access_token, user_id=user["id"])
+
+
+# ── Recuperar contraseña ──────────────────────────────────────────────────────
+# Los códigos de reseteo se guardan con prefijo "reset:" para no mezclarse con
+# los de verificación de cuenta.
+
+_RESET_MSG = "Si existe una cuenta con ese correo, te enviamos un código para restablecer tu contraseña."
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(data: ForgotPasswordRequest, background_tasks: BackgroundTasks):
+    """Envía un código de 6 dígitos para restablecer la contraseña.
+    Responde siempre lo mismo para no revelar qué correos están registrados."""
+    email = data.email.lower()
+    key = f"reset:{email}"
+    user = await UserDB.get_by_email(email)
+    if user and not code_recently_sent(key):
+        code = generate_code()
+        save_code(key, code)
+        background_tasks.add_task(send_verification_email, email, code, "reset")
+    return MessageResponse(message=_RESET_MSG)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(data: ResetPasswordRequest):
+    """Cambia la contraseña si el código enviado al correo es válido."""
+    email = data.email.lower()
+    if not verify_code(f"reset:{email}", data.code):
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+
+    if not await UserDB.update_password(email, data.new_password):
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
+
+    _login_fails.pop(email, None)  # desbloquear el login tras el cambio
+    return MessageResponse(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión.")

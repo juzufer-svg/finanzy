@@ -26,6 +26,15 @@ def save_code(email: str, code: str) -> None:
     }
 
 
+def code_recently_sent(email: str, min_seconds: int = 60) -> bool:
+    """True si ya se emitió un código para este email hace menos de min_seconds."""
+    entry = _pending_codes.get(email.lower())
+    if not entry:
+        return False
+    issued_at = entry["expires_at"] - timedelta(minutes=CODE_EXPIRE_MINUTES)
+    return (datetime.utcnow() - issued_at).total_seconds() < min_seconds
+
+
 def verify_code(email: str, code: str) -> bool:
     key = email.lower()
     entry = _pending_codes.get(key)
@@ -44,7 +53,22 @@ def verify_code(email: str, code: str) -> bool:
     return True
 
 
-def _build_html(code: str) -> str:
+_TEMPLATES = {
+    "verify": {
+        "title": "Código de verificación",
+        "intro": "Usa el siguiente código para confirmar tu cuenta.",
+        "subject": "{code} es tu código de Finanzy",
+    },
+    "reset": {
+        "title": "Restablecer contraseña",
+        "intro": "Usa el siguiente código para crear una nueva contraseña.",
+        "subject": "{code} es tu código para restablecer tu contraseña de Finanzy",
+    },
+}
+
+
+def _build_html(code: str, purpose: str = "verify") -> str:
+    tpl = _TEMPLATES[purpose]
     return f"""
 <!DOCTYPE html>
 <html lang="es">
@@ -70,10 +94,10 @@ def _build_html(code: str) -> str:
         <tr>
           <td style="padding:40px 32px;text-align:center;">
             <h2 style="margin:0 0 8px;color:#0D1B4B;font-size:20px;">
-              Código de verificación
+              {tpl["title"]}
             </h2>
             <p style="margin:0 0 32px;color:#64748b;font-size:15px;">
-              Usa el siguiente código para confirmar tu cuenta.<br>
+              {tpl["intro"]}<br>
               Expira en <strong>{CODE_EXPIRE_MINUTES} minutos</strong>.
             </p>
             <div style="display:inline-block;background:#f8fafc;border:2px solid #00B89C;
@@ -103,8 +127,8 @@ def _build_html(code: str) -> str:
 """
 
 
-def send_verification_email(to_email: str, code: str) -> bool:
-    """Send verification code email via SendGrid API."""
+def send_verification_email(to_email: str, code: str, purpose: str = "verify") -> bool:
+    """Send a verification / password-reset code via SendGrid API."""
 
     # ── 1. SendGrid API ───────────────────────────────────────────────────────
     if settings.SENDGRID_API_KEY:
@@ -119,8 +143,8 @@ def send_verification_email(to_email: str, code: str) -> bool:
                 json={
                     "personalizations": [{"to": [{"email": to_email}]}],
                     "from": {"email": from_addr, "name": settings.FROM_NAME},
-                    "subject": f"{code} es tu código de Finanzy",
-                    "content": [{"type": "text/html", "value": _build_html(code)}],
+                    "subject": _TEMPLATES[purpose]["subject"].format(code=code),
+                    "content": [{"type": "text/html", "value": _build_html(code, purpose)}],
                 },
                 timeout=15,
             )
@@ -134,6 +158,6 @@ def send_verification_email(to_email: str, code: str) -> bool:
 
     # ── 2. Dev mode ───────────────────────────────────────────────────────────
     print(f"\n{'='*40}")
-    print(f"[DEV] Verification code for {to_email}: {code}")
+    print(f"[DEV] {purpose} code for {to_email}: {code}")
     print(f"{'='*40}\n")
     return True
