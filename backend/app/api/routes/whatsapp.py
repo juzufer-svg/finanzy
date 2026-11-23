@@ -62,7 +62,7 @@ async def recibir_webhook(request: Request, background_tasks: BackgroundTasks):
 
 async def procesar_mensaje(mensaje: dict) -> None:
     """Procesa un mensaje entrante. Nunca lanza: los errores se registran sin datos sensibles y se avisa
-    a la persona (revisión CHG-014, H3) solo si su número está enlazado o enviaba un código."""
+    a la persona (revisión CHG-014, H3) solo si su número está enlazado o si enviaba un código de enlace."""
     try:
         await _procesar(mensaje)
     except Exception as e:
@@ -99,16 +99,17 @@ async def _procesar(mensaje: dict) -> None:
             await whatsapp.enviar(telefono, "Ese código no es válido o ya venció. Genera uno nuevo en Finanzy → Perfil → WhatsApp.")
         return
 
-    if not texto:
-        await whatsapp.enviar(telefono, "Por ahora solo entiendo mensajes de texto. " + whatsapp.AYUDA.split("\n")[0])
-        return
-    if whatsapp.es_ayuda(texto):   # sin IA y sin gastar cupo (revisión CHG-014, H5)
-        await whatsapp.enviar(telefono, whatsapp.AYUDA)
-        return
-
+    # Tope por minuto antes de responder cualquier cosa (también «ayuda» y lo que no es texto, INV-030)
     if not _por_minuto.allowed(telefono):
         return
     _por_minuto.hit(telefono)
+    if not texto:
+        await whatsapp.enviar(telefono, "Por ahora solo entiendo mensajes de texto. " + whatsapp.AYUDA.split("\n")[0])
+        return
+    if whatsapp.es_ayuda(texto):   # sin IA y sin gastar el cupo diario (revisión CHG-014, H5)
+        await whatsapp.enviar(telefono, whatsapp.AYUDA)
+        return
+
     propio_agotado = not _por_usuario_dia.allowed(usuario_id)
     if propio_agotado or not _global_dia.allowed("global"):
         if usuario_id not in _avisado_limite:

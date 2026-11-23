@@ -555,3 +555,73 @@ def test_h10_mensajes_de_otro_numero_de_meta_se_ignoran(client, meta):
     firma = "sha256=" + hmac.new(SECRETO.encode(), raw, hashlib.sha256).hexdigest()
     client.post("/api/v1/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": firma})
     assert meta["payloads"] == [] and len(meta["enviados"]) == 1   # solo la confirmación del enlace
+
+
+# ── Revisión independiente de CHG-014, ciclo 2 ────────────────────────────────
+
+def _ana(users):
+    from app.core import security
+    users["ana@example.com"] = {"id": "user-a", "email": "ana@example.com", "hashed_password": security.get_password_hash("Vieja1234"),
+                                "is_active": True, "full_name": "Ana", "currency": "COP", "session_version": 0}
+
+
+def test_inv016_si_no_se_puede_desconectar_whatsapp_no_cambia_la_contrasena(client, meta, users, monkeypatch):
+    from app.models.whatsapp import WhatsappDB
+    _ana(users)
+    _enlazar(client, meta)
+
+    async def falla(*args):
+        raise RuntimeError("Supabase caído")
+
+    monkeypatch.setattr(WhatsappDB, "desenlazar", staticmethod(falla))
+    r = client.post("/api/v1/users/me/password", json={"actual": "Vieja1234", "nueva": "NuevaClave1"}, headers=A)
+    assert r.status_code == 503 and users["ana@example.com"]["session_version"] == 0
+
+
+def test_inv016_restablecer_tampoco_cambia_nada_si_no_se_puede_desconectar(client, meta, users, sent_emails, monkeypatch):
+    from app.core import security
+    from app.models.whatsapp import WhatsappDB
+    from conftest import ip
+    _ana(users)
+    _enlazar(client, meta)
+    client.post("/api/v1/auth/forgot-password", json={"email": "ana@example.com"}, headers=ip(1))
+    code = [s for s in sent_emails if s[2] == "reset"][-1][1]
+
+    async def falla(*args):
+        raise RuntimeError("Supabase caído")
+
+    monkeypatch.setattr(WhatsappDB, "desenlazar", staticmethod(falla))
+    r = client.post("/api/v1/auth/reset-password", json={"email": "ana@example.com", "code": code, "new_password": "NuevaClave1"}, headers=ip(1))
+    assert r.status_code == 503
+    assert security.verify_password("Vieja1234", users["ana@example.com"]["hashed_password"])
+
+
+def test_si_tambien_falla_la_reversion_no_se_afirma_que_no_se_registro_nada(client, meta, monkeypatch):
+    from app.models import plataapp as modelos
+    _enlazar(client, meta)
+    original = modelos.TransaccionDB.crear
+    llamadas = {"n": 0}
+
+    async def falla_en_la_segunda(*args, **kwargs):
+        llamadas["n"] += 1
+        if llamadas["n"] == 2:
+            raise RuntimeError("Supabase caído")
+        return await original(*args, **kwargs)
+
+    async def no_borra(*args, **kwargs):
+        raise RuntimeError("Supabase caído")
+
+    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(falla_en_la_segunda))
+    monkeypatch.setattr(modelos.TransaccionDB, "eliminar", staticmethod(no_borra))
+    meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [
+        {"tipo": "gasto", "monto": 1000, "fecha": "2026-11-23"}, {"tipo": "gasto", "monto": 2000, "fecha": "2026-11-23"}]}))
+    _msg(client, "mil y dos mil")
+    assert "puede que parte" in meta["enviados"][-1][1] and "No se registró nada" not in meta["enviados"][-1][1]
+
+
+def test_inv030_ayuda_tambien_respeta_el_tope_por_minuto(client, meta):
+    _enlazar(client, meta)
+    antes = len(meta["enviados"])
+    for _ in range(15):
+        _msg(client, "ayuda")
+    assert len(meta["enviados"]) - antes == 10

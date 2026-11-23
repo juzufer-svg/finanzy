@@ -8,6 +8,7 @@ from app.schemas.auth import (
     UserResponse, UpdateCurrencyRequest, UpdateProfileRequest, ChangePasswordRequest, Token,
 )
 from app.models.user import UserDB
+from app.models.whatsapp import WhatsappDB
 from app.api.sesion import usuario_de_sesion
 from app.api.routes import auth as auth_routes
 from app.core.config import settings
@@ -15,14 +16,6 @@ from app.core.security import create_access_token, verify_password
 
 _NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos."
 
-
-async def _desconectar_whatsapp(user_id: str) -> None:
-    """Un cambio de contraseña cierra también el acceso por WhatsApp, como las demás sesiones (INV-016, CHG-014)."""
-    from app.models.whatsapp import WhatsappDB
-    try:
-        await WhatsappDB.desenlazar(user_id)
-    except Exception as e:
-        print(f"[users] No se pudo desconectar WhatsApp ({type(e).__name__})")
 
 router = APIRouter()
 
@@ -120,6 +113,14 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     if data.nueva == data.actual:
         raise HTTPException(status_code=422, detail="La nueva contraseña debe ser distinta de la actual")
 
+    # Cambiar la contraseña también desconecta WhatsApp (INV-016, CHG-014). Antes de cambiarla: si la BD
+    # falla, no se cambia nada (nunca queda la contraseña nueva con el WhatsApp viejo conectado).
+    try:
+        await WhatsappDB.desenlazar(user_id)
+    except Exception as e:
+        print(f"[users.change_password] No se pudo desconectar WhatsApp ({type(e).__name__})")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
+
     try:
         nueva_version = await UserDB.update_password(email, data.nueva)
     except Exception as e:
@@ -130,7 +131,6 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     if type(nueva_version) is not int or nueva_version < 1:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
     auth_routes._login_fails.pop(email, None)
-    await _desconectar_whatsapp(user_id)
 
     token = create_access_token(
         data={"sub": user_id, "sv": nueva_version},

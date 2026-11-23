@@ -9,6 +9,7 @@ from app.schemas.auth import (
     ForgotPasswordRequest, ResetPasswordRequest, MessageResponse,
 )
 from app.models.user import UserDB
+from app.models.whatsapp import WhatsappDB
 from app.core.security import create_access_token, verify_password
 from app.core.config import settings
 from app.core.rate_limit import SlidingWindow, client_ip, enforce
@@ -230,12 +231,19 @@ async def reset_password(data: ResetPasswordRequest, request: Request):
     if not verify_code(f"reset:{email}", data.code):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
+    # Restablecer la contraseña también desconecta WhatsApp (INV-016, CHG-014). Se hace ANTES de cambiarla:
+    # si la BD falla, no se cambia nada (nunca queda la contraseña nueva con el WhatsApp viejo conectado).
+    usuario = await UserDB.get_by_email(email)
+    if not usuario:   # los códigos solo se emiten a cuentas existentes: aquí None es un fallo de la BD
+        raise HTTPException(status_code=503, detail="Servicio no disponible. Intenta de nuevo en unos minutos.")
+    try:
+        await WhatsappDB.desenlazar(usuario["id"])
+    except Exception as e:
+        print(f"[auth.reset_password] No se pudo desconectar WhatsApp ({type(e).__name__})")
+        raise HTTPException(status_code=503, detail="Servicio no disponible. Intenta de nuevo en unos minutos.")
+
     if not await UserDB.update_password(email, data.new_password):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
-    usuario = await UserDB.get_by_email(email)
-    if usuario:   # restablecer la contraseña también desconecta WhatsApp (INV-016, CHG-014)
-        from app.api.routes.users import _desconectar_whatsapp
-        await _desconectar_whatsapp(usuario["id"])
 
     _login_fails.pop(email, None)  # desbloquear el login tras el cambio
     return MessageResponse(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión.")

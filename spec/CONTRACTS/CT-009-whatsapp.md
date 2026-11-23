@@ -21,8 +21,10 @@ Procesamiento de cada mensaje de texto (en orden):
 7. Una llamada a Claude con las herramientas `registrar_movimientos`, `deshacer_ultimo`, `corregir_ultimo`.
    El backend valida y ejecuta, y responde con el resultado. Si Claude falla → aviso «No se registró nada».
    Registrar es todo o nada: si falla a mitad del lote se borra lo creado y se avisa. `corregir_ultimo` solo cambia
-   los campos que trae con valor (un campo vacío no borra nada). Un error inesperado se avisa al número enlazado.
-8. Cambiar o restablecer la contraseña desconecta el número (INV-016).
+   los campos que trae con valor (un campo vacío no borra nada). Un error inesperado se avisa al número enlazado (o a quien envió un código de enlace, como máximo 5 por hora). Si además falla la reversión, el aviso dice que puede haber quedado algo registrado.
+8. Cambiar o restablecer la contraseña desconecta el número **antes** de cambiarla; si no se puede, 503 y nada cambia (INV-016).
+
+El tope por minuto aplica también a «ayuda» y a los mensajes que no son texto (sin gastar el cupo diario).
 
 ## Enlace desde la app (con sesión; errores comunes 401/503 en CT-002)
 | Endpoint | Respuesta | Errores |

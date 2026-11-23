@@ -317,11 +317,17 @@ async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list
     except Exception as e:
         # Todo o nada (revisión CHG-014, H3): se borra lo que alcanzó a crearse de este mensaje
         print(f"[whatsapp] Falló el registro, se revierte el lote ({type(e).__name__})")
+        sin_revertir = 0
         for tid in ids:
             try:
                 await TransaccionDB.eliminar(tid, usuario_id)
+                await WhatsappDB.quitar_registro(tid, usuario_id)
             except Exception:
+                sin_revertir += 1
                 print("[whatsapp] No se pudo revertir una transacción del lote")
+        if sin_revertir:   # no afirmar «no se registró nada» si algo quedó guardado (revisión CHG-014)
+            return ("⚠️ Hubo un error del servidor y puede que parte de lo que enviaste haya quedado registrado. "
+                    "Revísalo en la app antes de volver a enviarlo.")
         return "⚠️ No pude guardar el registro por un error del servidor. No se registró nada; intenta de nuevo."
     if len(creados) == 1:
         v = creados[0]

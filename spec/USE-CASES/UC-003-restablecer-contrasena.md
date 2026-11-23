@@ -4,14 +4,14 @@
 - **Actor principal:** Visitante
 - **Disparador:** Pulsa «¿Olvidaste tu contraseña?»
 - **Precondiciones:** —
-- **Postcondiciones:** Contraseña nueva; cuenta activa; sesiones abiertas cerradas
+- **Postcondiciones:** Contraseña nueva; cuenta activa; sesiones abiertas cerradas; WhatsApp desconectado (CHG-014)
 - **Invariantes involucrados:** INV-007, INV-009, INV-010, INV-016
 
 ## Flujo principal
 1. El visitante ingresa su correo.
 2. El sistema responde siempre lo mismo y, si la cuenta existe, envía un código de restablecimiento.
 3. El visitante ingresa el código y la contraseña nueva (≥ 8, confirmada).
-4. El sistema cambia la contraseña, cierra todas las sesiones abiertas de la cuenta (en cualquier dispositivo)
+4. El sistema desconecta WhatsApp (si falla, responde 503 y no cambia nada; CHG-014), cambia la contraseña, cierra todas las sesiones abiertas de la cuenta (en cualquier dispositivo)
    y lo invita a iniciar sesión.
 
 ## Flujos alternativos / excepciones

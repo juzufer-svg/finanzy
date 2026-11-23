@@ -48,3 +48,13 @@ REQ-F-017, INV-029, INV-030, CT-009, UC-013, ADR-007, BDD-WHATSAPP, TRACEABILITY
 | H12 | Menor | Guía incompleta | Despliegue previo, memoria tras despliegues, destinatarios de prueba, variables opcionales |
 | H13 | Menor | REQ-F-017 decía «Verificado» | «En revisión» hasta la prueba real |
 Resultado: backend 296 pruebas.
+
+**Ciclo 2: APROBADO CON OBSERVACIONES** (confianza 88 %; sin bloqueantes en el código; escala al dueño por la ampliación
+de INV-016). Atendidas:
+- Desconectar WhatsApp **antes** de cambiar o restablecer la contraseña; si falla, 503 y no cambia nada
+  (`test_inv016_si_no_se_puede_desconectar_*`, `test_inv016_restablecer_tampoco_*`).
+- Si falla también la reversión del lote, el aviso no afirma «no se registró nada» (`test_si_tambien_falla_la_reversion_*`).
+- Tope por minuto también para «ayuda» y lo que no es texto (`test_inv030_ayuda_tambien_*`).
+- La desconexión vive en `WhatsappDB` (sin import entre rutas); la reversión limpia también los registros en memoria.
+- Documentos: CT-001/002, UC-003, UC-013, CT-009, BDD-WHATSAPP y CONTEXTO.
+Resultado: backend 300 pruebas. Ciclos usados: 2 de 3. **Pendiente: visto bueno del dueño a la regla de INV-016 y al push.**

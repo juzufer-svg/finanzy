@@ -155,7 +155,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 - **Registro**: crea usuario inactivo → envía código de 6 dígitos (10 min) → `verify-email` activa y devuelve JWT.
 - **Login**: si la cuenta no está verificada, reenvía código y responde `status: pending`.
 - **Recuperar contraseña**: `/auth/forgot-password` → código por correo (prefijo interno `reset:`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
-- **Sesión**: JWT HS256 de 7 días en una cookie HttpOnly + Secure + SameSite=Lax (ADR-005), con la versión de sesión del usuario (`sv`). Restablecer la contraseña sube la versión y cierra todas las sesiones abiertas (INV-016).
+- **Sesión**: JWT HS256 de 7 días en una cookie HttpOnly + Secure + SameSite=Lax (ADR-005), con la versión de sesión del usuario (`sv`). Restablecer o cambiar la contraseña desconecta WhatsApp (CHG-014), sube la versión y cierra todas las sesiones abiertas (INV-016).
 - **Moneda**: los montos se almacenan en **COP** y se convierten a la moneda elegida al mostrarlos.
 
 ## 8. Seguridad implementada (no deshacer)

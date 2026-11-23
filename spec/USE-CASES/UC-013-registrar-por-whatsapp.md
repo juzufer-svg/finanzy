@@ -17,3 +17,5 @@ WhatsApp configurado en el servidor (docs/WHATSAPP.md) y el número enlazado con
 - «deshacer» → borra lo registrado por el último mensaje. «no, eran 80 mil» → corrige el último (o el N-ésimo).
 - IA sin saldo o caída → aviso; no se registra nada.
 - Número no enlazado → se ignora (sin costo).
+- Error del servidor a mitad del registro → no se guarda nada y se avisa (o, si no se pudo revertir, se avisa que revise en la app).
+- Cambiar o restablecer la contraseña → el número se desconecta; se vuelve a conectar desde Perfil.

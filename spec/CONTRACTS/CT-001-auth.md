@@ -55,10 +55,12 @@ Misma respuesta siempre (INV-009); los límites por destinatario se aplican en s
 ## `POST /reset-password` → 200
 Entrada: `{ "email": "Email", "code": "6 dígitos", "new_password": "texto 8-128" }`
 Salida: `{ "message": "Tu contraseña fue actualizada. Ya puedes iniciar sesión." }`
+Efectos: desconecta WhatsApp (antes del cambio), cambia la contraseña y cierra todas las sesiones (INV-016).
 
 | HTTP | Cuándo | `detail` |
 |---|---|---|
 | 400 | Código de reset inválido/vencido o cuenta inexistente | "Código inválido o expirado" |
+| 503 | No se pudo desconectar WhatsApp antes del cambio (fallo de la BD): no se cambia nada (CHG-014, INV-016) | "Servicio no disponible. Intenta de nuevo en unos minutos." |
 
 Efectos: nuevo hash bcrypt, cuenta activa, desbloquea el login del correo y **sube la versión de sesión**:
 todas las sesiones abiertas de la cuenta dejan de servir (INV-016).
