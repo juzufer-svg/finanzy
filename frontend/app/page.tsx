@@ -167,7 +167,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-white/10 px-6 md:px-12 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-center text-sm text-slate-400">
-        <p>© {new Date().getFullYear()} Finanzy · Hecho por Julian Zuñiga</p>
+        <p>© {new Date().getFullYear()} Finanzy · Hecho por Julian Zuñiga · <Link href="/privacidad" className="underline hover:text-white">Política de privacidad</Link></p>
       </footer>
     </div>
   )
