@@ -46,18 +46,28 @@ async def _ensure_categoria_propia(categoria_id: Optional[str], usuario_id: str)
 
 
 def _es_duplicado(error: Exception) -> bool:
-    """¿La base de datos rechazó la escritura por una restricción UNIQUE (INV-028)?"""
-    texto = str(error).lower()
-    return "23505" in texto or "duplicate key" in texto or "unique" in texto
+    """¿La base de datos rechazó la escritura por una restricción UNIQUE (INV-028)?
+
+    Supabase (postgrest) entrega el código de PostgreSQL en `error.code`: solo 23505 cuenta. El texto
+    se mira únicamente en el modo demo, que lanza ValueError con "(23505)".
+    """
+    codigo = getattr(error, "code", None)
+    if codigo is not None:
+        return str(codigo) == "23505"
+    return isinstance(error, ValueError) and "(23505)" in str(error)
 
 
 _CATEGORIA_REPETIDA = "Ya tienes una categoría con ese nombre y tipo."
 _PRESUPUESTO_REPETIDO = "Ya hay un presupuesto para esa categoría en este mes. Edítalo en lugar de crear otro."
 
 
+def _clave_categoria(nombre: str) -> str:
+    return " ".join(str(nombre).split()).casefold()
+
+
 async def _ensure_categoria_no_repetida(usuario_id: str, nombre: str, tipo: str, excepto: Optional[str] = None) -> None:
     """409 si la persona ya tiene una categoría con ese nombre (sin distinguir mayúsculas ni espacios) y tipo."""
-    clave = " ".join(nombre.split()).casefold()
+    clave = _clave_categoria(nombre)
     for c in await CategoriaDB.obtener_por_usuario(usuario_id):
         if c["id"] != excepto and c.get("tipo") == tipo and " ".join(str(c.get("nombre", "")).split()).casefold() == clave:
             raise HTTPException(status_code=409, detail=_CATEGORIA_REPETIDA)
@@ -155,11 +165,14 @@ async def obtener_categorias(authorization: str = Header(...)):
 @router.put("/categorias/{categoria_id}", response_model=CategoriaResponse)
 async def actualizar_categoria(categoria_id: str, datos: CategoriaUpdate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
-    _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id, usuario_id), usuario_id, "Categoría no encontrada")
+    actual = _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id, usuario_id), usuario_id, "Categoría no encontrada")
     nombre = " ".join(datos.nombre.split())
     if not nombre:
         raise HTTPException(status_code=422, detail="El nombre no puede estar vacío")
-    await _ensure_categoria_no_repetida(usuario_id, nombre, datos.tipo, excepto=categoria_id)  # INV-028
+    # Solo se comprueba si cambia el nombre o el tipo: así se pueden editar (p. ej. el ícono) categorías
+    # heredadas como «Comida» y «comida», que la base acepta por ser distintas al pie de la letra.
+    if _clave_categoria(nombre) != _clave_categoria(actual.get("nombre", "")) or datos.tipo != actual.get("tipo"):
+        await _ensure_categoria_no_repetida(usuario_id, nombre, datos.tipo, excepto=categoria_id)  # INV-028
     try:
         actualizada = await CategoriaDB.actualizar(categoria_id, usuario_id, nombre, datos.icono, datos.tipo)
     except Exception as e:

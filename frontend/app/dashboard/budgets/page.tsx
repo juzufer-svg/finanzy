@@ -87,7 +87,7 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
             <div className="relative">
               <MoneyPrefix />
               <input id="bud-nuevo-limite-mensual" type="number" value={limite} onChange={e => setLimite(e.target.value)}
-                required step="0.01" min="1" autoFocus
+                required step="0.01" min="0.01" autoFocus
                 className="w-full !pl-12 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
             </div>
           </div>
@@ -275,7 +275,7 @@ export default function BudgetsPage() {
                 <MoneyPrefix />
                 <input id="bud-limite-mensual" type="number" value={formData.limite_mensual}
                   onChange={(e) => setFormData({ ...formData, limite_mensual: e.target.value })}
-                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-12" />
+                  required step="0.01" min="0.01" placeholder="0.00" className="input-field !pl-12" />
               </div>
             </div>
             <button type="submit" disabled={saving} className="btn-primary justify-center py-2.5">

@@ -179,7 +179,7 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
               <label htmlFor="goal-monto-objetivo" className="label">Monto Objetivo</label>
               <div className="relative">
                 <MoneyPrefix />
-                <input id="goal-monto-objetivo" type="number" value={formData.monto_objetivo} required step="0.01" min="1"
+                <input id="goal-monto-objetivo" type="number" value={formData.monto_objetivo} required step="0.01" min="0.01"
                   onChange={e => setFormData({ ...formData, monto_objetivo: e.target.value })}
                   className="input-field !pl-12" />
               </div>
@@ -345,7 +345,7 @@ export default function GoalsPage() {
                 <MoneyPrefix />
                 <input id="goal-monto-objetivo-2" type="number" value={formData.monto_objetivo}
                   onChange={(e) => setFormData({ ...formData, monto_objetivo: e.target.value })}
-                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-12" />
+                  required step="0.01" min="0.01" placeholder="0.00" className="input-field !pl-12" />
               </div>
             </div>
             <div>

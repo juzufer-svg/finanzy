@@ -1,6 +1,6 @@
 # CHG-012 — Recurrentes, copiar presupuestos, perfil, categorías, avisos y rediseño visual
 
-- **Estado:** listo-para-aprobar (falta el visto bueno del dueño y ejecutar el SQL en Supabase)
+- **Estado:** aprobado por el dueño (2026-11-23) · desplegado a main; SQL a ejecutar en Supabase
 - **Fecha:** 2026-11-23 · **Solicitante:** dueño del proyecto
 - **Riesgo:** medio (datos nuevos, contraseña y sesión) · modo `completo`
 

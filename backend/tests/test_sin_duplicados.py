@@ -40,12 +40,42 @@ def test_renombrar_a_un_nombre_existente_es_409_y_no_cambia_nada(client):
     assert ok.status_code == 200 and ok.json()["icono"] == "🛒"
 
 
+class _ErrorPostgrest(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def test_si_la_bd_rechaza_por_unique_se_responde_409(client, monkeypatch):
     async def duplicada(*args, **kwargs):
-        raise RuntimeError('duplicate key value violates unique constraint "categorias_usuario_nombre_tipo_unico" (23505)')
+        raise _ErrorPostgrest("23505", 'duplicate key value violates unique constraint "categorias_usuario_nombre_tipo_unico"')
 
     monkeypatch.setattr(modelos.CategoriaDB, "crear", staticmethod(duplicada))
     assert _cat(client, "Nueva").status_code == 409
+
+
+def test_otro_error_de_la_bd_no_se_confunde_con_un_duplicado(client, monkeypatch):
+    """Revisión CHG-013 (H3): un error con «unique» o «23505» en el texto pero otro código no es un duplicado."""
+    async def otro_error(*args, **kwargs):
+        raise _ErrorPostgrest("23503", 'insert violates foreign key; Key (id)=(23505-unique) is not present')
+
+    monkeypatch.setattr(modelos.CategoriaDB, "crear", staticmethod(otro_error))
+    with pytest.raises(_ErrorPostgrest):
+        _cat(client, "Nueva")
+
+
+def test_se_puede_editar_el_icono_de_categorias_heredadas_parecidas(client):
+    """Revisión CHG-013 (H2): «Viajes» y «viajes» heredadas (la BD las acepta) siguen siendo editables."""
+    a = _cat(client, "Viajes").json()
+    b = modelos.DemoCategoriaDB._categorias
+    import uuid
+    hid = str(uuid.uuid4())
+    b[hid] = {"id": hid, "usuario_id": "user-a", "nombre": "viajes", "icono": "", "tipo": "gasto"}
+    r = client.put(f"/api/v1/categorias/{hid}", json={"nombre": "viajes", "tipo": "gasto", "icono": "✈️"}, headers=A)
+    assert r.status_code == 200 and r.json()["icono"] == "✈️"
+    # Pero renombrar la otra para chocar sigue dando 409
+    assert client.put(f"/api/v1/categorias/{a['id']}", json={"nombre": "Viajes 2", "tipo": "gasto"}, headers=A).status_code == 200
+    assert client.put(f"/api/v1/categorias/{a['id']}", json={"nombre": "VIAJES", "tipo": "gasto"}, headers=A).status_code == 409
 
 
 def test_inv028_un_solo_presupuesto_por_categoria_y_mes(client):

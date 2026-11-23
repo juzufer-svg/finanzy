@@ -54,6 +54,8 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
 }) {
   const toBase = useCurrencyStore(s => s.toBase)
   const [form, setForm] = useState<FormState>(initial)
+  // Texto del monto al abrir: si llegan tasas nuevas mientras se edita, no debe parecer que se tocó
+  const [montoInicial] = useState(initial.monto)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(p => ({ ...p, [k]: v }))
@@ -67,7 +69,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
     const body = {
       ...resto,
       // Escrito en la moneda elegida; al editar sin tocarlo se conserva el valor exacto (CHG-013)
-      monto: toBase(form.monto, editing ? { base: editing.monto, text: initial.monto } : undefined),
+      monto: toBase(form.monto, editing ? { base: editing.monto, text: montoInicial } : undefined),
       descripcion: form.descripcion.trim(),
       medio_pago: form.medio_pago || null,
       // Al editar, la fecha solo se envía si la persona la cambió, junto con la que vio (INV-026):

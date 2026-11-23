@@ -28,3 +28,17 @@
 - Frontend: eslint 0, `npm test` 28/28 (`tests/currency.test.mjs` nuevo), build correcto.
 - Playwright: US$10 se guardan como $36.260 COP; pendientes y presupuestos se muestran en US$; guardar sin tocar el
   límite lo deja exacto.
+
+## 4. Revisión independiente
+**Agente `revisor`: APROBADO CON OBSERVACIONES**, confianza 88 %. SQL sin defectos (fusión, repetición, transacción,
+`respaldo` sin acceso, compatible con `abonar_meta` y con recurrentes). Atendidas antes del despliegue:
+- H1 (importante): el formulario de edición de recurrentes comparaba contra un monto recalculado si las tasas llegaban
+  mientras se editaba → podía cambiar la plantilla sola. Ahora guarda el texto inicial al abrir.
+- H2 (importante): categorías heredadas parecidas («Comida»/«comida») no se podían editar → solo se comprueba si
+  cambia el nombre o el tipo. Prueba `test_se_puede_editar_el_icono_de_categorias_heredadas_parecidas`.
+- H3 (menor): `_es_duplicado` usa el código de PostgreSQL (`error.code == "23505"`, verificado en `postgrest.APIError`).
+  Prueba `test_otro_error_de_la_bd_no_se_confunde_con_un_duplicado`.
+- H5 (menor): `min="0.01"` en límites y objetivos (montos pequeños en US$). H7: documentación.
+- H4 (menor, aceptado): si alguien borró todas sus categorías, al crear una se vuelven a sembrar las por defecto (ya
+  pasaba con GET). H6: solo nota (un NaN llegaría como null y la API responde 422).
+Resultado: backend 232 pruebas, pyflakes 0, eslint 0, `npm test` 28/28, build correcto.
