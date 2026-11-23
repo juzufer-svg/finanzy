@@ -29,7 +29,7 @@ Salida: igual que `GET /users/me`. Si la base de datos no guardó el cambio → 
 Entrada: `{ "actual": "1-128", "nueva": "8-128 (INV-018), distinta de la actual" }`.
 Salida: `{ "access_token", "token_type", "user_id", "full_name" }` — el proxy de Next.js guarda el token nuevo en la
 cookie HttpOnly y lo quita de la respuesta (el navegador recibe `{ "user_id", "full_name" }`, INV-020).
-Efectos: guarda el nuevo hash bcrypt y sube `session_version` (cierra las demás sesiones, INV-016); esta sesión sigue con el token nuevo.
+Efectos: guarda el nuevo hash bcrypt y sube `session_version` (el token nuevo usa la versión que devuelve esa misma escritura, sin volver a leer) (cierra las demás sesiones, INV-016); esta sesión sigue con el token nuevo.
 
 | Error | Cuándo | `detail` |
 |---|---|---|

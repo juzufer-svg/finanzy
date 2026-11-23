@@ -48,4 +48,13 @@ Todos los formularios de la app reciben los montos en pesos (COP, la moneda en q
 muestre en otra moneda. Las pendientes siguen la misma regla (proponen el monto en pesos).
 
 ## 7. Revisión independiente
-Ver la sección siguiente (agente `revisor`).
+**Ciclo 1 (agente `revisor`): BLOQUEADO**, confianza 85 %. Hallazgos y respuesta:
+| # | Severidad | Hallazgo | Respuesta |
+|---|---|---|---|
+| H1 | Bloqueante | Editar o pausar con datos viejos devolvía la próxima fecha a una ocurrencia ya registrada (doble registro) | Corregido: `PUT` con `proxima_fecha` opcional + `proxima_fecha_vista` y compare-and-set; pausar no envía fecha; registrar cierra la edición abierta. Pruebas `test_inv026_editar_con_la_fecha_vieja_no_la_hace_retroceder`, `test_cambiar_la_fecha_exige_haber_visto_la_actual`; recorrido Playwright del escenario |
+| H2 | Importante | Si fallaba también la reversión al confirmar, error no controlado y ocurrencia perdida sin aviso | Corregido: reversión protegida; se avisa que la fecha quedó omitida y debe registrarse a mano. Prueba `test_si_tambien_falla_la_reversion_*` |
+| H3 | Menor | Tras cambiar la contraseña se releía el usuario; si fallaba, error con la contraseña ya cambiada | Corregido: `update_password` devuelve la versión nueva y el token se firma con ella. Prueba `test_inv027_el_token_nuevo_no_depende_de_volver_a_leer_la_bd` |
+| H4 | Menor | Dos copias de presupuestos simultáneas (dos pestañas) pueden duplicar | Aceptado y documentado: requiere una restricción UNIQUE en la BD (BL-031, decisión del dueño) |
+| H5 | Menor | Error de pendientes sin «Reintentar» | Corregido: `<ErrorState onRetry>` |
+
+Tras las correcciones: backend 220 pruebas, frontend lint 0, `npm test` 24/24, build correcto.
