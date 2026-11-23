@@ -37,3 +37,4 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-030 | Decidir si los formularios piden los montos en la moneda que se está viendo (hoy siempre en pesos COP, aunque se muestre en US$) | mejora | medio | Hecho (CHG-013) | Hallazgo de CHG-012 |
 | BL-031 | Restricción UNIQUE(usuario_id, categoria_id, mes_ano) en `presupuestos` para que dos copias simultáneas (dos pestañas) no dupliquen; antes hay que revisar si ya existen duplicados | datos | medio | Hecho (CHG-013; también categorías) | Revisión CHG-012 (H4) |
 | BL-032 | Que el Asistente IA responda en la moneda elegida (hoy en COP; el backend no tiene tasas de cambio) | mejora | bajo | Pendiente | CHG-013 |
+| BL-033 | Registrar ingresos y gastos por WhatsApp con IA (Cloud API de Meta, número de prueba) | nueva-funcionalidad | medio | En revisión (CHG-014; SQL + configuración en Meta y Railway) | Pedido del dueño 2026-11-23 |

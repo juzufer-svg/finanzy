@@ -9,6 +9,7 @@ import apiClient from '@/lib/api-client'
 import { apiErrorMessage, useDialog } from '@/components/DialogProvider'
 import PageHeader from '@/components/PageHeader'
 import { ChangePasswordCard, EditNameForm } from '@/components/ProfileForms'
+import WhatsAppCard from '@/components/WhatsAppCard'
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -172,6 +173,9 @@ export default function ProfilePage() {
 
       {/* Seguridad: cambiar la contraseña (CHG-012) */}
       <ChangePasswordCard />
+
+      {/* Registrar por WhatsApp con IA (CHG-014) */}
+      <WhatsAppCard />
 
       {/* Moneda */}
       <div className="card p-5">

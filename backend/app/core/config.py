@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     ASISTENTE_PREGUNTAS_POR_USUARIO_DIA: int = Field(default=30)
     ASISTENTE_PREGUNTAS_TOTALES_DIA: int = Field(default=300)
 
+    # WhatsApp con IA (CHG-014). Sin estas variables el webhook no procesa nada y el resto de la app
+    # funciona igual. Se obtienen en developers.facebook.com (ver docs/WHATSAPP.md). Viven SOLO en Railway.
+    WHATSAPP_TOKEN: str = Field(default="")            # token permanente del usuario de sistema
+    WHATSAPP_APP_SECRET: str = Field(default="")       # para verificar la firma de cada webhook
+    WHATSAPP_PHONE_NUMBER_ID: str = Field(default="")  # id del número (de prueba) de Meta
+    WHATSAPP_VERIFY_TOKEN: str = Field(default="")     # palabra secreta para verificar el webhook
+    WHATSAPP_GRAPH_VERSION: str = Field(default="v23.0")
+    # Topes de costo (INV-030): mensajes procesados por usuario al día y en total al día
+    WHATSAPP_MENSAJES_POR_DIA: int = Field(default=50)
+    WHATSAPP_MENSAJES_TOTALES_DIA: int = Field(default=300)
+
     # Environment
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=False)

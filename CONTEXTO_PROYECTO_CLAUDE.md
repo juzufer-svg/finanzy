@@ -42,7 +42,7 @@ reemplazó por Brevo.
 **Railway (backend):** `ENVIRONMENT=production`, `SECRET_KEY` (≥ 32 caracteres), `ALGORITHM`
 (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES`, `SUPABASE_URL`, `SUPABASE_KEY` (service_role),
 `SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`, `ANTHROPIC_API_KEY` (opcional, asistente),
-`ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`.
+`ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`, y para WhatsApp (opcionales) `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_MENSAJES_POR_DIA`, `WHATSAPP_MENSAJES_TOTALES_DIA`.
 
 **Vercel (frontend):** `BACKEND_URL` (URL pública de Railway, con `https://`). Root Directory = `frontend`.
 
@@ -145,6 +145,8 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 `presupuestos/copiar` (POST, copia los del mes anterior sin duplicar), `recurrentes` (GET, POST, PUT/DELETE `/{id}`, GET `pendientes?hasta=`, POST `/{id}/confirmar` y `/{id}/omitir`; CT-008)
 
 **Asistente (`/asistente`)**: `POST chat` → pregunta en lenguaje natural; Claude consulta herramientas de solo lectura (CT-007)
+
+**WhatsApp (`/whatsapp`, CHG-014)**: `GET/POST webhook` (Meta, firma `X-Hub-Signature-256`, directo a Railway) y `GET/POST/DELETE enlace` (con sesión). Agente de IA aparte que solo crea transacciones y deshace/corrige las suyas (CT-009, ADR-007, guía en `docs/WHATSAPP.md`)
 
 **Otros**: `GET /health`. `/docs` y `/openapi.json` están ocultos en producción.
 
@@ -249,3 +251,4 @@ Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la pla
 - **2026-11-22 · CHG-011 (Asistente IA y menú del celular, PR pendiente)**: el menú y el título dicen «Asistente IA»; en el celular el menú lateral ya no reaparece solo al abrir el asistente con el ícono de chat (guardaba la ruta donde se abrió y se volvía a mostrar al regresar a ella; ahora se cierra en cada cambio de ruta y al tocar cualquier enlace). El campo de pregunta dice «Escribe tu pregunta…» para no cortarse en el celular. Solo frontend: sin API, base de datos ni variables de entorno.
 - **2026-11-23 · CHG-012 (en revisión)**: transacciones recurrentes que se confirman (nunca se registran solas), copiar presupuestos del mes anterior, editar nombre y cambiar contraseña en el perfil, página de Categorías, avisos de presupuesto y nuevo Inicio, botón «+» en el celular, página pública rediseñada, modo oscuro completado. **Requiere ejecutar `backend/sql/2026-11-23_recurrentes.sql` en Supabase antes del despliegue.** Sin variables de entorno nuevas.
 - **2026-11-23 · CHG-013**: los formularios piden los montos en la moneda elegida y los guardan en COP; sin duplicados en categorías y presupuestos (índices UNIQUE, `backend/sql/2026-11-23_sin_duplicados.sql`, fusiona los existentes con respaldo en `respaldo.*`); limpieza de código sin uso (CSS, imports, método demo, archivo de ejemplo).
+- **2026-11-23 · CHG-014 (en revisión)**: registrar ingresos y gastos por WhatsApp con IA en lenguaje libre (Cloud API de Meta con el número de prueba, gratis hasta 1.000 respuestas/mes; Claude Haiku ~0,0003 US$/mensaje; tope 50/día). Requiere `backend/sql/2026-11-23_whatsapp.sql` y la configuración de `docs/WHATSAPP.md`.

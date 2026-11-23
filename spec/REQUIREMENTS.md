@@ -56,6 +56,7 @@ No hay roles de administrador en la app.
 | REQ-F-013 | El usuario debe poder eliminar su cuenta | Must | CA-1: debe escribir su correo para confirmar. CA-2: se eliminan la cuenta y todos sus datos | Implementado |
 | REQ-F-014 | El usuario debe ver su perfil | Should | CA-1: muestra nombre y correo; permite cambiar moneda y tema. CA-2 (CHG-012): puede cambiar su nombre (2-100 caracteres). CA-3 (CHG-012): puede cambiar su contraseña escribiendo la actual y la nueva (8-128); se cierran sus sesiones en otros dispositivos y la actual sigue abierta (INV-027) | Implementado |
 | REQ-F-016 | El usuario debe poder registrar transacciones recurrentes (CHG-012) | Should | CA-1: una recurrente = tipo + monto > 0 + frecuencia (mensual, quincenal o semanal) + primera fecha, con categoría propia, descripción y medio de pago opcionales. CA-2: cuando llega su fecha aparece como pendiente en el Inicio y en Recurrentes; nunca se registra sola (INV-025). CA-3: al confirmarla se crea una transacción (monto y fecha ajustables) y avanza a la siguiente fecha; puede omitirla sin registrar nada. CA-4: cada fecha se registra una sola vez aunque se toque dos veces (INV-026). CA-5: puede editarla, pausarla, reactivarla y eliminarla (las transacciones ya registradas se conservan) | Verificado |
+| REQ-F-017 | El usuario debe poder registrar ingresos y gastos por WhatsApp en lenguaje libre con IA (CHG-014, ADR-007) | Could | CA-1: enlaza su número con un código de un solo uso generado en Perfil (10 min) y puede desconectarlo. CA-2: un mensaje libre («almorcé por 18 mil con débito») registra el o los movimientos sin pedir confirmación, en COP, con categoría propia elegida por la IA (o sin categoría), fecha (hoy por defecto) y medio de pago; responde con el detalle. CA-3: si falta el monto, pregunta y no registra. CA-4: «deshacer» y correcciones afectan solo lo último registrado por WhatsApp. CA-5: solo el número enlazado puede usarlo y lo propuesto por la IA se valida (INV-029). CA-6: tope de 50 mensajes por día (INV-030) | Verificado |
 | REQ-F-015 | El usuario debe poder preguntar en lenguaje natural por sus finanzas (asistente con Claude, CHG-010) | Could | CA-1: responde preguntas sobre totales del mes, movimientos más altos, categorías y presupuestos, medios de pago, búsquedas por texto y metas, usando solo sus datos. CA-2: el asistente no puede crear, editar ni borrar nada (INV-023). CA-3: entiende preguntas de seguimiento dentro de la misma conversación. CA-4: hay topes de uso para controlar el costo (INV-024) | Verificado |
 
 ## 6. Requerimientos no funcionales
@@ -89,6 +90,8 @@ Detalle medible en `NFR/NFR.md`.
 | Brevo | Backend → Brevo | Correo destino, asunto, HTML/texto con el código | `POST https://api.brevo.com/v3/smtp/email` |
 | open.er-api.com | Navegador → API | Tasas de cambio respecto a USD | `GET /v6/latest/USD` |
 | Vercel | Navegador → Vercel → Railway | Proxy `/api/v1/*` | Rewrite en `next.config.js` |
+| WhatsApp Cloud API (Meta) | Meta → Railway (webhook) y Railway → Meta | Mensajes de texto del número enlazado y respuestas | CT-009, ADR-007 |
+| API de Claude (Anthropic) | Railway → Anthropic | Pregunta o mensaje, categorías del usuario (sin correo, teléfono ni ids) | CT-007, CT-009 |
 
 ## 9. Preguntas abiertas y ambigüedades
 
