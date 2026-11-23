@@ -72,3 +72,5 @@ Resultado: backend 300 pruebas. Ciclos usados: 2 de 3. **Pendiente: visto bueno 
 - Resultado: el registro por WhatsApp **funciona** (verificado en la BD: enlace, mensajes procesados y transacciones creadas).
 - Pendiente: Meta no entrega las **respuestas** (cuenta con `can_send_message: BLOCKED`: 141006 método de pago y 141010 empresa sin verificar; el 131000 de perfil incompleto ya se resolvió). Finanzy envía y Meta acepta la solicitud sin error, por lo que la entrega falla de forma asíncrona.
 - Cambio de diagnóstico: el webhook registra en el log el código de las entregas fallidas y los mensajes descartados por número distinto (sin datos personales). Pruebas: `test_una_entrega_fallida_*`, `test_un_numero_de_telefono_distinto_*`. Backend: 306 pruebas.
+- El Dockerfile no tenía `PYTHONUNBUFFERED=1`: los `print()` del backend podían quedar retenidos y no verse en los logs de Railway. Agregado.
+- Prueba directa (2026-11-23): un mensaje de texto enviado por la API (`POST /{phone_id}/messages`) fue aceptado por Meta pero **no llegó** al WhatsApp del dueño: la entrega está bloqueada por Meta (`can_send_message: BLOCKED`, 141006 y 141010), no es un fallo de Finanzy.
