@@ -188,6 +188,18 @@ class UserDB:
             raise
 
     @staticmethod
+    async def update_full_name(user_id: str, full_name: str) -> bool:
+        """Cambia el nombre visible. Los errores de Supabase se propagan (la ruta responde 503)."""
+        if not UserDB._is_supabase_available():
+            return False
+        client = SupabaseDB.get_client()
+        result = client.table(UserDB.TABLE_NAME)\
+            .update({"full_name": full_name})\
+            .eq("id", user_id)\
+            .execute()
+        return bool(result.data)
+
+    @staticmethod
     async def delete_unverified_expired() -> int:
         """Delete inactive users whose registration is older than 1 hour.
         Returns the number of deleted records."""

@@ -1,10 +1,19 @@
 """
 Users routes
 """
-from fastapi import APIRouter, HTTPException, Header, status
-from app.schemas.auth import UserResponse, UpdateCurrencyRequest
+from datetime import timedelta
+
+from fastapi import APIRouter, HTTPException, Header, Request, status
+from app.schemas.auth import (
+    UserResponse, UpdateCurrencyRequest, UpdateProfileRequest, ChangePasswordRequest, Token,
+)
 from app.models.user import UserDB
 from app.api.sesion import usuario_de_sesion
+from app.api.routes import auth as auth_routes
+from app.core.config import settings
+from app.core.security import create_access_token, verify_password
+
+_NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos."
 
 router = APIRouter()
 
@@ -58,6 +67,67 @@ async def update_user_currency(request: UpdateCurrencyRequest, authorization: st
         )
     
     return UserResponse(**updated_user)
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(request: UpdateProfileRequest, authorization: str = Header(...)):
+    """Cambia el nombre visible del usuario (CHG-012)."""
+    user_id = await usuario_de_sesion(authorization)
+    nombre = " ".join(request.full_name.split())  # sin espacios repetidos ni en los extremos
+    if len(nombre) < 2:
+        raise HTTPException(status_code=422, detail="El nombre debe tener al menos 2 caracteres")
+    try:
+        guardado = await UserDB.update_full_name(user_id, nombre)
+    except Exception as e:
+        print(f"[users.update_profile] {type(e).__name__}")
+        guardado = False
+    if not guardado:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
+    user = await UserDB.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    return UserResponse(**user)
+
+
+@router.post("/me/password", response_model=Token)
+async def change_password(data: ChangePasswordRequest, request: Request, authorization: str = Header(...)):
+    """Cambia la contraseña con la actual (CHG-012, INV-027).
+
+    Sube la versión de sesión: se cierran las sesiones de los demás dispositivos (INV-016) y
+    esta recibe un token nuevo (el proxy de Next.js lo guarda en la cookie y lo quita de la respuesta).
+    Una contraseña actual incorrecta responde 400 (no 401: el frontend cierra la sesión ante un 401)
+    y cuenta como intento fallido del login: 5 fallos bloquean el correo 15 minutos (INV-010).
+    """
+    user_id = await usuario_de_sesion(authorization)
+    auth_routes._limit_ip_for_auth(request)
+    user = await UserDB.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    email = user["email"].lower()
+    auth_routes._check_locked(email)
+    if not verify_password(data.actual, user.get("hashed_password", "")):
+        auth_routes._register_fail(email)
+        raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
+    if data.nueva == data.actual:
+        raise HTTPException(status_code=422, detail="La nueva contraseña debe ser distinta de la actual")
+
+    try:
+        cambiada = await UserDB.update_password(email, data.nueva)
+    except Exception as e:
+        print(f"[users.change_password] {type(e).__name__}")
+        cambiada = False
+    if not cambiada:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
+    auth_routes._login_fails.pop(email, None)
+
+    actualizado = await UserDB.get_by_id(user_id)
+    if not actualizado:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
+    token = create_access_token(
+        data={"sub": user_id, "sv": actualizado.get("session_version", 0)},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return Token(access_token=token, user_id=user_id, full_name=actualizado.get("full_name") or None)
 
 
 @router.delete("/me", status_code=204)

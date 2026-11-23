@@ -72,3 +72,14 @@ class UserResponse(BaseModel):
 class UpdateCurrencyRequest(BaseModel):
     """Update user currency request"""
     currency: str = Field(..., pattern="^(USD|EUR|MXN|ARS|COP|CLP)$")
+
+
+class UpdateProfileRequest(BaseModel):
+    """Cambiar el nombre visible (CHG-012)"""
+    full_name: str = Field(..., min_length=2, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Cambiar la contraseña desde el perfil (CHG-012, INV-027)"""
+    actual: str = Field(..., min_length=1, max_length=128)
+    nueva: str = Field(..., min_length=8, max_length=128)  # INV-018

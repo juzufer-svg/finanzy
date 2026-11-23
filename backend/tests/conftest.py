@@ -50,6 +50,7 @@ def estado_limpio():
     demo_db.DemoCategoriaDB._categorias.clear()
     demo_db.DemoPresupuestoDB._presupuestos.clear()
     demo_db.DemoMetaDB._metas.clear()
+    demo_db.DemoRecurrenteDB._recurrentes.clear()
     yield
 
 
@@ -91,7 +92,14 @@ def users(monkeypatch):
             return None
         return user.get("session_version", 0)
 
-    for name, fn in [("get_by_email", get_by_email), ("get_by_id", get_by_id), ("create", create),
+    async def update_full_name(user_id, full_name):
+        user = await get_by_id(user_id)
+        if not user:
+            return False
+        user["full_name"] = full_name
+        return True
+
+    for name, fn in [("update_full_name", update_full_name), ("get_by_email", get_by_email), ("get_by_id", get_by_id), ("create", create),
                      ("activate", activate), ("update_password", update_password),
                      ("get_session_version", get_session_version)]:
         monkeypatch.setattr(UserDB, name, staticmethod(fn))

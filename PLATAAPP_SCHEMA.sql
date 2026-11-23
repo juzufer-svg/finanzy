@@ -65,6 +65,24 @@ CREATE TABLE IF NOT EXISTS metas (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Transacciones recurrentes (CHG-012): plantillas que se proponen y la persona confirma (INV-025)
+CREATE TABLE IF NOT EXISTS recurrentes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+  categoria_id UUID REFERENCES categorias(id) ON DELETE SET NULL,
+  tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('ingreso', 'gasto')),
+  monto NUMERIC(12,2) NOT NULL CHECK (monto > 0),
+  descripcion TEXT NOT NULL DEFAULT '',
+  medio_pago VARCHAR(20)
+    CHECK (medio_pago IS NULL OR medio_pago IN ('debito', 'credito', 'efectivo', 'transferencia', 'nequi_daviplata')),
+  frecuencia VARCHAR(20) NOT NULL CHECK (frecuencia IN ('mensual', 'quincenal', 'semanal')),
+  dia_ancla SMALLINT NOT NULL CHECK (dia_ancla BETWEEN 1 AND 31),
+  proxima_fecha DATE NOT NULL,
+  activa BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE recurrentes ENABLE ROW LEVEL SECURITY;  -- solo el backend (service_role) la usa
+
 -- Crear índices para mejor rendimiento
 CREATE INDEX idx_transacciones_usuario ON transacciones(usuario_id);
 CREATE INDEX idx_transacciones_fecha ON transacciones(fecha);
@@ -76,6 +94,8 @@ CREATE INDEX idx_metas_usuario ON metas(usuario_id);
 -- Índices para los borrados en cascada por categoría
 CREATE INDEX idx_transacciones_categoria ON transacciones(categoria_id);
 CREATE INDEX idx_presupuestos_categoria ON presupuestos(categoria_id);
+CREATE INDEX idx_recurrentes_usuario ON recurrentes(usuario_id);
+CREATE INDEX idx_recurrentes_categoria ON recurrentes(categoria_id);
 
 -- Las categorías por defecto las crea el backend para cada usuario la primera vez que las pide
 -- (no se insertan aquí: una fila con un usuario inexistente sería un registro huérfano).

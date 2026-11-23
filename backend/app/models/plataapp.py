@@ -10,7 +10,8 @@ from app.models.demo_db import (
     DemoTransaccionDB,
     DemoCategoriaDB,
     DemoPresupuestoDB,
-    DemoMetaDB
+    DemoMetaDB,
+    DemoRecurrenteDB,
 )
 
 def _supabase_ok() -> bool:
@@ -425,3 +426,113 @@ class MetaDB:
 class AbonoAtomicoNoDisponible(Exception):
     """La función SQL `abonar_meta` no se puede usar (modo demo o migración sin aplicar)."""
 
+
+
+class RecurrenteDB:
+    """Transacciones recurrentes (CHG-012). Toda consulta filtra por usuario_id (INV-001)."""
+
+    _COLUMNAS = {"categoria_id", "tipo", "monto", "descripcion", "medio_pago",
+                 "frecuencia", "dia_ancla", "proxima_fecha", "activa"}
+
+    @staticmethod
+    def _normalizar(datos: dict) -> dict:
+        fila = {k: v for k, v in datos.items() if k in RecurrenteDB._COLUMNAS}
+        if "categoria_id" in fila and not fila["categoria_id"]:
+            fila["categoria_id"] = None  # "" = sin categoría (columna uuid)
+        return fila
+
+    @staticmethod
+    def _salida(fila: Optional[dict]) -> Optional[dict]:
+        if fila and fila.get("proxima_fecha") is not None:
+            fila["proxima_fecha"] = str(fila["proxima_fecha"])[:10]
+        return fila
+
+    @staticmethod
+    async def crear(usuario_id: str, datos: dict) -> dict:
+        fila = RecurrenteDB._normalizar(datos)
+        if not _supabase_ok():
+            return await DemoRecurrenteDB.crear(usuario_id, fila)
+        try:
+            client = SupabaseDB.get_client()
+            row = {"id": str(uuid.uuid4()), "usuario_id": usuario_id, **fila}
+            result = client.table("recurrentes").insert(row).execute()
+            return RecurrenteDB._salida(result.data[0])
+        except Exception as e:
+            print(f"[Supabase] recurrentes.crear error: {e}")
+            raise
+
+    @staticmethod
+    async def obtener_por_usuario(usuario_id: str) -> list:
+        if not _supabase_ok():
+            return await DemoRecurrenteDB.obtener_por_usuario(usuario_id)
+        try:
+            client = SupabaseDB.get_client()
+            result = client.table("recurrentes").select("*").eq("usuario_id", usuario_id)\
+                .order("proxima_fecha").execute()
+            return [RecurrenteDB._salida(r) for r in result.data]
+        except Exception as e:
+            print(f"[Supabase] recurrentes.obtener error: {e}")
+            raise
+
+    @staticmethod
+    async def obtener_por_id(recurrente_id: str, usuario_id: str) -> Optional[dict]:
+        if not _supabase_ok():
+            return _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id)
+        try:
+            client = SupabaseDB.get_client()
+            result = client.table("recurrentes").select("*").eq("id", recurrente_id)\
+                .eq("usuario_id", usuario_id).limit(1).execute()
+            return RecurrenteDB._salida(result.data[0]) if result.data else None
+        except Exception as e:
+            print(f"[Supabase] recurrentes.obtener_por_id error: {e}")
+            raise
+
+    @staticmethod
+    async def actualizar(recurrente_id: str, usuario_id: str, datos: dict) -> Optional[dict]:
+        fila = RecurrenteDB._normalizar(datos)
+        if not _supabase_ok():
+            if not _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id):
+                return None
+            return await DemoRecurrenteDB.actualizar(recurrente_id, fila)
+        try:
+            client = SupabaseDB.get_client()
+            result = client.table("recurrentes").update(fila).eq("id", recurrente_id)\
+                .eq("usuario_id", usuario_id).execute()
+            return RecurrenteDB._salida(result.data[0]) if result.data else None
+        except Exception as e:
+            print(f"[Supabase] recurrentes.actualizar error: {e}")
+            raise
+
+    @staticmethod
+    async def avanzar(recurrente_id: str, usuario_id: str, esperada: str, nueva: str) -> Optional[dict]:
+        """Pasa la próxima fecha de `esperada` a `nueva` solo si no cambió entretanto (compare-and-set).
+
+        Devuelve None si otra petición ya la movió: así un doble toque no registra dos veces (INV-026).
+        """
+        if not _supabase_ok():
+            if not _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id):
+                return None
+            return await DemoRecurrenteDB.avanzar(recurrente_id, esperada, nueva)
+        try:
+            client = SupabaseDB.get_client()
+            result = client.table("recurrentes").update({"proxima_fecha": nueva})\
+                .eq("id", recurrente_id).eq("usuario_id", usuario_id)\
+                .eq("proxima_fecha", esperada).execute()
+            return RecurrenteDB._salida(result.data[0]) if result.data else None
+        except Exception as e:
+            print(f"[Supabase] recurrentes.avanzar error: {e}")
+            raise
+
+    @staticmethod
+    async def eliminar(recurrente_id: str, usuario_id: str) -> bool:
+        if not _supabase_ok():
+            if not _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id):
+                return False
+            return await DemoRecurrenteDB.eliminar(recurrente_id)
+        try:
+            client = SupabaseDB.get_client()
+            client.table("recurrentes").delete().eq("id", recurrente_id).eq("usuario_id", usuario_id).execute()
+            return True
+        except Exception as e:
+            print(f"[Supabase] recurrentes.eliminar error: {e}")
+            raise

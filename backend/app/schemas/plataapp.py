@@ -128,3 +128,68 @@ class AbonarMeta(BaseModel):
     monto: float = Field(..., gt=0, le=MONTO_MAX)
     descripcion: str = Field("Abono a meta de ahorro", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
+
+
+# Presupuestos: copiar los de un mes a otro (CHG-012, A3)
+class CopiarPresupuestos(BaseModel):
+    """Copiar los presupuestos de un mes a otro"""
+    desde: str = Field(..., pattern=MES_PATTERN.pattern)
+    hacia: str = Field(..., pattern=MES_PATTERN.pattern)
+
+
+class CopiaPresupuestosResponse(BaseModel):
+    """Resultado de la copia"""
+    copiados: int
+    omitidos: int
+    presupuestos: list[PresupuestoResponse]
+
+
+# Transacciones recurrentes (CHG-012, INV-025 e INV-026)
+Frecuencia = Literal["mensual", "quincenal", "semanal"]
+FECHA_EXACTA = r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"  # YYYY-MM-DD sin hora
+
+
+class RecurrenteCreate(BaseModel):
+    """Crear o editar una transacción recurrente (plantilla)"""
+    categoria_id: str = Field("", max_length=64)
+    tipo: Tipo
+    monto: float = Field(..., gt=0, le=MONTO_MAX)
+    descripcion: str = Field("", max_length=255)
+    medio_pago: Optional[MedioPago] = None
+    frecuencia: Frecuencia
+    # Primera fecha (al crear) o próxima fecha (al editar); define el día ancla
+    proxima_fecha: str = Field(..., pattern=FECHA_EXACTA)
+    activa: bool = True
+
+
+class RecurrenteResponse(BaseModel):
+    """Respuesta de una transacción recurrente"""
+    id: str
+    usuario_id: str
+    categoria_id: Optional[str] = None
+    tipo: str
+    monto: float
+    descripcion: Optional[str] = ""
+    medio_pago: Optional[str] = None
+    frecuencia: str
+    dia_ancla: int
+    proxima_fecha: str
+    activa: bool
+
+
+class OcurrenciaRecurrente(BaseModel):
+    """Omitir la ocurrencia pendiente de una recurrente"""
+    # La fecha pendiente que vio la persona: si ya no coincide (doble toque, otra pestaña) → 409
+    ocurrencia: str = Field(..., pattern=FECHA_EXACTA)
+
+
+class ConfirmarRecurrente(OcurrenciaRecurrente):
+    """Confirmar la ocurrencia pendiente: crea la transacción (monto y fecha ajustables)"""
+    monto: Optional[float] = Field(None, gt=0, le=MONTO_MAX)
+    fecha: Optional[str] = Field(None, pattern=FECHA_EXACTA)
+
+
+class ConfirmacionResponse(BaseModel):
+    """Transacción creada y recurrente con su nueva próxima fecha"""
+    transaccion: TransaccionResponse
+    recurrente: RecurrenteResponse

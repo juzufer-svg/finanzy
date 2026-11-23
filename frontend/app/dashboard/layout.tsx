@@ -46,6 +46,21 @@ const IconReport = () => (
   </svg>
 )
 
+const IconRepeat = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </svg>
+)
+
+const IconTag = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6 6h.008v.008H6V6Z" />
+  </svg>
+)
+
 const IconProfile = () => (
   <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -84,8 +99,10 @@ const IconMoon = () => (
 const subscribeNoop = () => () => {}
 
 const menuItems = [
-  { href: '/dashboard', label: 'Dashboard', Icon: IconDashboard },
+  { href: '/dashboard', label: 'Inicio', Icon: IconDashboard },
   { href: '/dashboard/transactions', label: 'Transacciones', Icon: IconCreditCard },
+  { href: '/dashboard/recurring', label: 'Recurrentes', Icon: IconRepeat },
+  { href: '/dashboard/categories', label: 'Categorías', Icon: IconTag },
   { href: '/dashboard/budgets', label: 'Presupuestos', Icon: IconBudget },
   { href: '/dashboard/goals', label: 'Metas', Icon: IconGoal },
   { href: '/dashboard/reports', label: 'Reportes', Icon: IconReport },
@@ -94,8 +111,9 @@ const menuItems = [
 ]
 
 /** Inicial del nombre (o del correo) para el avatar. */
-// Fuera de la barra inferior del celular (se abren desde la barra superior)
-const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant'])
+// Fuera de la barra inferior del celular: Perfil y Asistente se abren desde la barra superior;
+// Recurrentes y Categorías, desde el menú lateral (así caben 5 botones sin cortar textos)
+const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories'])
 
 const initialOf = (user: { full_name?: string; email?: string } | null) =>
   (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()
@@ -155,7 +173,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
-  const currentSection = menuItems.find(item => isActive(item.href))?.label ?? 'Dashboard'
+  const currentSection = menuItems.find(item => isActive(item.href))?.label ?? 'Inicio'
   const displayName = user?.full_name || user?.email || 'Usuario'
   // Al cerrar sesión el período vuelve al mes actual (la siguiente persona no hereda el filtro)
   const handleLogout = async () => { resetPeriod(); await logout(); router.push('/') }
@@ -380,6 +398,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="animate-fade-in max-w-7xl mx-auto">{children}</div>
         </main>
       </div>
+
+      {/* ── Botón flotante «Nueva transacción» (solo celular, CHG-012) ──
+          En Transacciones no aparece: allí el formulario ya está arriba. */}
+      {!isActive('/dashboard/transactions') && (
+        <Link
+          href="/dashboard/transactions?nueva=1"
+          aria-label="Nueva transacción"
+          title="Nueva transacción"
+          className="md:hidden fixed right-4 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-lg shadow-blue-900/30 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/50 bottom-[calc(5rem+env(safe-area-inset-bottom))] mr-[env(safe-area-inset-right)]"
+        >
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        </Link>
+      )}
 
       {/* ── Navegación inferior móvil ── */}
       <nav

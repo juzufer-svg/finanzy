@@ -8,10 +8,12 @@ import { useCurrencyStore, AVAILABLE_CURRENCIES } from '@/store/currency'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage, useDialog } from '@/components/DialogProvider'
 import PageHeader from '@/components/PageHeader'
+import { ChangePasswordCard, EditNameForm } from '@/components/ProfileForms'
 
 export default function ProfilePage() {
   const router = useRouter()
-  const { user, logout } = useAuthStore()
+  const { user, logout, setUser } = useAuthStore()
+  const [editingName, setEditingName] = useState(false)
   const { dark, toggle } = useThemeStore()
   const { currency, setCurrency } = useCurrencyStore()
   const [userInfo, setUserInfo] = useState<any>(null)
@@ -123,7 +125,21 @@ export default function ProfilePage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Zm6-10.125a1.875 1.875 0 1 1-3.75 0 1.875 1.875 0 0 1 3.75 0Zm1.294 6.336a6.721 6.721 0 0 1-3.17.789 6.721 6.721 0 0 1-3.168-.789 3.376 3.376 0 0 1 6.338 0Z" />
                   </svg>
                 )},
-              ].map(({ label, value, icon, mono }) => (
+              ].map(({ label, value, icon, mono }) => label === 'Nombre completo' && editingName ? (
+                <div key={label} className="p-3 bg-slate-50 rounded-lg">
+                  <EditNameForm
+                    current={userInfo.full_name || ''}
+                    onCancel={() => setEditingName(false)}
+                    onSaved={fullName => {
+                      setUserInfo({ ...userInfo, full_name: fullName })
+                      // La barra superior y el menú muestran el nombre nuevo
+                      if (user) setUser({ ...user, full_name: fullName })
+                      setEditingName(false)
+                      notify('Nombre actualizado', 'success')
+                    }}
+                  />
+                </div>
+              ) : (
                 <div key={label} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
                   <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
                     {icon}
@@ -134,6 +150,12 @@ export default function ProfilePage() {
                       {value || '—'}
                     </p>
                   </div>
+                  {label === 'Nombre completo' && (
+                    <button type="button" onClick={() => setEditingName(true)} className="text-xs font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0"
+                      aria-label="Editar nombre completo">
+                      Editar
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -147,6 +169,9 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Seguridad: cambiar la contraseña (CHG-012) */}
+      <ChangePasswordCard />
 
       {/* Moneda */}
       <div className="card p-5">

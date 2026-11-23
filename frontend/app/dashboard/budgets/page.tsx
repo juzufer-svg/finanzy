@@ -9,6 +9,7 @@ import PageHeader from '@/components/PageHeader'
 import PeriodPicker from '@/components/PeriodPicker'
 import { usePeriodStore } from '@/store/period'
 import { useRouter } from 'next/navigation'
+import { monthTitle, shiftMonth } from '@/lib/month-stats'
 
 interface Transaction {
   id: string
@@ -110,7 +111,9 @@ export default function BudgetsPage() {
   const [saving, setSaving] = useState(false)
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
   const [loadError, setLoadError] = useState('')
+  const [copying, setCopying] = useState(false)
   const { confirm, notify } = useDialog()
+  const previousMonth = shiftMonth(currentMonth, -1)
 
   // isActive permite ignorar respuestas que llegan tarde (cambio de mes o vista cerrada)
   const fetchData = useCallback((isActive: () => boolean = () => true) => {
@@ -161,6 +164,29 @@ export default function BudgetsPage() {
     }
   }
 
+  // Copia los límites del mes anterior a este (CHG-012, A3). Los que ya existen aquí no se tocan.
+  const handleCopyPrevious = async () => {
+    const desde = monthTitle(previousMonth, false).toLowerCase()
+    const ok = await confirm({
+      title: `¿Copiar los presupuestos de ${desde}?`,
+      description: `Se crean en ${monthTitle(currentMonth).toLowerCase()} los límites que tenías en ${desde}. Los que ya definiste para este mes se conservan.`,
+      confirmLabel: 'Copiar',
+    })
+    if (!ok) return
+    setCopying(true)
+    try {
+      const { data } = await apiClient.post('/api/v1/presupuestos/copiar', { desde: previousMonth, hacia: currentMonth })
+      await fetchData()
+      if (data.copiados === 0 && data.omitidos === 0) notify(`No había presupuestos en ${desde}.`, 'info')
+      else if (data.copiados === 0) notify('Este mes ya tenía todos esos presupuestos.', 'info')
+      else notify(`${data.copiados} ${data.copiados === 1 ? 'presupuesto copiado' : 'presupuestos copiados'}${data.omitidos ? ` (${data.omitidos} ya existían)` : ''}.`, 'success')
+    } catch (err) {
+      notify(apiErrorMessage(err, 'No se pudieron copiar los presupuestos.'), 'error')
+    } finally {
+      setCopying(false)
+    }
+  }
+
   const handleDeleteBudget = async (id: string) => {
     const ok = await confirm({
       title: '¿Eliminar este presupuesto?',
@@ -194,6 +220,13 @@ export default function BudgetsPage() {
         subtitle="Límites de gasto del período"
         actions={<>
           <PeriodPicker />
+          <button type="button" onClick={handleCopyPrevious} disabled={copying || loading || stale} className="btn-secondary disabled:opacity-50"
+            title={`Copiar los presupuestos de ${monthTitle(previousMonth).toLowerCase()}`}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+            </svg>
+            {copying ? 'Copiando…' : 'Copiar mes anterior'}
+          </button>
           <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary" aria-expanded={showForm}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showForm ? "M6 18 18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} />
@@ -259,10 +292,15 @@ export default function BudgetsPage() {
             </svg>
           </div>
           <h3 className="text-base font-semibold text-slate-700">Sin presupuestos</h3>
-          <p className="text-sm text-slate-400 mt-1 mb-4">No tienes presupuestos configurados para este período</p>
-          <button onClick={() => setShowForm(true)} className="btn-primary">
-            Crear primer presupuesto
-          </button>
+          <p className="text-sm text-slate-500 mt-1 mb-4">Define cuánto quieres gastar como máximo en cada categoría y te avisaremos al llegar al 75 %.</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button type="button" onClick={() => setShowForm(true)} className="btn-primary">
+              Crear primer presupuesto
+            </button>
+            <button type="button" onClick={handleCopyPrevious} disabled={copying} className="btn-secondary disabled:opacity-50">
+              {copying ? 'Copiando…' : `Copiar los de ${monthTitle(previousMonth, false).toLowerCase()}`}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

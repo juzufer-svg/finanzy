@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005) y de medio de pago (CHG-007) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) y recurrentes (CHG-012) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -25,4 +25,7 @@ run ../2026-11-22_medio_pago.sql
 run ../2026-11-22_medio_pago.sql
 # Repetir el paso 2 después de medio_pago (la tabla de respaldo no tenía esa columna) debe funcionar
 run ../2026-11-22_huerfanos_2_respaldo_y_borrado.sql
+# CHG-012: transacciones recurrentes (dos veces para comprobar que se puede repetir)
+run ../2026-11-23_recurrentes.sql
+run ../2026-11-23_recurrentes.sql
 PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 02_comprobaciones.sql

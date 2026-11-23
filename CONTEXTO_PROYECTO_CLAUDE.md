@@ -87,7 +87,7 @@ frontend/
   app/page.tsx                    landing
   app/auth/{login,register,forgot-password}/page.tsx
   app/dashboard/layout.tsx        sidebar, menú móvil, protección de sesión
-  app/dashboard/{page,transactions,budgets,goals,reports,profile}
+  app/dashboard/{page,transactions,recurring,categories,budgets,goals,reports,profile}  (page = «Inicio»)
   components/DialogProvider.tsx   confirmaciones y avisos (toasts) propios: useDialog(), apiErrorMessage()
   components/ErrorState.tsx       bloque de error con "Reintentar"
   components/PageHeader.tsx       encabezado común de las vistas: título, subtítulo y acciones (CHG-008)
@@ -119,6 +119,7 @@ Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen
 | `transacciones` | id, usuario_id, categoria_id (SET NULL), monto NUMERIC(12,2), descripcion, fecha DATE, tipo, medio_pago (opcional: `debito`, `credito`, `efectivo`, `transferencia`, `nequi_daviplata`) |
 | `presupuestos` | id, usuario_id, categoria_id, limite_mensual, mes_ano (`YYYY-MM`) |
 | `metas` | id, usuario_id, nombre, monto_objetivo, monto_actual, fecha_objetivo, estado |
+| `recurrentes` (CHG-012) | id, usuario_id, categoria_id (SET NULL), tipo, monto, descripcion, medio_pago, frecuencia (`mensual`/`quincenal`/`semanal`), dia_ancla, proxima_fecha, activa. RLS activo sin políticas (solo `service_role`) |
 
 - Cada usuario recibe sus categorías por defecto la primera vez que las pide.
 - Llaves foráneas y registros huérfanos (CHG-005, PR #9): la base real no tenía FKs y había 64 filas huérfanas. Scripts `backend/sql/2026-11-22_huerfanos_{1_diagnostico,2_respaldo_y_borrado,3_llaves_foraneas}.sql` (en ese orden) + `2026-11-22_quitar_vista_resumen.sql`. El paso 2 copia lo borrado al esquema privado `respaldo` (sin acceso para `anon`/`authenticated`). Se prueban en CI con PostgreSQL (`backend/sql/pruebas/probar.sh`). La columna sobrante `presupuestos."mes_año"` queda pendiente (BL-019). **Ejecutados en Supabase el 2026-11-22** (junto con `2026-11-22_medio_pago.sql`).
@@ -136,11 +137,12 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 **Auth (`/auth`)**: `POST register`, `POST verify-email`, `POST resend-code`, `POST login`,
 `POST forgot-password`, `POST reset-password`
 
-**Usuario (`/users`)**: `GET me`, `PUT me/currency`, `DELETE me`
+**Usuario (`/users`)**: `GET me`, `PUT me` (nombre), `PUT me/currency`, `POST me/password` (cambia la contraseña, cierra las demás sesiones y entrega un token nuevo que el proxy guarda en la cookie), `DELETE me`
 
 **Finanzas**: `transacciones` (GET con `?mes=YYYY-MM`, POST, GET/PUT/DELETE `/{id}`, GET `resumen/{mes}`; campo opcional `medio_pago`, CT-003 v1.1),
 `categorias` (GET, POST, PUT/DELETE `/{id}`), `presupuestos` (GET `/{mes_ano}`, POST, PUT/DELETE `/{id}`),
-`metas` (GET, POST, PUT/DELETE `/{id}`, POST `/{id}/abonar` → crea un gasto en la categoría "Ahorro" y suma a la meta)
+`metas` (GET, POST, PUT/DELETE `/{id}`, POST `/{id}/abonar` → crea un gasto en la categoría "Ahorro" y suma a la meta),
+`presupuestos/copiar` (POST, copia los del mes anterior sin duplicar), `recurrentes` (GET, POST, PUT/DELETE `/{id}`, GET `pendientes?hasta=`, POST `/{id}/confirmar` y `/{id}/omitir`; CT-008)
 
 **Asistente (`/asistente`)**: `POST chat` → pregunta en lenguaje natural; Claude consulta herramientas de solo lectura (CT-007)
 
@@ -245,3 +247,4 @@ Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la pla
 - **2026-11-22 · CHG-009 (filtro de período, PR #11 fusionado)**: el mes elegido es uno solo para Dashboard, Transacciones, Presupuestos y Reportes; se mantiene al navegar y al recargar (sessionStorage), vuelve al mes actual en una pestaña nueva o al cerrar sesión. Nuevo selector con calendario de meses, cambio de año y "Mes actual". Corrige que Presupuestos usara el mes en UTC. Solo frontend.
 - **2026-11-22 · PR #13 (documentación, fusionado)**: nuevo `docs/COSTOS_ASISTENTE.md` con el costo del asistente (Claude Haiku 5.5: 0,10 / 0,50 US$ por millón de tokens de entrada/salida hasta 100.000 tokens, verificado en la página oficial de precios de Anthropic), cómo calcular el costo de una pregunta, dónde ver el gasto real y cómo se controla; enlazado desde README y ADR-006. Sin cambios de código, API, base de datos ni variables de entorno.
 - **2026-11-22 · CHG-011 (Asistente IA y menú del celular, PR pendiente)**: el menú y el título dicen «Asistente IA»; en el celular el menú lateral ya no reaparece solo al abrir el asistente con el ícono de chat (guardaba la ruta donde se abrió y se volvía a mostrar al regresar a ella; ahora se cierra en cada cambio de ruta y al tocar cualquier enlace). El campo de pregunta dice «Escribe tu pregunta…» para no cortarse en el celular. Solo frontend: sin API, base de datos ni variables de entorno.
+- **2026-11-23 · CHG-012 (en revisión)**: transacciones recurrentes que se confirman (nunca se registran solas), copiar presupuestos del mes anterior, editar nombre y cambiar contraseña en el perfil, página de Categorías, avisos de presupuesto y nuevo Inicio, botón «+» en el celular, página pública rediseñada, modo oscuro completado. **Requiere ejecutar `backend/sql/2026-11-23_recurrentes.sql` en Supabase antes del despliegue.** Sin variables de entorno nuevas.

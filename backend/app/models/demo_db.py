@@ -235,3 +235,49 @@ class DemoMetaDB:
             del DemoMetaDB._metas[meta_id]
             return True
         return False
+
+
+class DemoRecurrenteDB:
+    """Transacciones recurrentes en memoria (CHG-012)"""
+
+    _recurrentes: Dict[str, dict] = {}
+
+    @staticmethod
+    async def crear(usuario_id: str, datos: dict) -> dict:
+        rec_id = str(uuid.uuid4())
+        recurrente = {"id": rec_id, "usuario_id": usuario_id, **datos}
+        DemoRecurrenteDB._recurrentes[rec_id] = recurrente
+        return dict(recurrente)
+
+    @staticmethod
+    async def obtener_por_usuario(usuario_id: str) -> list:
+        return sorted(
+            (dict(r) for r in DemoRecurrenteDB._recurrentes.values() if r["usuario_id"] == usuario_id),
+            key=lambda r: r["proxima_fecha"],
+        )
+
+    @staticmethod
+    async def obtener_por_id(recurrente_id: str) -> Optional[dict]:
+        r = DemoRecurrenteDB._recurrentes.get(recurrente_id)
+        return dict(r) if r else None
+
+    @staticmethod
+    async def actualizar(recurrente_id: str, datos: dict) -> Optional[dict]:
+        r = DemoRecurrenteDB._recurrentes.get(recurrente_id)
+        if not r:
+            return None
+        r.update(datos)
+        return dict(r)
+
+    @staticmethod
+    async def avanzar(recurrente_id: str, esperada: str, nueva: str) -> Optional[dict]:
+        """Cambia la próxima fecha solo si sigue siendo `esperada` (compare-and-set)."""
+        r = DemoRecurrenteDB._recurrentes.get(recurrente_id)
+        if not r or r["proxima_fecha"] != esperada:
+            return None
+        r["proxima_fecha"] = nueva
+        return dict(r)
+
+    @staticmethod
+    async def eliminar(recurrente_id: str) -> bool:
+        return DemoRecurrenteDB._recurrentes.pop(recurrente_id, None) is not None

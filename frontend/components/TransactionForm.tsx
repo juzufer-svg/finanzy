@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
@@ -22,6 +23,19 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     tipo: 'gasto',
     medio_pago: MEDIO_POR_DEFECTO as string,
   })
+
+  // Botón flotante «+» del celular (CHG-012): llega con ?nueva=1, se muestra el formulario y se
+  // enfoca el monto. Solo toca el DOM (sin cambiar estado) y quita el parámetro para que recargar no repita.
+  const cardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('nueva') !== '1') return
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    document.getElementById('txf-monto')?.focus({ preventScroll: true })
+    params.delete('nueva')
+    const query = params.toString()
+    window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : ''))
+  }, [])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -55,7 +69,7 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
   const filteredCategories = categories.filter(cat => cat.tipo === formData.tipo)
 
   return (
-    <div className="card p-5">
+    <div ref={cardRef} className="card p-5 scroll-mt-20">
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-100">
         <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
           <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -122,7 +136,10 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
             ))}
           </select>
           {filteredCategories.length === 0 && (
-            <p className="text-xs text-slate-500 mt-1">Aún no tienes categorías de este tipo. Créalas con el botón «Crear Categorías».</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Aún no tienes categorías de este tipo.{' '}
+              <Link href="/dashboard/categories" className="font-semibold text-blue-600 hover:underline">Crear una categoría</Link>
+            </p>
           )}
         </div>
 

@@ -1,4 +1,5 @@
 import React from 'react'
+import Link from 'next/link'
 import { useCurrencyStore } from '@/store/currency'
 import { medioPagoLabel } from '@/lib/payment-methods'
 import { shortDate } from '@/lib/month-stats'
@@ -8,6 +9,8 @@ interface TransactionListProps {
   categories: any[]
   onDelete?: (id: string) => void
   onEdit?: (transaction: any) => void
+  /** Si no hay transacciones, ofrece registrar la primera (CHG-012, B6). */
+  emptyAction?: boolean
 }
 
 function CategoryIcon({ tipo }: { tipo: string }) {
@@ -29,7 +32,7 @@ function CategoryIcon({ tipo }: { tipo: string }) {
   )
 }
 
-export default function TransactionList({ transactions, categories, onDelete, onEdit }: TransactionListProps) {
+export default function TransactionList({ transactions, categories, onDelete, onEdit, emptyAction = false }: TransactionListProps) {
   const fmt = useCurrencyStore(s => s.fmt)
   const getCategoryName = (categoryId: string) =>
     categories.find(c => c.id === categoryId)?.nombre || 'Sin categoría'
@@ -43,7 +46,10 @@ export default function TransactionList({ transactions, categories, onDelete, on
           </svg>
         </div>
         <h3 className="text-base font-semibold text-slate-700">Sin transacciones</h3>
-        <p className="text-sm text-slate-400 mt-1">No hay registros en este período</p>
+        <p className="text-sm text-slate-500 mt-1">No hay registros en este período</p>
+        {emptyAction && (
+          <Link href="/dashboard/transactions?nueva=1" className="btn-primary mt-4">Registrar una transacción</Link>
+        )}
       </div>
     )
   }

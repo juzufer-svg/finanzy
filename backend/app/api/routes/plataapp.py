@@ -10,9 +10,15 @@ from app.schemas.plataapp import (
     CategoriaCreate, CategoriaUpdate, CategoriaResponse,
     PresupuestoCreate, PresupuestoResponse, PresupuestoUpdate,
     MetaCreate, MetaResponse, ActualizarMeta, AbonarMeta,
+    CopiarPresupuestos, CopiaPresupuestosResponse,
+    RecurrenteCreate, RecurrenteResponse, OcurrenciaRecurrente, ConfirmarRecurrente, ConfirmacionResponse,
     MES_PATTERN,
 )
-from app.models.plataapp import TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, AbonoAtomicoNoDisponible
+from app.models.plataapp import (
+    TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, RecurrenteDB, AbonoAtomicoNoDisponible,
+)
+from app.utils.recurrencia import siguiente_fecha
+from datetime import date, datetime, timezone
 from app.api.sesion import usuario_de_sesion
 from typing import Optional
 
@@ -162,6 +168,36 @@ async def crear_presupuesto(presupuesto: PresupuestoCreate, authorization: str =
     )
 
 
+@router.post("/presupuestos/copiar", response_model=CopiaPresupuestosResponse)
+async def copiar_presupuestos(datos: CopiarPresupuestos, authorization: str = Header(...)):
+    """Copia los presupuestos de un mes a otro (CHG-012). No toca los que ya existen en el destino."""
+    usuario_id = await get_user_id(authorization)
+    if datos.desde == datos.hacia:
+        raise HTTPException(status_code=422, detail="El mes de origen y el de destino deben ser distintos")
+    origen = await PresupuestoDB.obtener_por_usuario_mes(usuario_id, datos.desde)
+    destino = await PresupuestoDB.obtener_por_usuario_mes(usuario_id, datos.hacia)
+    con_presupuesto = {str(p["categoria_id"]) for p in destino}
+    copiados = 0
+    for presupuesto in origen:
+        categoria_id = str(presupuesto["categoria_id"])
+        if categoria_id in con_presupuesto:
+            continue  # ya tiene límite en el mes destino: se respeta el que eligió la persona
+        await _ensure_categoria_propia(categoria_id, usuario_id)  # INV-002
+        await PresupuestoDB.crear(
+            usuario_id=usuario_id,
+            categoria_id=categoria_id,
+            limite_mensual=float(presupuesto["limite_mensual"]),
+            mes_ano=datos.hacia,
+        )
+        con_presupuesto.add(categoria_id)
+        copiados += 1
+    return {
+        "copiados": copiados,
+        "omitidos": len(origen) - copiados,
+        "presupuestos": await PresupuestoDB.obtener_por_usuario_mes(usuario_id, datos.hacia),
+    }
+
+
 @router.get("/presupuestos/{mes_ano}", response_model=list[PresupuestoResponse])
 async def obtener_presupuestos(mes_ano: str = Path(..., pattern=MES_PATTERN.pattern), authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
@@ -277,3 +313,118 @@ async def _abonar_sin_transaccion(meta_id: str, usuario_id: str, datos: AbonarMe
         raise HTTPException(status_code=500, detail="No se pudo registrar el abono")
 
     return {**meta_actualizada, "porcentaje_completado": _porcentaje(meta_actualizada)}
+
+
+# ==================== RECURRENTES (CHG-012) ====================
+# Plantillas de movimientos fijos. Nunca se registran solas: cuando llega su próxima
+# fecha aparecen como pendientes y la persona las confirma u omite (INV-025).
+
+def _fecha(valor: str) -> date:
+    """Convierte YYYY-MM-DD en fecha; 422 si no existe (p. ej. 2026-02-31)."""
+    try:
+        return date.fromisoformat(valor)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Fecha inválida (YYYY-MM-DD)")
+
+
+_OCURRENCIA_CAMBIADA = "Esta fecha ya se registró u omitió. Actualiza la lista de pendientes."
+
+
+@router.get("/recurrentes", response_model=list[RecurrenteResponse])
+async def obtener_recurrentes(authorization: str = Header(...)):
+    usuario_id = await get_user_id(authorization)
+    return await RecurrenteDB.obtener_por_usuario(usuario_id)
+
+
+@router.get("/recurrentes/pendientes", response_model=list[RecurrenteResponse])
+async def obtener_pendientes(authorization: str = Header(...), hasta: Optional[str] = None):
+    """Recurrentes activas cuya próxima fecha ya llegó (hasta = hoy del navegador; por defecto, hoy UTC)."""
+    usuario_id = await get_user_id(authorization)
+    limite = _fecha(hasta) if hasta is not None else datetime.now(timezone.utc).date()
+    recurrentes = await RecurrenteDB.obtener_por_usuario(usuario_id)
+    pendientes = [r for r in recurrentes if r.get("activa") and _fecha(r["proxima_fecha"]) <= limite]
+    return sorted(pendientes, key=lambda r: r["proxima_fecha"])
+
+
+@router.post("/recurrentes", response_model=RecurrenteResponse)
+async def crear_recurrente(datos: RecurrenteCreate, authorization: str = Header(...)):
+    usuario_id = await get_user_id(authorization)
+    await _ensure_categoria_propia(datos.categoria_id, usuario_id)  # INV-002
+    primera = _fecha(datos.proxima_fecha)
+    return await RecurrenteDB.crear(usuario_id, {**datos.model_dump(), "dia_ancla": primera.day})
+
+
+@router.put("/recurrentes/{recurrente_id}", response_model=RecurrenteResponse)
+async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteCreate, authorization: str = Header(...)):
+    usuario_id = await get_user_id(authorization)
+    actual = _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id,
+                           "Recurrente no encontrada")
+    await _ensure_categoria_propia(datos.categoria_id, usuario_id)
+    nueva = _fecha(datos.proxima_fecha)
+    cambios = datos.model_dump()
+    # El día ancla solo cambia si la persona eligió otra próxima fecha: editar el monto de una
+    # recurrente del 31 que hoy cae el 28 de febrero no debe volverla "del 28" para siempre.
+    if datos.proxima_fecha != actual["proxima_fecha"]:
+        cambios["dia_ancla"] = nueva.day
+    actualizada = await RecurrenteDB.actualizar(recurrente_id, usuario_id, cambios)
+    if not actualizada:
+        raise HTTPException(status_code=404, detail="Recurrente no encontrada")
+    return actualizada
+
+
+@router.delete("/recurrentes/{recurrente_id}")
+async def eliminar_recurrente(recurrente_id: str, authorization: str = Header(...)):
+    """Borra la plantilla; las transacciones ya registradas con ella se conservan."""
+    usuario_id = await get_user_id(authorization)
+    _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id, "Recurrente no encontrada")
+    await RecurrenteDB.eliminar(recurrente_id, usuario_id)
+    return {"message": "Recurrente eliminada"}
+
+
+async def _avanzar(recurrente: dict, usuario_id: str, ocurrencia: str) -> tuple[dict, str]:
+    """Mueve la próxima fecha a la siguiente de la serie, solo si la ocurrencia sigue pendiente (INV-026)."""
+    if not recurrente.get("activa"):
+        raise HTTPException(status_code=409, detail="La recurrente está pausada")
+    if ocurrencia != recurrente["proxima_fecha"]:
+        raise HTTPException(status_code=409, detail=_OCURRENCIA_CAMBIADA)
+    siguiente = siguiente_fecha(_fecha(ocurrencia), recurrente["frecuencia"], int(recurrente["dia_ancla"]))
+    avanzada = await RecurrenteDB.avanzar(recurrente["id"], usuario_id, ocurrencia, siguiente.isoformat())
+    if not avanzada:  # otra petición (doble toque, otra pestaña) ya la movió
+        raise HTTPException(status_code=409, detail=_OCURRENCIA_CAMBIADA)
+    return avanzada, siguiente.isoformat()
+
+
+@router.post("/recurrentes/{recurrente_id}/confirmar", response_model=ConfirmacionResponse)
+async def confirmar_recurrente(recurrente_id: str, datos: ConfirmarRecurrente, authorization: str = Header(...)):
+    """Registra la ocurrencia pendiente como transacción (con monto y fecha ajustables) y avanza la serie."""
+    usuario_id = await get_user_id(authorization)
+    recurrente = _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id,
+                               "Recurrente no encontrada")
+    if datos.fecha is not None:
+        _fecha(datos.fecha)
+    avanzada, siguiente = await _avanzar(recurrente, usuario_id, datos.ocurrencia)
+    try:
+        transaccion = await TransaccionDB.crear(
+            usuario_id=usuario_id,
+            categoria_id=recurrente.get("categoria_id") or "",
+            monto=datos.monto if datos.monto is not None else float(recurrente["monto"]),
+            descripcion=recurrente.get("descripcion") or "",
+            fecha=datos.fecha or datos.ocurrencia,
+            tipo=recurrente["tipo"],
+            medio_pago=recurrente.get("medio_pago"),
+        )
+    except Exception:
+        # Sin transacción la ocurrencia vuelve a quedar pendiente (no se pierde)
+        await RecurrenteDB.avanzar(recurrente_id, usuario_id, siguiente, datos.ocurrencia)
+        raise HTTPException(status_code=500, detail="No se pudo registrar la transacción")
+    return {"transaccion": transaccion, "recurrente": avanzada}
+
+
+@router.post("/recurrentes/{recurrente_id}/omitir", response_model=RecurrenteResponse)
+async def omitir_recurrente(recurrente_id: str, datos: OcurrenciaRecurrente, authorization: str = Header(...)):
+    """Salta la ocurrencia pendiente sin registrar nada (p. ej. un mes sin pagar el gimnasio)."""
+    usuario_id = await get_user_id(authorization)
+    recurrente = _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id,
+                               "Recurrente no encontrada")
+    avanzada, _ = await _avanzar(recurrente, usuario_id, datos.ocurrencia)
+    return avanzada

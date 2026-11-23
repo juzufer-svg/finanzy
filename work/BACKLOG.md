@@ -29,3 +29,9 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-022 | Decidir si la nueva transacción propone una fecha del mes que se está viendo | mejora | bajo | Descartado: el dueño decidió (2026-11-22) que siga proponiendo hoy; la fecha se elige en el campo Fecha | CHG-009 |
 | BL-023 | Asistente con Claude para preguntar por las finanzas en lenguaje natural (tool use, solo lectura, Haiku) | nueva-funcionalidad | medio | En revisión (CHG-010; requiere `ANTHROPIC_API_KEY` en Railway y saldo en la Claude Console) | Pedido del dueño 2026-11-22 |
 | BL-024 | Menú «Asistente IA» y, en el celular, que el menú lateral no reaparezca solo al abrir el asistente | mejora | bajo | En revisión (CHG-011) | Pedido del dueño 2026-11-22 |
+| BL-025 | Transacciones recurrentes que se proponen y se confirman (mensual, quincenal, semanal) | nueva-funcionalidad | medio | En revisión (CHG-012; SQL `2026-11-23_recurrentes.sql` antes del despliegue) | Pedido del dueño 2026-11-23 (A1) |
+| BL-026 | Copiar los presupuestos del mes anterior | mejora | bajo | En revisión (CHG-012) | Pedido del dueño 2026-11-23 (A3) |
+| BL-027 | Editar el nombre y cambiar la contraseña desde el perfil | seguridad | medio | En revisión (CHG-012) | Pedido del dueño 2026-11-23 (A4) |
+| BL-028 | Página propia de Categorías y avisos de presupuesto en el Inicio | mejora | bajo | En revisión (CHG-012) | Pedido del dueño 2026-11-23 (A5, A6) |
+| BL-029 | Rediseño visual: Inicio, botón «+» en el celular, página pública, modo oscuro, textos y estados vacíos | mejora | bajo | En revisión (CHG-012) | Pedido del dueño 2026-11-23 (B1-B6) |
+| BL-030 | Decidir si los formularios piden los montos en la moneda que se está viendo (hoy siempre en pesos COP, aunque se muestre en US$) | mejora | medio | Pendiente (decisión del dueño) | Hallazgo de CHG-012 |

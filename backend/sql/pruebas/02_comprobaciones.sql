@@ -46,5 +46,33 @@ begin
     raise exception 'se aceptó un medio de pago no permitido';
   exception when check_violation then null;
   end;
-  raise notice 'OK: migraciones de huérfanos y de medio de pago verificadas';
+  -- CHG-012: recurrentes con sus reglas; borrar la categoría la deja sin categoría y borrar el usuario la borra
+  insert into public.categorias(id, usuario_id, nombre, tipo) values ('cccccccc-0000-0000-0000-000000000001', '44444444-4444-4444-4444-444444444444', 'Arriendo', 'gasto');
+  insert into public.recurrentes(usuario_id, categoria_id, tipo, monto, frecuencia, dia_ancla, proxima_fecha)
+    values ('44444444-4444-4444-4444-444444444444', 'cccccccc-0000-0000-0000-000000000001', 'gasto', 1500000, 'mensual', 31, '2026-12-31');
+  begin
+    insert into public.recurrentes(usuario_id, tipo, monto, frecuencia, dia_ancla, proxima_fecha)
+      values ('44444444-4444-4444-4444-444444444444', 'gasto', 1, 'diaria', 1, '2026-12-01');
+    raise exception 'se aceptó una frecuencia no permitida';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.recurrentes(usuario_id, tipo, monto, frecuencia, dia_ancla, proxima_fecha)
+      values ('44444444-4444-4444-4444-444444444444', 'gasto', 0, 'mensual', 1, '2026-12-01');
+    raise exception 'se aceptó un monto de 0';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.recurrentes(usuario_id, tipo, monto, frecuencia, dia_ancla, proxima_fecha)
+      values ('55555555-5555-5555-5555-555555555555', 'gasto', 1, 'mensual', 1, '2026-12-01');
+    raise exception 'se pudo insertar una recurrente huérfana';
+  exception when foreign_key_violation then null;
+  end;
+  select count(*) into n from pg_tables where schemaname = 'public' and tablename = 'recurrentes' and rowsecurity;
+  if n <> 1 then raise exception 'recurrentes sin RLS'; end if;
+  delete from public.categorias where id = 'cccccccc-0000-0000-0000-000000000001';
+  select count(*) into n from public.recurrentes where categoria_id is null; if n <> 1 then raise exception 'recurrentes: SET NULL no aplicado'; end if;
+  delete from public.users where id = '44444444-4444-4444-4444-444444444444';
+  select count(*) into n from public.recurrentes; if n <> 0 then raise exception 'recurrentes: CASCADE de usuario no aplicado'; end if;
+  raise notice 'OK: migraciones de huérfanos, medio de pago y recurrentes verificadas';
 end $$;

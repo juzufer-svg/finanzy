@@ -219,3 +219,52 @@ export function upToToday<T extends MovimientoBase>(items: T[], mes: string, tod
   const dia = today.getDate()
   return items.filter(t => !t.fecha.startsWith(mes) || Number(t.fecha.slice(8, 10)) <= dia)
 }
+
+/** Estado de un presupuesto según lo gastado (REQ-F-007 CA-2): ≥ 75 % aviso, ≥ 100 % excedido. */
+export type EstadoPresupuesto = 'ok' | 'aviso' | 'excedido'
+
+export interface AlertaPresupuesto {
+  categoria_id: string
+  nombre: string
+  gastado: number
+  limite: number
+  porcentaje: number
+  estado: EstadoPresupuesto
+}
+
+export function estadoPresupuesto(gastado: number, limite: number): EstadoPresupuesto {
+  if (limite <= 0) return 'ok'
+  const pct = (gastado / limite) * 100
+  return pct >= 100 ? 'excedido' : pct >= 75 ? 'aviso' : 'ok'
+}
+
+/** Presupuestos del mes en aviso o excedidos (CHG-012, A6), primero los más gastados. */
+export function budgetAlerts(presupuestos: PresupuestoBase[], movimientos: MovimientoBase[], categorias: CategoriaBase[]): AlertaPresupuesto[] {
+  const gastos = totalsByCategory(movimientos, 'gasto')
+  return presupuestos
+    .map(p => {
+      const gastado = gastos[p.categoria_id] ?? 0
+      const limite = Number(p.limite_mensual)
+      return {
+        categoria_id: p.categoria_id,
+        nombre: categorias.find(c => c.id === p.categoria_id)?.nombre ?? 'Categoría',
+        gastado,
+        limite,
+        porcentaje: limite > 0 ? (gastado / limite) * 100 : 0,
+        estado: estadoPresupuesto(gastado, limite),
+      }
+    })
+    .filter(a => a.estado !== 'ok')
+    .sort((a, b) => b.porcentaje - a.porcentaje)
+}
+
+/** Las `n` categorías con más gasto; el resto se agrupa en "Otras". Sin categoría = "Sin categoría". */
+export function topSpending(movimientos: MovimientoBase[], categorias: CategoriaBase[], n = 5): { nombre: string; total: number }[] {
+  const totales = totalsByCategory(movimientos, 'gasto')
+  const filas = Object.entries(totales)
+    .map(([id, total]) => ({ nombre: categorias.find(c => c.id === id)?.nombre ?? 'Sin categoría', total }))
+    .sort((a, b) => b.total - a.total)
+  if (filas.length <= n) return filas
+  const resto = filas.slice(n - 1).reduce((s, f) => s + f.total, 0)
+  return [...filas.slice(0, n - 1), { nombre: 'Otras', total: resto }]
+}

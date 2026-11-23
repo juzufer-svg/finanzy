@@ -21,7 +21,9 @@ const IS_PROD = process.env.NODE_ENV === 'production'
 // El prefijo __Host- obliga a Secure, Path=/ y sin Domain (no se comparte con subdominios).
 const COOKIE_NAME = IS_PROD ? '__Host-finanzy_session' : 'finanzy_session'
 const DEFAULT_MAX_AGE = 7 * 24 * 60 * 60 // 7 días, igual que la sesión del backend
-const TOKEN_ROUTES = new Set(['auth/login', 'auth/verify-email'])
+// Respuestas que traen un token nuevo: inicio de sesión y cambio de contraseña desde el perfil
+// (CHG-012: el backend sube la versión de sesión y entrega un token para este dispositivo).
+const TOKEN_ROUTES = new Set(['auth/login', 'auth/verify-email', 'users/me/password'])
 const SAFE_METHODS = new Set(['GET', 'HEAD'])
 const MAX_BODY_BYTES = 64 * 1024
 
@@ -169,7 +171,7 @@ async function handle(req: NextRequest, ctx: Ctx) {
   const upstreamType = upstream.headers.get('content-type') || ''
   const headers = { 'Cache-Control': 'no-store' }
 
-  // Inicio de sesión: el token va a la cookie y se quita de la respuesta
+  // Inicio de sesión o cambio de contraseña: el token va a la cookie y se quita de la respuesta
   if (req.method === 'POST' && TOKEN_ROUTES.has(path) && upstream.ok && upstreamType.includes('application/json')) {
     const data = await upstream.json()
     if (data && typeof data.access_token === 'string') {
