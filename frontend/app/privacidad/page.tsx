@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import FinanzyLogo from '@/components/FinanzyLogo'
+import { LegalPage, Seccion } from '@/components/LegalPage'
 
 // Política de privacidad pública (CHG-014): la exige Meta para publicar la app de WhatsApp.
 // También sirve como «instrucciones de eliminación de datos» (sección 6). Solo describe lo que la
@@ -13,39 +13,18 @@ export const metadata: Metadata = {
 
 const ACTUALIZADA = '23 de noviembre de 2026'
 
-function Seccion({ id, titulo, children }: { id: string; titulo: string; children: React.ReactNode }) {
-  return (
-    <section id={id} aria-labelledby={`${id}-titulo`} className="space-y-3">
-      <h2 id={`${id}-titulo`} className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">{titulo}</h2>
-      <div className="space-y-3 text-slate-700 dark:text-slate-300 leading-relaxed">{children}</div>
-    </section>
-  )
-}
-
 export default function Privacidad() {
   return (
-    <div className="min-h-screen bg-[#fff] dark:bg-slate-900">
-      <header className="border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
-          <Link href="/" aria-label="Finanzy, ir al inicio" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-            <FinanzyLogo variant="horizontal" size={28} />
-          </Link>
-          <Link href="/auth/login" className="text-sm font-semibold text-blue-600 hover:underline">Iniciar sesión</Link>
-        </div>
-      </header>
-
-      <main className="px-4 md:px-8 py-8 md:py-12 pb-[max(2rem,env(safe-area-inset-bottom))]">
-        <article className="max-w-3xl mx-auto space-y-8">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Política de privacidad</h1>
-            <p className="text-sm text-slate-500 mt-2">Última actualización: {ACTUALIZADA}</p>
-            <p className="mt-4 text-slate-700 dark:text-slate-300 leading-relaxed">
-              Finanzy es una aplicación de finanzas personales para registrar ingresos, gastos, presupuestos y metas de ahorro.
-              Esta página explica qué datos guarda, para qué los usa, con qué servicios se procesan y cómo eliminarlos.
-              Finanzy no vende tus datos ni los usa para publicidad.
-            </p>
-          </div>
-
+    <LegalPage
+      titulo="Política de privacidad"
+      actualizada={ACTUALIZADA}
+      intro={<p>
+        Finanzy es una aplicación de finanzas personales para registrar ingresos, gastos, presupuestos y metas de ahorro.
+        Esta página explica qué datos guarda, para qué los usa, con qué servicios se procesan y cómo eliminarlos.
+        Finanzy no vende tus datos ni los usa para publicidad. El uso de la app también se rige por las{' '}
+        <Link href="/terminos" className="text-blue-600 hover:underline">condiciones del servicio</Link>.
+      </p>}
+    >
           <Seccion id="datos" titulo="1. Qué datos guardamos">
             <ul className="list-disc pl-5 space-y-1.5">
               <li><strong>Cuenta:</strong> tu nombre, tu correo electrónico, tu moneda preferida y tu contraseña (guardada solo como un código cifrado irreversible, nunca en texto).</li>
@@ -118,11 +97,6 @@ export default function Privacidad() {
             <p>Si cambia la forma en que tratamos tus datos, actualizaremos esta página y su fecha de actualización.</p>
           </Seccion>
 
-          <p className="pt-4 border-t border-slate-200 dark:border-slate-700 text-sm">
-            <Link href="/" className="font-semibold text-blue-600 hover:underline">← Volver a Finanzy</Link>
-          </p>
-        </article>
-      </main>
-    </div>
+    </LegalPage>
   )
 }

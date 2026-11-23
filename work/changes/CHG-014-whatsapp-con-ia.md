@@ -64,3 +64,4 @@ Resultado: backend 300 pruebas. Ciclos usados: 2 de 3. **Pendiente: visto bueno 
 - Versión de la Graph API por defecto: `v25.0` (la que muestra el panel de Meta del dueño).
 - Prueba en Meta: los mensajes entrantes llegan al webhook de prueba; el envío falla con 131031 «Business Account locked» (restricción de la cuenta en Meta, no del código).
 - 2026-11-23: página pública de privacidad `frontend/app/privacidad/page.tsx` (`/privacidad`, enlazada desde la portada). Meta la exige para publicar la app; su sección 6 sirve como instrucciones de eliminación de datos. Aprobada por el dueño («Si créala… y despliega en main»).
+- 2026-11-23: página pública de condiciones del servicio `frontend/app/terminos/page.tsx` (`/terminos`) y diseño común `components/LegalPage.tsx` para ambas páginas legales. Pedida por el dueño para la configuración de Meta.
