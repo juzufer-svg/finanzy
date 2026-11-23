@@ -42,3 +42,14 @@
 - H4 (menor, aceptado): si alguien borró todas sus categorías, al crear una se vuelven a sembrar las por defecto (ya
   pasaba con GET). H6: solo nota (un NaN llegaría como null y la API responde 422).
 Resultado: backend 232 pruebas, pyflakes 0, eslint 0, `npm test` 28/28, build correcto.
+
+## 5. Aplicación en Supabase (2026-11-23)
+- Intento 1: error `column "created_at" does not exist` (la tabla real `categorias` no la tiene; la base de prueba sí).
+  Corregido: se conserva la categoría con más transacciones; la base de prueba ahora refleja producción.
+- Intento 2: error `relation "mapa_categorias" does not exist`: el SQL Editor ejecuta cada sentencia por separado y la
+  tabla temporal no sobrevive. Corregido: la fusión va en un solo bloque `DO` (atómico). Probado ejecutando cada
+  sentencia en su propia sesión.
+- Verificado en la base real (consultas de solo lectura): tabla `recurrentes` con RLS y sin acceso para anon/authenticated,
+  los dos índices UNIQUE creados, 0 categorías y 0 presupuestos repetidos (no había nada que fusionar), datos intactos
+  (51 categorías, 1 presupuesto, 76 transacciones), `respaldo` sin acceso, función `abonar_meta` presente.
+  **No hace falta volver a ejecutar nada.**

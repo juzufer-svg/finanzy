@@ -26,52 +26,59 @@ alter table respaldo.duplicados_categorias add column if not exists respaldado_e
 create table if not exists respaldo.duplicados_presupuestos (like public.presupuestos);
 alter table respaldo.duplicados_presupuestos add column if not exists respaldado_en timestamptz default now();
 
-begin;
+-- Todo en un solo bloque: el SQL Editor de Supabase ejecuta cada sentencia por separado (una tabla
+-- temporal no sobrevive entre sentencias), y un bloque DO es atómico: si algo falla, no cambia nada.
+do $$
+begin
+  drop table if exists pg_temp.mapa_categorias;
+  drop table if exists pg_temp.presupuestos_sobrantes;
 
--- 1) Categorías: mapa duplicada → conservada
-create temporary table mapa_categorias on commit drop as
-select id as duplicada_id, conservada_id
-  from (
-    select c.id,
-           first_value(c.id) over (partition by c.usuario_id, c.nombre, c.tipo
-                                   order by (select count(*) from public.transacciones t where t.categoria_id = c.id) desc, c.id) as conservada_id
-      from public.categorias c
-  ) t
- where id <> conservada_id;
+  -- 1) Categorías: mapa duplicada → conservada (la que tiene más transacciones; la tabla no tiene fecha)
+  create temporary table mapa_categorias as
+  select id as duplicada_id, conservada_id
+    from (
+      select c.id,
+             first_value(c.id) over (partition by c.usuario_id, c.nombre, c.tipo
+                                     order by (select count(*) from public.transacciones t where t.categoria_id = c.id) desc, c.id) as conservada_id
+        from public.categorias c
+    ) t
+   where id <> conservada_id;
 
-insert into respaldo.duplicados_categorias
-select c.*, m.conservada_id, now()
-  from public.categorias c join mapa_categorias m on m.duplicada_id = c.id;
+  insert into respaldo.duplicados_categorias
+  select c.*, m.conservada_id, now()
+    from public.categorias c join mapa_categorias m on m.duplicada_id = c.id;
 
-update public.transacciones t set categoria_id = m.conservada_id
-  from mapa_categorias m where t.categoria_id = m.duplicada_id;
-update public.presupuestos p set categoria_id = m.conservada_id
-  from mapa_categorias m where p.categoria_id = m.duplicada_id;
-update public.recurrentes r set categoria_id = m.conservada_id
-  from mapa_categorias m where r.categoria_id = m.duplicada_id;
-delete from public.categorias c using mapa_categorias m where c.id = m.duplicada_id;
+  update public.transacciones t set categoria_id = m.conservada_id
+    from mapa_categorias m where t.categoria_id = m.duplicada_id;
+  update public.presupuestos p set categoria_id = m.conservada_id
+    from mapa_categorias m where p.categoria_id = m.duplicada_id;
+  update public.recurrentes r set categoria_id = m.conservada_id
+    from mapa_categorias m where r.categoria_id = m.duplicada_id;
+  delete from public.categorias c using mapa_categorias m where c.id = m.duplicada_id;
 
--- 2) Presupuestos repetidos (también los que quedaron repetidos al fusionar categorías)
-create temporary table presupuestos_sobrantes on commit drop as
-select id
-  from (
-    select id,
-           row_number() over (partition by usuario_id, categoria_id, mes_ano order by limite_mensual desc, id) as n
-      from public.presupuestos
-  ) t
- where n > 1;
+  -- 2) Presupuestos repetidos (también los que quedaron repetidos al fusionar categorías)
+  create temporary table presupuestos_sobrantes as
+  select id
+    from (
+      select id,
+             row_number() over (partition by usuario_id, categoria_id, mes_ano order by limite_mensual desc, id) as n
+        from public.presupuestos
+    ) t
+   where n > 1;
 
-insert into respaldo.duplicados_presupuestos
-select p.*, now() from public.presupuestos p join presupuestos_sobrantes s on s.id = p.id;
-delete from public.presupuestos p using presupuestos_sobrantes s where p.id = s.id;
+  insert into respaldo.duplicados_presupuestos
+  select p.*, now() from public.presupuestos p join presupuestos_sobrantes s on s.id = p.id;
+  delete from public.presupuestos p using presupuestos_sobrantes s where p.id = s.id;
 
--- 3) Restricciones
-create unique index if not exists categorias_usuario_nombre_tipo_unico
-  on public.categorias (usuario_id, nombre, tipo);
-create unique index if not exists presupuestos_usuario_categoria_mes_unico
-  on public.presupuestos (usuario_id, categoria_id, mes_ano);
+  drop table mapa_categorias;
+  drop table presupuestos_sobrantes;
 
-commit;
+  -- 3) Restricciones
+  create unique index if not exists categorias_usuario_nombre_tipo_unico
+    on public.categorias (usuario_id, nombre, tipo);
+  create unique index if not exists presupuestos_usuario_categoria_mes_unico
+    on public.presupuestos (usuario_id, categoria_id, mes_ano);
+end $$;
 
 -- Comprobación: dos índices únicos, y cuántas filas se respaldaron (0 si no había duplicados)
 select indexname from pg_indexes
