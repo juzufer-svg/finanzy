@@ -72,3 +72,34 @@ export function formatAmount(amount: number, currency: string): string {
     minimumFractionDigits: 0,
   })}`
 }
+
+// ── Montos en formularios (CHG-013, BL-030) ──
+// Los montos se guardan en la moneda base (COP). Los formularios los muestran y los reciben en la
+// moneda elegida; al guardar se convierten a la base. Si la persona no tocó el campo, se conserva el
+// valor original exacto: una conversión de ida y vuelta (85.000 → US$23,44 → 84.988) no lo altera.
+
+/** Símbolo de la moneda para el prefijo de los campos de monto. */
+export function currencySymbol(currency: string): string {
+  return CURRENCY_DISPLAY[currency]?.symbol ?? '$'
+}
+
+/** Valor para un campo de monto: el monto base convertido a la moneda elegida, con hasta 2 decimales. */
+export function toInputValue(base: number, baseCurrency: string, currency: string, rates: Record<string, number>): string {
+  const v = convertAmount(Number(base), baseCurrency, currency, rates)
+  return String(Math.round(v * 100) / 100)
+}
+
+/**
+ * Monto en la moneda base a partir de lo que escribió la persona (en la moneda elegida).
+ * Con `original` (al editar): si el texto no cambió respecto de `originalText`, devuelve `original` tal cual.
+ * Redondea a 2 decimales (la columna es NUMERIC(12,2)). Devuelve NaN si el texto no es un número.
+ */
+export function fromInputValue(
+  text: string, baseCurrency: string, currency: string, rates: Record<string, number>,
+  original?: { base: number; text: string },
+): number {
+  if (original && text.trim() === original.text) return Number(original.base)
+  const n = Number(String(text).replace(',', '.'))
+  if (!Number.isFinite(n)) return NaN
+  return Math.round(convertAmount(n, currency, baseCurrency, rates) * 100) / 100
+}

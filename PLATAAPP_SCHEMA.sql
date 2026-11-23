@@ -97,6 +97,10 @@ CREATE INDEX idx_presupuestos_categoria ON presupuestos(categoria_id);
 CREATE INDEX idx_recurrentes_usuario ON recurrentes(usuario_id);
 CREATE INDEX idx_recurrentes_categoria ON recurrentes(categoria_id);
 
+-- Sin duplicados (CHG-013, INV-028)
+CREATE UNIQUE INDEX categorias_usuario_nombre_tipo_unico ON categorias(usuario_id, nombre, tipo);
+CREATE UNIQUE INDEX presupuestos_usuario_categoria_mes_unico ON presupuestos(usuario_id, categoria_id, mes_ano);
+
 -- Las categorías por defecto las crea el backend para cada usuario la primera vez que las pide
 -- (no se insertan aquí: una fila con un usuario inexistente sería un registro huérfano).
 

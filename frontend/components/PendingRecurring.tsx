@@ -12,6 +12,7 @@ import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
 import { cuandoTexto, localDate, type Recurrente } from '@/lib/recurrentes'
 import { shortDate } from '@/lib/month-stats'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface Category { id: string; nombre: string; icono?: string }
 
@@ -24,6 +25,8 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
   refreshKey?: number
 }) {
   const fmt = useCurrencyStore(s => s.fmt)
+  const toInput = useCurrencyStore(s => s.toInput)
+  const toBase = useCurrencyStore(s => s.toBase)
   const { confirm, notify } = useDialog()
   const [items, setItems] = useState<Recurrente[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -65,8 +68,11 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
   }
 
   const registrar = async (r: Recurrente) => {
+    // El monto se escribe en la moneda elegida. Si no se tocó, no se envía: el backend usa el de la
+    // plantilla tal cual (sin redondeos de la conversión, CHG-013)
     const texto = montos[r.id]
-    const monto = texto === undefined || texto === '' ? undefined : Number(texto)
+    const propuesto = toInput(r.monto)
+    const monto = texto === undefined || texto === '' || texto.trim() === propuesto ? undefined : toBase(texto)
     if (monto !== undefined && !(monto > 0)) {
       notify('Escribe un monto mayor que 0.', 'error')
       return
@@ -149,11 +155,11 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
               <div className="flex items-center gap-2 sm:flex-shrink-0">
                 <label htmlFor={`pend-monto-${r.id}`} className="sr-only">Monto de {nombre(r)}</label>
                 <div className="relative flex-1 sm:w-36 sm:flex-none">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm" aria-hidden>$</span>
+                  <MoneyPrefix />
                   <input id={`pend-monto-${r.id}`} type="number" inputMode="decimal" step="0.01" min="0.01"
-                    value={montos[r.id] ?? String(r.monto)}
+                    value={montos[r.id] ?? toInput(r.monto)}
                     onChange={e => setMontos(p => ({ ...p, [r.id]: e.target.value }))}
-                    className="input-field !pl-7 !py-2 tabular-nums" title={`Propuesto: ${fmt(r.monto)}`} />
+                    className="input-field !pl-12 !py-2 tabular-nums" title={`Propuesto: ${fmt(r.monto)}`} />
                 </div>
                 <button type="button" onClick={() => registrar(r)} disabled={busy === r.id} className="btn-primary !px-3 disabled:opacity-50">
                   {busy === r.id ? '…' : 'Registrar'}

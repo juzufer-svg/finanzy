@@ -181,9 +181,9 @@ class CategoriaDB:
                             cats.extend(seeded.data)
                     except Exception as seed_err:
                         print(f"[Supabase] categorias.seed error: {seed_err}")
-                if not cats:
-                    # seed falló completamente, devolver defaults sin persistir
-                    cats = seed
+                # Si otra petición sembró al mismo tiempo, la restricción UNIQUE rechazó estas filas
+                # (INV-028): se relee lo que quedó guardado para no devolver categorías que no existen.
+                cats = client.table("categorias").select("*").eq("usuario_id", usuario_id).execute().data
             return cats
         except Exception as e:
             print(f"[Supabase] categorias.obtener error: {e}")

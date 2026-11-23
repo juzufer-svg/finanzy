@@ -13,6 +13,7 @@ import PageHeader from '@/components/PageHeader'
 import PeriodPicker from '@/components/PeriodPicker'
 import { usePeriodStore } from '@/store/period'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface Transaction {
   id: string
@@ -38,9 +39,13 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
+  const toInput = useCurrencyStore(s => s.toInput)
+  const toBase = useCurrencyStore(s => s.toBase)
+  // Monto en la moneda elegida; si no se toca, se conserva el valor exacto (CHG-013)
+  const [montoInicial] = useState(() => toInput(transaction.monto))
   const [formData, setFormData] = useState({
     categoria_id: transaction.categoria_id || '',
-    monto: String(transaction.monto),
+    monto: montoInicial,
     descripcion: transaction.descripcion || '',
     fecha: transaction.fecha,
     tipo: transaction.tipo as 'gasto' | 'ingreso',
@@ -57,7 +62,7 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
     try {
       await apiClient.put(`/api/v1/transacciones/${transaction.id}`, {
         ...formData,
-        monto: parseFloat(formData.monto),
+        monto: toBase(formData.monto, { base: transaction.monto, text: montoInicial }),
         medio_pago: formData.medio_pago || null,
       })
       onSaved()
@@ -112,10 +117,10 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
           <div>
             <label htmlFor="txe-monto" className="block text-xs font-semibold text-slate-700 mb-1.5">Monto</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+              <MoneyPrefix />
               <input id="txe-monto" type="number" value={formData.monto} onChange={e => setFormData(p => ({...p, monto: e.target.value}))}
                 required step="0.01" min="0.01"
-                className="w-full !pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
+                className="w-full !pl-12 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
             </div>
           </div>
           <div>

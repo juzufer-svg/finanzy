@@ -8,6 +8,7 @@ import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface Goal {
   id: string
@@ -19,6 +20,7 @@ interface Goal {
 
 function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => void; onSaved: () => void }) {
   const fmt = useCurrencyStore(s => s.fmt)
+  const toBase = useCurrencyStore(s => s.toBase)
   const falta = Math.max(0, goal.monto_objetivo - goal.monto_actual)
   const today = new Date().toISOString().split('T')[0]
   const [monto, setMonto] = useState('')
@@ -28,8 +30,9 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const m = parseFloat(monto)
-    if (m <= 0) { setError('El monto debe ser mayor a 0'); return }
+    // Se escribe en la moneda elegida y se guarda en la moneda base (CHG-013)
+    const m = toBase(monto)
+    if (!(m > 0)) { setError('El monto debe ser mayor a 0'); return }
     setSaving(true)
     setError('')
     try {
@@ -83,11 +86,11 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
           <div>
             <label htmlFor="goal-monto-a-abonar" className="block text-xs font-semibold text-slate-700 mb-1.5">Monto a abonar</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+              <MoneyPrefix />
               <input id="goal-monto-a-abonar"
                 type="number" value={monto} autoFocus required step="0.01" min="0.01"
                 onChange={e => setMonto(e.target.value)}
-                className="w-full pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none"
+                className="w-full pl-12 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none"
                 placeholder="0.00"
               />
             </div>
@@ -120,10 +123,14 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
 }
 
 function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => void; onSaved: () => void }) {
+  const toInput = useCurrencyStore(s => s.toInput)
+  const toBase = useCurrencyStore(s => s.toBase)
+  // Montos en la moneda elegida; si no se tocan, se conserva el valor exacto (CHG-013)
+  const [inicial] = useState(() => ({ objetivo: toInput(goal.monto_objetivo), actual: toInput(goal.monto_actual) }))
   const [formData, setFormData] = useState({
     nombre: goal.nombre,
-    monto_objetivo: String(goal.monto_objetivo),
-    monto_actual: String(goal.monto_actual),
+    monto_objetivo: inicial.objetivo,
+    monto_actual: inicial.actual,
     fecha_objetivo: goal.fecha_objetivo,
   })
   const [saving, setSaving] = useState(false)
@@ -135,8 +142,8 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
     try {
       await apiClient.put(`/api/v1/metas/${goal.id}`, {
         nombre: formData.nombre,
-        monto_objetivo: parseFloat(formData.monto_objetivo),
-        monto_actual: parseFloat(formData.monto_actual),
+        monto_objetivo: toBase(formData.monto_objetivo, { base: goal.monto_objetivo, text: inicial.objetivo }),
+        monto_actual: toBase(formData.monto_actual, { base: goal.monto_actual, text: inicial.actual }),
         fecha_objetivo: formData.fecha_objetivo,
       })
       onSaved()
@@ -171,19 +178,19 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
             <div>
               <label htmlFor="goal-monto-objetivo" className="label">Monto Objetivo</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+                <MoneyPrefix />
                 <input id="goal-monto-objetivo" type="number" value={formData.monto_objetivo} required step="0.01" min="1"
                   onChange={e => setFormData({ ...formData, monto_objetivo: e.target.value })}
-                  className="input-field !pl-8" />
+                  className="input-field !pl-12" />
               </div>
             </div>
             <div>
               <label htmlFor="goal-ahorrado" className="label">Ahorrado</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+                <MoneyPrefix />
                 <input id="goal-ahorrado" type="number" value={formData.monto_actual} required step="0.01" min="0"
                   onChange={e => setFormData({ ...formData, monto_actual: e.target.value })}
-                  className="input-field !pl-8" />
+                  className="input-field !pl-12" />
               </div>
             </div>
           </div>
@@ -211,6 +218,7 @@ function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => 
 
 export default function GoalsPage() {
   const router = useRouter()
+  const toBase = useCurrencyStore(s => s.toBase)
   const fmt = useCurrencyStore(s => s.fmt)
   const [goals, setGoals] = useState<Goal[]>([])
   const [loading, setLoading] = useState(true)
@@ -251,7 +259,7 @@ export default function GoalsPage() {
     try {
       await apiClient.post('/api/v1/metas', {
         ...formData,
-        monto_objetivo: parseFloat(formData.monto_objetivo)
+        monto_objetivo: toBase(formData.monto_objetivo)
       })
       await fetchGoals()
       setShowForm(false)
@@ -334,10 +342,10 @@ export default function GoalsPage() {
             <div>
               <label htmlFor="goal-monto-objetivo-2" className="label">Monto Objetivo</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+                <MoneyPrefix />
                 <input id="goal-monto-objetivo-2" type="number" value={formData.monto_objetivo}
                   onChange={(e) => setFormData({ ...formData, monto_objetivo: e.target.value })}
-                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-8" />
+                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-12" />
               </div>
             </div>
             <div>

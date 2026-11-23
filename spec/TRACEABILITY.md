@@ -18,7 +18,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | REQ-F-008 | UC-007 | CT-006 | `be/api/routes/plataapp.py`, `fe/app/dashboard/goals/page.tsx`, `fe/components/GoalProgressCard.tsx` | `t/test_metas.py::test_meta_completada_cuando_lo_ahorrado_alcanza_el_objetivo`, `t/test_propiedad.py` · BDD-METAS | Verificado |
 | REQ-F-009 | UC-007, WF-002 | CT-006 `abonar` | `be/api/routes/plataapp.py::abonar_meta`, `be/models/plataapp.py::MetaDB.abonar`, `backend/sql/2026-11-22_abonar_meta_atomico.sql` | `t/test_metas.py` · BDD-METAS | Verificado |
 | REQ-F-010 | UC-008 | CT-003, CT-005 `GET /presupuestos/{mes}` | `fe/app/dashboard/reports/page.tsx`, `fe/lib/month-stats.ts`, `fe/components/SpendingChart.tsx` | `frontend/tests/month-stats.test.mjs` (`npm test`, en CI; incluye fechas futuras con `upToToday`) · BDD-TRANSACCIONES | Verificado (cálculos; el gráfico, revisión manual) |
-| REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `be/models/user.py::update_currency`, `fe/store/currency.ts`, `fe/lib/currency.ts`, `fe/app/dashboard/profile/page.tsx` | `t/test_endurecimiento.py::test_moneda_*` (guardado en servidor; conversión en frontend sin prueba) | Implementado |
+| REQ-F-011 | UC-009 | CT-002 `me/currency` | `be/api/routes/users.py`, `be/models/user.py::update_currency`, `fe/store/currency.ts` (`toInput`, `toBase`, `symbol`), `fe/lib/currency.ts`, `fe/components/MoneyPrefix.tsx`, formularios de transacciones, presupuestos, metas y recurrentes, `fe/app/dashboard/profile/page.tsx` | `t/test_endurecimiento.py::test_moneda_*` (guardado en servidor), `frontend/tests/currency.test.mjs` (montos en la moneda elegida, CA-3), recorrido Playwright (CHG-013) | Verificado (CA-3 y guardado; la conversión de la vista, sin prueba de interfaz) |
 | REQ-F-012 | — | — | `fe/store/theme.ts`, `fe/components/ThemeProvider.tsx` | — | Implementado |
 | REQ-F-013 | UC-010 | CT-002 `DELETE me` | `be/api/routes/users.py`, `be/models/user.py`, `fe/app/dashboard/profile/page.tsx`, llaves foráneas `backend/sql/2026-11-22_huerfanos_3_llaves_foraneas.sql` (CHG-005) | `backend/sql/pruebas/probar.sh` (cascada en la BD, INV-021) | Implementado (la cascada se verifica en CI; el endpoint, sin prueba) |
 | REQ-F-014 | — | CT-002 `GET me`, `PUT me`, `POST me/password` (v1.1) | `be/api/routes/users.py` (`update_profile`, `change_password`), `be/models/user.py::update_full_name`, `be/schemas/auth.py`, `fe/app/api/v1/[...path]/route.ts` (`TOKEN_ROUTES`), `fe/components/ProfileForms.tsx`, `fe/app/dashboard/profile/page.tsx` | `t/test_perfil.py` (CA-2, CA-3, INV-027, INV-018) | Verificado (CA-2/CA-3 backend; CA-1 y la interfaz, revisión manual) |
@@ -64,8 +64,9 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-025 | `test_recurrentes.py::test_inv025_*` |
 | INV-026 | `test_recurrentes.py::test_inv026_*`, `backend/sql/pruebas/02_comprobaciones.sql` |
 | INV-027 | `test_perfil.py::test_inv027_*` |
+| INV-028 | `test_sin_duplicados.py::*`, `backend/sql/pruebas/04_comprobar_duplicados.sql` |
 | INV-024 | `test_asistente.py::test_inv024_*`, `::test_sin_clave_responde_503_y_no_llama_a_claude`, `::test_ultima_ronda_obliga_a_responder_sin_herramientas` |
 
 ## Huérfanos (deben quedar vacíos)
-- REQ sin prueba automatizada: REQ-F-011 (conversión), REQ-F-012, REQ-F-013 (endpoint; la cascada sí se prueba en el CI de SQL), REQ-F-014 CA-1 (ver BL-010; CA-2/CA-3 ya tienen `t/test_perfil.py`, CHG-012). REQ-F-010 ya tiene `npm test` (CHG-006).
+- REQ sin prueba automatizada: REQ-F-011 (conversión de la vista; los formularios sí, CHG-013), REQ-F-012, REQ-F-013 (endpoint; la cascada sí se prueba en el CI de SQL), REQ-F-014 CA-1 (ver BL-010; CA-2/CA-3 ya tienen `t/test_perfil.py`, CHG-012). REQ-F-010 ya tiene `npm test` (CHG-006).
 - Código sin REQ: ninguno conocido.

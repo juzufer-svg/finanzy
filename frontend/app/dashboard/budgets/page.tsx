@@ -10,6 +10,8 @@ import PeriodPicker from '@/components/PeriodPicker'
 import { usePeriodStore } from '@/store/period'
 import { useRouter } from 'next/navigation'
 import { monthTitle, shiftMonth } from '@/lib/month-stats'
+import { useCurrencyStore } from '@/store/currency'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface Transaction {
   id: string
@@ -40,7 +42,11 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const [limite, setLimite] = useState(String(budget.limite_mensual))
+  const toInput = useCurrencyStore(s => s.toInput)
+  const toBase = useCurrencyStore(s => s.toBase)
+  // Límite en la moneda elegida; si no se toca, se conserva el valor exacto (CHG-013)
+  const [limiteInicial] = useState(() => toInput(budget.limite_mensual))
+  const [limite, setLimite] = useState(limiteInicial)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const cat = categories.find(c => c.id === budget.categoria_id)
@@ -51,7 +57,7 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
     setError('')
     try {
       await apiClient.put(`/api/v1/presupuestos/${budget.id}`, {
-        limite_mensual: parseFloat(limite)
+        limite_mensual: toBase(limite, { base: budget.limite_mensual, text: limiteInicial })
       })
       onSaved()
       onClose()
@@ -79,10 +85,10 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
           <div>
             <label htmlFor="bud-nuevo-limite-mensual" className="block text-xs font-semibold text-slate-700 mb-1.5">Nuevo Límite Mensual</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+              <MoneyPrefix />
               <input id="bud-nuevo-limite-mensual" type="number" value={limite} onChange={e => setLimite(e.target.value)}
                 required step="0.01" min="1" autoFocus
-                className="w-full !pl-8 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
+                className="w-full !pl-12 pr-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
             </div>
           </div>
           <button type="submit" disabled={loading}
@@ -97,6 +103,7 @@ function EditBudgetModal({ budget, categories, onClose, onSaved }: {
 
 export default function BudgetsPage() {
   const router = useRouter()
+  const toBase = useCurrencyStore(s => s.toBase)
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -150,7 +157,7 @@ export default function BudgetsPage() {
     try {
       await apiClient.post('/api/v1/presupuestos', {
         ...formData,
-        limite_mensual: parseFloat(formData.limite_mensual),
+        limite_mensual: toBase(formData.limite_mensual),
         mes_ano: currentMonth
       })
       await fetchData()
@@ -256,7 +263,8 @@ export default function BudgetsPage() {
                 required className="input-field"
               >
                 <option value="">Selecciona una categoría</option>
-                {categories.filter(c => c.tipo === 'gasto').map(cat => (
+                {/* Solo las que aún no tienen presupuesto este mes: uno por categoría y mes (INV-028) */}
+                {categories.filter(c => c.tipo === 'gasto' && !budgets.some(b => b.categoria_id === c.id)).map(cat => (
                   <option key={cat.id} value={cat.id}>{cat.nombre}</option>
                 ))}
               </select>
@@ -264,10 +272,10 @@ export default function BudgetsPage() {
             <div>
               <label htmlFor="bud-limite-mensual" className="label">Límite Mensual</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+                <MoneyPrefix />
                 <input id="bud-limite-mensual" type="number" value={formData.limite_mensual}
                   onChange={(e) => setFormData({ ...formData, limite_mensual: e.target.value })}
-                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-8" />
+                  required step="0.01" min="1" placeholder="0.00" className="input-field !pl-12" />
               </div>
             </div>
             <button type="submit" disabled={saving} className="btn-primary justify-center py-2.5">

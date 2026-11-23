@@ -11,7 +11,7 @@ def _tx(client, headers, **extra):
 
 
 def _categoria_de_a(client):
-    return client.post("/api/v1/categorias", json={"nombre": "Comida", "icono": "🍔", "tipo": "gasto"}, headers=A).json()
+    return client.post("/api/v1/categorias", json={"nombre": "Restaurantes", "icono": "🍔", "tipo": "gasto"}, headers=A).json()
 
 
 def test_inv001_otro_usuario_no_ve_edita_ni_borra_transacciones(client):

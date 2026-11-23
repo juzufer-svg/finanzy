@@ -2,7 +2,7 @@
 In-memory demo database for testing without Supabase
 Use this when real Supabase credentials are not available
 """
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 import uuid
 
 
@@ -39,21 +39,6 @@ class DemoTransaccionDB:
             transacciones = [t for t in transacciones if t["fecha"].startswith(mes)]
         
         return transacciones
-    
-    @staticmethod
-    async def obtener_resumen(usuario_id: str, mes: str) -> dict:
-        """Get transactions summary"""
-        transacciones = await DemoTransaccionDB.obtener_por_usuario(usuario_id, mes)
-        
-        ingresos = sum(t["monto"] for t in transacciones if t["tipo"] == "ingreso")
-        gastos = sum(t["monto"] for t in transacciones if t["tipo"] == "gasto")
-        
-        return {
-            "ingresos": ingresos,
-            "gastos": gastos,
-            "balance": ingresos - gastos,
-            "total_transacciones": len(transacciones)
-        }
     
     @staticmethod
     async def obtener_por_id(transaccion_id: str):
@@ -148,7 +133,10 @@ class DemoPresupuestoDB:
     
     @staticmethod
     async def crear(usuario_id: str, categoria_id: str, limite_mensual: float, mes_ano: str) -> dict:
-        """Create budget"""
+        """Create budget (UNIQUE usuario + categoría + mes, como en la BD real: INV-028)"""
+        if any(p["usuario_id"] == usuario_id and p["categoria_id"] == categoria_id and p["mes_ano"] == mes_ano
+               for p in DemoPresupuestoDB._presupuestos.values()):
+            raise ValueError("duplicate key value violates unique constraint (23505)")
         pres_id = str(uuid.uuid4())
         presupuesto = {
             "id": pres_id,

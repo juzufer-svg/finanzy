@@ -17,6 +17,7 @@ import { useCurrencyStore } from '@/store/currency'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO, medioPagoLabel } from '@/lib/payment-methods'
 import { FRECUENCIAS, frecuenciaTexto, localDate, cuandoTexto, totalMensualEstimado, type Recurrente } from '@/lib/recurrentes'
 import { shortDate } from '@/lib/month-stats'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface Category { id: string; nombre: string; tipo: string; icono?: string }
 
@@ -51,6 +52,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
   /** La próxima fecha cambió mientras se editaba: hay que recargar los datos. */
   onConflict: (mensaje: string) => void
 }) {
+  const toBase = useCurrencyStore(s => s.toBase)
   const [form, setForm] = useState<FormState>(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -64,7 +66,8 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
     const { proxima_fecha, ...resto } = form
     const body = {
       ...resto,
-      monto: parseFloat(form.monto),
+      // Escrito en la moneda elegida; al editar sin tocarlo se conserva el valor exacto (CHG-013)
+      monto: toBase(form.monto, editing ? { base: editing.monto, text: initial.monto } : undefined),
       descripcion: form.descripcion.trim(),
       medio_pago: form.medio_pago || null,
       // Al editar, la fecha solo se envía si la persona la cambió, junto con la que vio (INV-026):
@@ -118,9 +121,9 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
         <div>
           <label htmlFor="rec-monto" className="label">Monto</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm" aria-hidden>$</span>
+            <MoneyPrefix />
             <input id="rec-monto" type="number" inputMode="decimal" step="0.01" min="0.01" value={form.monto}
-              onChange={e => set('monto', e.target.value)} required placeholder="0.00" className="input-field !pl-8" />
+              onChange={e => set('monto', e.target.value)} required placeholder="0.00" className="input-field !pl-12" />
           </div>
         </div>
         <div>
@@ -162,6 +165,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
 
 export default function RecurringPage() {
   const router = useRouter()
+  const toInput = useCurrencyStore(s => s.toInput)
   const fmt = useCurrencyStore(s => s.fmt)
   const { confirm, notify } = useDialog()
   const [items, setItems] = useState<Recurrente[]>([])
@@ -239,7 +243,7 @@ export default function RecurringPage() {
 
   const initialFor = (r: Recurrente | null): FormState => r
     ? {
-        tipo: r.tipo === 'ingreso' ? 'ingreso' : 'gasto', categoria_id: r.categoria_id || '', monto: String(r.monto),
+        tipo: r.tipo === 'ingreso' ? 'ingreso' : 'gasto', categoria_id: r.categoria_id || '', monto: toInput(r.monto),
         descripcion: r.descripcion || '', medio_pago: r.medio_pago ?? '', frecuencia: r.frecuencia,
         proxima_fecha: r.proxima_fecha, activa: r.activa,
       }

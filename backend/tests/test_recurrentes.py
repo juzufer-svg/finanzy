@@ -154,7 +154,7 @@ def test_pendientes_con_fecha_invalida_es_422(client):
 
 
 def test_inv025_confirmar_crea_la_transaccion_y_avanza_la_fecha(client):
-    cat = client.post("/api/v1/categorias", json={"nombre": "Hogar", "tipo": "gasto"}, headers=A).json()
+    cat = client.post("/api/v1/categorias", json={"nombre": "Arriendo", "tipo": "gasto"}, headers=A).json()
     rec = _crear(client, categoria_id=cat["id"]).json()
     r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
     assert r.status_code == 200

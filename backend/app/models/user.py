@@ -4,7 +4,7 @@ Tabla: users(id, email, hashed_password, full_name, currency, is_active, session
 """
 from typing import Optional
 import uuid
-from app.core.security import get_password_hash, verify_password
+from app.core.security import get_password_hash
 from app.core.supabase import SupabaseDB
 
 

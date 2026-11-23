@@ -3,6 +3,8 @@ import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
+import { useCurrencyStore } from '@/store/currency'
+import MoneyPrefix from '@/components/MoneyPrefix'
 
 interface TransactionFormProps {
   categories: any[]
@@ -10,6 +12,7 @@ interface TransactionFormProps {
 }
 
 export default function TransactionForm({ categories, onSuccess }: TransactionFormProps) {
+  const toBase = useCurrencyStore(s => s.toBase)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
@@ -49,7 +52,7 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     try {
       await apiClient.post('/api/v1/transacciones', {
         ...formData,
-        monto: parseFloat(formData.monto),
+        monto: toBase(formData.monto), // escrito en la moneda elegida, se guarda en la base (CHG-013)
         medio_pago: formData.medio_pago || null,
       })
       const t2 = new Date()
@@ -156,10 +159,10 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
         <div>
           <label htmlFor="txf-monto" className="label">Monto</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">$</span>
+            <MoneyPrefix />
             <input id="txf-monto" type="number" name="monto" value={formData.monto} onChange={handleChange}
               required step="0.01" min="0.01" placeholder="0.00"
-              className="input-field !pl-8" />
+              className="input-field !pl-12" />
           </div>
         </div>
 

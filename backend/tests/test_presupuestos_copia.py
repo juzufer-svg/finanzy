@@ -19,7 +19,7 @@ def _copiar(client, desde="2026-10", hacia="2026-11", headers=A):
 
 
 def test_copia_todos_los_presupuestos_al_mes_destino(client):
-    comida, transporte = _categoria(client, "Comida"), _categoria(client, "Transporte")
+    comida, transporte = _categoria(client, "Mercado"), _categoria(client, "Gasolina")
     _presupuesto(client, comida, 800_000, "2026-10")
     _presupuesto(client, transporte, 200_000, "2026-10")
     r = _copiar(client)
@@ -32,7 +32,7 @@ def test_copia_todos_los_presupuestos_al_mes_destino(client):
 
 
 def test_no_reemplaza_ni_duplica_los_que_ya_existen(client):
-    comida, ocio = _categoria(client, "Comida"), _categoria(client, "Ocio")
+    comida, ocio = _categoria(client, "Mercado"), _categoria(client, "Ocio")
     _presupuesto(client, comida, 800_000, "2026-10")
     _presupuesto(client, ocio, 100_000, "2026-10")
     _presupuesto(client, comida, 950_000, "2026-11")  # la persona ya lo ajustó para noviembre

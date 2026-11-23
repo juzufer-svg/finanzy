@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import { fetchRates, convertAmount, formatAmount, FALLBACK_RATES } from '@/lib/currency'
+import { fetchRates, convertAmount, formatAmount, FALLBACK_RATES, toInputValue, fromInputValue, currencySymbol } from '@/lib/currency'
 
 interface CurrencyStore {
   currency: string        // display currency (what user selected)
@@ -12,6 +12,12 @@ interface CurrencyStore {
   loadRates: () => Promise<void>
   fmt: (amount: number) => string
   convert: (amount: number) => number
+  /** Monto base → texto para un campo de monto en la moneda elegida (CHG-013). */
+  toInput: (base: number) => string
+  /** Texto de un campo (moneda elegida) → monto base; `original` conserva el valor si no se tocó. */
+  toBase: (text: string, original?: { base: number; text: string }) => number
+  /** Símbolo para el prefijo de los campos de monto. */
+  symbol: string
 }
 
 type CurrencySnapshot = Pick<CurrencyStore, 'currency' | 'baseCurrency' | 'rates'>
@@ -41,6 +47,16 @@ function buildConverter(snapshot: CurrencySnapshot) {
   return (amount: number) => convertAmount(amount, snapshot.baseCurrency, snapshot.currency, r)
 }
 
+function buildInputHelpers(snapshot: CurrencySnapshot) {
+  const r = Object.keys(snapshot.rates).length ? snapshot.rates : FALLBACK_RATES
+  return {
+    toInput: (base: number) => toInputValue(base, snapshot.baseCurrency, snapshot.currency, r),
+    toBase: (text: string, original?: { base: number; text: string }) =>
+      fromInputValue(text, snapshot.baseCurrency, snapshot.currency, r, original),
+    symbol: currencySymbol(snapshot.currency),
+  }
+}
+
 function buildFormatter(snapshot: CurrencySnapshot) {
   const convert = buildConverter(snapshot)
   return (amount: number) => formatAmount(convert(amount), snapshot.currency)
@@ -64,6 +80,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       currency,
       convert: buildConverter(snapshot),
       fmt: buildFormatter(snapshot),
+      ...buildInputHelpers(snapshot),
     })
   },
 
@@ -81,8 +98,15 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       ratesLoaded: true,
       convert: buildConverter(snapshot),
       fmt: buildFormatter(snapshot),
+      ...buildInputHelpers(snapshot),
     })
   },
+
+  ...buildInputHelpers({
+    currency: readStorage('currency', 'USD'),
+    baseCurrency: getInitialBaseCurrency(),
+    rates: {},
+  }),
 
   convert: buildConverter({
     currency: readStorage('currency', 'USD'),

@@ -14,3 +14,9 @@ Salida: `{ "id", "usuario_id", "nombre", "icono", "tipo" }`
 | `DELETE /categorias/{id}` | 200 `{ "message": "Categoría eliminada" }` | 404; 409 "No se pudo eliminar. Puede tener transacciones asociadas." |
 
 Efectos de eliminar: sus transacciones quedan sin categoría (`ON DELETE SET NULL`) y sus presupuestos se eliminan (`CASCADE`).
+
+## CHG-013 (v1.1) · INV-028
+- `POST` y `PUT`: el nombre se guarda sin espacios sobrantes (vacío → 422). Si la persona ya tiene una categoría con
+  ese nombre (sin distinguir mayúsculas) y el mismo tipo → **409** «Ya tienes una categoría con ese nombre y tipo.»
+- La primera carga crea las categorías por defecto; si dos cargas llegan a la vez, la restricción UNIQUE evita duplicarlas
+  y se devuelve lo que quedó guardado.

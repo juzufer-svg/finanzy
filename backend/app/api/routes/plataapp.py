@@ -45,6 +45,24 @@ async def _ensure_categoria_propia(categoria_id: Optional[str], usuario_id: str)
     _ensure_owner(categoria, usuario_id, "Categoría no encontrada")
 
 
+def _es_duplicado(error: Exception) -> bool:
+    """¿La base de datos rechazó la escritura por una restricción UNIQUE (INV-028)?"""
+    texto = str(error).lower()
+    return "23505" in texto or "duplicate key" in texto or "unique" in texto
+
+
+_CATEGORIA_REPETIDA = "Ya tienes una categoría con ese nombre y tipo."
+_PRESUPUESTO_REPETIDO = "Ya hay un presupuesto para esa categoría en este mes. Edítalo en lugar de crear otro."
+
+
+async def _ensure_categoria_no_repetida(usuario_id: str, nombre: str, tipo: str, excepto: Optional[str] = None) -> None:
+    """409 si la persona ya tiene una categoría con ese nombre (sin distinguir mayúsculas ni espacios) y tipo."""
+    clave = " ".join(nombre.split()).casefold()
+    for c in await CategoriaDB.obtener_por_usuario(usuario_id):
+        if c["id"] != excepto and c.get("tipo") == tipo and " ".join(str(c.get("nombre", "")).split()).casefold() == clave:
+            raise HTTPException(status_code=409, detail=_CATEGORIA_REPETIDA)
+
+
 def _porcentaje(meta: dict) -> float:
     objetivo = float(meta["monto_objetivo"])
     return float(meta["monto_actual"]) / objetivo * 100 if objetivo > 0 else 0
@@ -116,12 +134,16 @@ async def eliminar_transaccion(transaccion_id: str, authorization: str = Header(
 @router.post("/categorias", response_model=CategoriaResponse)
 async def crear_categoria(categoria: CategoriaCreate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
-    return await CategoriaDB.crear(
-        usuario_id=usuario_id,
-        nombre=categoria.nombre,
-        icono=categoria.icono,
-        tipo=categoria.tipo
-    )
+    nombre = " ".join(categoria.nombre.split())
+    if not nombre:
+        raise HTTPException(status_code=422, detail="El nombre no puede estar vacío")
+    await _ensure_categoria_no_repetida(usuario_id, nombre, categoria.tipo)  # INV-028
+    try:
+        return await CategoriaDB.crear(usuario_id=usuario_id, nombre=nombre, icono=categoria.icono, tipo=categoria.tipo)
+    except Exception as e:
+        if _es_duplicado(e):  # otra petición la creó al mismo tiempo
+            raise HTTPException(status_code=409, detail=_CATEGORIA_REPETIDA)
+        raise
 
 
 @router.get("/categorias", response_model=list[CategoriaResponse])
@@ -134,7 +156,16 @@ async def obtener_categorias(authorization: str = Header(...)):
 async def actualizar_categoria(categoria_id: str, datos: CategoriaUpdate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     _ensure_owner(await CategoriaDB.obtener_por_id(categoria_id, usuario_id), usuario_id, "Categoría no encontrada")
-    actualizada = await CategoriaDB.actualizar(categoria_id, usuario_id, datos.nombre, datos.icono, datos.tipo)
+    nombre = " ".join(datos.nombre.split())
+    if not nombre:
+        raise HTTPException(status_code=422, detail="El nombre no puede estar vacío")
+    await _ensure_categoria_no_repetida(usuario_id, nombre, datos.tipo, excepto=categoria_id)  # INV-028
+    try:
+        actualizada = await CategoriaDB.actualizar(categoria_id, usuario_id, nombre, datos.icono, datos.tipo)
+    except Exception as e:
+        if _es_duplicado(e):
+            raise HTTPException(status_code=409, detail=_CATEGORIA_REPETIDA)
+        raise
     if not actualizada:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
     return actualizada
@@ -160,12 +191,20 @@ async def eliminar_categoria(categoria_id: str, authorization: str = Header(...)
 async def crear_presupuesto(presupuesto: PresupuestoCreate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(presupuesto.categoria_id, usuario_id)
-    return await PresupuestoDB.crear(
-        usuario_id=usuario_id,
-        categoria_id=presupuesto.categoria_id,
-        limite_mensual=presupuesto.limite_mensual,
-        mes_ano=presupuesto.mes_ano
-    )
+    del_mes = await PresupuestoDB.obtener_por_usuario_mes(usuario_id, presupuesto.mes_ano)
+    if any(str(p["categoria_id"]) == presupuesto.categoria_id for p in del_mes):  # INV-028
+        raise HTTPException(status_code=409, detail=_PRESUPUESTO_REPETIDO)
+    try:
+        return await PresupuestoDB.crear(
+            usuario_id=usuario_id,
+            categoria_id=presupuesto.categoria_id,
+            limite_mensual=presupuesto.limite_mensual,
+            mes_ano=presupuesto.mes_ano
+        )
+    except Exception as e:
+        if _es_duplicado(e):  # otra petición lo creó al mismo tiempo
+            raise HTTPException(status_code=409, detail=_PRESUPUESTO_REPETIDO)
+        raise
 
 
 @router.post("/presupuestos/copiar", response_model=CopiaPresupuestosResponse)
@@ -183,12 +222,19 @@ async def copiar_presupuestos(datos: CopiarPresupuestos, authorization: str = He
         if categoria_id in con_presupuesto:
             continue  # ya tiene límite en el mes destino: se respeta el que eligió la persona
         await _ensure_categoria_propia(categoria_id, usuario_id)  # INV-002
-        await PresupuestoDB.crear(
-            usuario_id=usuario_id,
-            categoria_id=categoria_id,
-            limite_mensual=float(presupuesto["limite_mensual"]),
-            mes_ano=datos.hacia,
-        )
+        try:
+            await PresupuestoDB.crear(
+                usuario_id=usuario_id,
+                categoria_id=categoria_id,
+                limite_mensual=float(presupuesto["limite_mensual"]),
+                mes_ano=datos.hacia,
+            )
+        except Exception as e:
+            if not _es_duplicado(e):
+                raise
+            # Otra copia simultánea ya lo creó: la restricción UNIQUE evita el duplicado (INV-028)
+            con_presupuesto.add(categoria_id)
+            continue
         con_presupuesto.add(categoria_id)
         copiados += 1
     return {

@@ -12,8 +12,6 @@ Frecuencias:
 import calendar
 from datetime import date, timedelta
 
-FRECUENCIAS = ("mensual", "quincenal", "semanal")
-
 
 def _ultimo_dia(anio: int, mes: int) -> int:
     return calendar.monthrange(anio, mes)[1]
