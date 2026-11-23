@@ -112,22 +112,21 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
         raise HTTPException(status_code=422, detail="La nueva contraseña debe ser distinta de la actual")
 
     try:
-        cambiada = await UserDB.update_password(email, data.nueva)
+        nueva_version = await UserDB.update_password(email, data.nueva)
     except Exception as e:
         print(f"[users.change_password] {type(e).__name__}")
-        cambiada = False
-    if not cambiada:
+        nueva_version = 0
+    # La versión nueva sale de la misma escritura: no se vuelve a leer la BD, así un fallo
+    # posterior no puede dejar la contraseña cambiada con un error en pantalla (INV-027).
+    if type(nueva_version) is not int or nueva_version < 1:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
     auth_routes._login_fails.pop(email, None)
 
-    actualizado = await UserDB.get_by_id(user_id)
-    if not actualizado:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
     token = create_access_token(
-        data={"sub": user_id, "sv": actualizado.get("session_version", 0)},
+        data={"sub": user_id, "sv": nueva_version},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
-    return Token(access_token=token, user_id=user_id, full_name=actualizado.get("full_name") or None)
+    return Token(access_token=token, user_id=user_id, full_name=user.get("full_name") or None)
 
 
 @router.delete("/me", status_code=204)

@@ -126,3 +126,20 @@ def test_si_la_bd_falla_al_cambiar_es_503_y_no_cierra_sesiones(client, ana, monk
     monkeypatch.setattr(UserDB, "update_password", staticmethod(falla))
     assert _cambiar(client, sesion).status_code == 503
     assert client.get("/api/v1/users/me", headers=sesion).status_code == 200
+
+
+def test_inv027_el_token_nuevo_no_depende_de_volver_a_leer_la_bd(client, ana, monkeypatch):
+    """Revisión CHG-012 (H3): si leer el usuario falla tras el cambio, igual se entrega el token correcto."""
+    sesion = _login(client)
+    original = UserDB.get_by_id
+    llamadas = {"n": 0}
+
+    async def falla_despues(user_id):
+        llamadas["n"] += 1
+        return await original(user_id) if llamadas["n"] == 1 else None
+
+    monkeypatch.setattr(UserDB, "get_by_id", staticmethod(falla_despues))
+    r = _cambiar(client, sesion)
+    assert r.status_code == 200
+    monkeypatch.setattr(UserDB, "get_by_id", staticmethod(original))
+    assert client.get("/api/v1/categorias", headers=_bearer(r.json()["access_token"])).status_code == 200

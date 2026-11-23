@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
+import ErrorState from '@/components/ErrorState'
 import { useCurrencyStore } from '@/store/currency'
 import { cuandoTexto, localDate, type Recurrente } from '@/lib/recurrentes'
 import { shortDate } from '@/lib/month-stats'
@@ -106,7 +107,7 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
 
   if (!loaded) return hideWhenEmpty ? null : <div className="card h-24 animate-pulse bg-slate-100" />
   // En el Inicio un error aquí no debe tapar el resto: se muestra solo en la página de Recurrentes
-  if (error) return hideWhenEmpty ? null : <div role="alert" className="card p-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</div>
+  if (error) return hideWhenEmpty ? null : <ErrorState message={error} onRetry={() => { setLoaded(false); fetchPending() }} />
   if (items.length === 0) {
     if (hideWhenEmpty) return null
     return (

@@ -99,7 +99,7 @@ def test_editar_cambia_el_ancla_solo_si_cambia_la_fecha(client):
     base = {"tipo": "gasto", "descripcion": "Arriendo", "frecuencia": "mensual", "proxima_fecha": "2026-02-28"}
     editada = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "monto": 1_600_000}, headers=A).json()
     assert editada["monto"] == 1_600_000 and editada["dia_ancla"] == 31
-    otra = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "monto": 1, "proxima_fecha": "2026-03-10"}, headers=A).json()
+    otra = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "monto": 1, "proxima_fecha": "2026-03-10", "proxima_fecha_vista": "2026-02-28"}, headers=A).json()
     assert otra["dia_ancla"] == 10 and otra["proxima_fecha"] == "2026-03-10"
 
 
@@ -252,3 +252,50 @@ def test_categoria_borrada_la_recurrente_queda_sin_categoria(client):
     client.delete(f"/api/v1/categorias/{cat['id']}", headers=A)
     r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
     assert r.status_code == 200 and r.json()["transaccion"]["categoria_id"] in (None, "")
+
+
+# ── Revisión CHG-012 (H1, H2): ediciones con datos viejos y fallo de la reversión ──
+
+def test_inv026_editar_con_la_fecha_vieja_no_la_hace_retroceder(client):
+    """Escenario del revisor: formulario abierto, se confirma desde pendientes y luego se guarda la edición."""
+    rec = _crear(client).json()
+    client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
+    base = {"tipo": "gasto", "descripcion": "Arriendo", "frecuencia": "mensual", "monto": 1_600_000}
+    # Un cliente que reenvía la fecha que tenía cargada como "próxima" sin haberla cambiado
+    r = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "proxima_fecha": "2026-11-05", "proxima_fecha_vista": "2026-11-05"}, headers=A)
+    assert r.status_code == 409
+    # Sin enviar fecha (pausar, editar el monto) la fecha se conserva
+    r = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "activa": False}, headers=A)
+    assert r.status_code == 200 and r.json()["proxima_fecha"] == "2026-12-05" and r.json()["monto"] == 1_600_000
+    r = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "activa": True}, headers=A)
+    assert r.json()["proxima_fecha"] == "2026-12-05"
+    assert _pendientes(client).json() == [] and len(_transacciones(client)) == 1
+
+
+def test_cambiar_la_fecha_exige_haber_visto_la_actual(client):
+    rec = _crear(client).json()
+    base = {"tipo": "gasto", "monto": 1, "frecuencia": "mensual"}
+    sin_vista = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "proxima_fecha": "2026-11-10"}, headers=A)
+    assert sin_vista.status_code == 409
+    ok = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "proxima_fecha": "2026-11-10", "proxima_fecha_vista": "2026-11-05"}, headers=A)
+    assert ok.status_code == 200 and ok.json()["proxima_fecha"] == "2026-11-10" and ok.json()["dia_ancla"] == 10
+
+
+def test_si_tambien_falla_la_reversion_se_avisa_sin_error_no_controlado(client, monkeypatch):
+    rec = _crear(client).json()
+    original = modelos.RecurrenteDB.avanzar
+    llamadas = []
+
+    async def falla_tx(*args, **kwargs):
+        raise RuntimeError("Supabase caído")
+
+    async def avanzar_y_luego_falla(*args, **kwargs):
+        llamadas.append(args)
+        if len(llamadas) > 1:
+            raise RuntimeError("Supabase caído")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(falla_tx))
+    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(avanzar_y_luego_falla))
+    r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
+    assert r.status_code == 500 and "Regístrala a mano" in r.json()["detail"]

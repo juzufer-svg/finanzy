@@ -162,6 +162,14 @@ class RecurrenteCreate(BaseModel):
     activa: bool = True
 
 
+class RecurrenteUpdate(RecurrenteCreate):
+    """Editar una recurrente. La próxima fecha solo cambia si se envía, y solo si la que vio la
+    persona (`proxima_fecha_vista`) sigue siendo la actual (INV-026): una edición o pausa con datos
+    viejos nunca hace retroceder la fecha de una ocurrencia ya registrada."""
+    proxima_fecha: Optional[str] = Field(None, pattern=FECHA_EXACTA)
+    proxima_fecha_vista: Optional[str] = Field(None, pattern=FECHA_EXACTA)
+
+
 class RecurrenteResponse(BaseModel):
     """Respuesta de una transacción recurrente"""
     id: str

@@ -160,12 +160,12 @@ def supabase_falso(monkeypatch):
 @pytest.mark.anyio
 async def test_inv016_update_password_sube_la_version_de_sesion(supabase_falso):
     filas, updates = supabase_falso
-    assert await UserDB.update_password("ANA@example.com", "NuevaClave1") is True
+    assert await UserDB.update_password("ANA@example.com", "NuevaClave1") == 4  # devuelve la versión nueva (CHG-012)
     assert filas[0]["session_version"] == 4 and filas[0]["is_active"] is True
     assert security.verify_password("NuevaClave1", filas[0]["hashed_password"])
     assert await UserDB.get_session_version("u1") == 4
     assert await UserDB.get_session_version("otro") is None
-    assert await UserDB.update_password("nadie@example.com", "NuevaClave1") is False
+    assert await UserDB.update_password("nadie@example.com", "NuevaClave1") == 0
     assert len(updates) == 1
 
 
@@ -180,7 +180,7 @@ async def test_inv016_restablecimientos_simultaneos_suben_la_version_dos_veces(s
             filas[0]["session_version"] += 1  # 3 → 4 por el otro restablecimiento
 
     monkeypatch.setattr(_ConsultaFalsa, "antes_de_update", staticmethod(otro_reset_se_adelanta))
-    assert await UserDB.update_password(CORREO, "NuevaClave1") is True
+    assert await UserDB.update_password(CORREO, "NuevaClave1") >= 1
     assert filas[0]["session_version"] == 5
 
 

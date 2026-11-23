@@ -42,12 +42,14 @@ const IconRepeat = () => (
   </svg>
 )
 
-function RecurringForm({ initial, editing, categories, onCancel, onSaved }: {
+function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConflict }: {
   initial: FormState
   editing: Recurrente | null
   categories: Category[]
   onCancel: () => void
   onSaved: () => void
+  /** La próxima fecha cambió mientras se editaba: hay que recargar los datos. */
+  onConflict: () => void
 }) {
   const [form, setForm] = useState<FormState>(initial)
   const [saving, setSaving] = useState(false)
@@ -59,11 +61,15 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved }: {
     e.preventDefault()
     setSaving(true)
     setError('')
+    const { proxima_fecha, ...resto } = form
     const body = {
-      ...form,
+      ...resto,
       monto: parseFloat(form.monto),
       descripcion: form.descripcion.trim(),
       medio_pago: form.medio_pago || null,
+      // Al editar, la fecha solo se envía si la persona la cambió, junto con la que vio (INV-026):
+      // así guardar el monto nunca hace retroceder una fecha que ya se registró desde pendientes.
+      ...(!editing ? { proxima_fecha } : proxima_fecha !== editing.proxima_fecha ? { proxima_fecha, proxima_fecha_vista: editing.proxima_fecha } : {}),
     }
     try {
       if (editing) await apiClient.put(`/api/v1/recurrentes/${editing.id}`, body)
@@ -71,6 +77,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved }: {
       onSaved()
     } catch (err) {
       setError(apiErrorMessage(err, 'No se pudo guardar la recurrente.'))
+      if ((err as { response?: { status?: number } })?.response?.status === 409) onConflict()
     } finally {
       setSaving(false)
     }
@@ -192,9 +199,10 @@ export default function RecurringPage() {
 
   const refrescar = () => { fetchData(); setPendingKey(k => k + 1) }
 
+  // Sin proxima_fecha: pausar o activar nunca cambia la fecha (INV-026)
   const cuerpo = (r: Recurrente, cambios: Partial<Recurrente> = {}) => ({
     tipo: r.tipo, categoria_id: r.categoria_id || '', monto: r.monto, descripcion: r.descripcion || '',
-    medio_pago: r.medio_pago ?? null, frecuencia: r.frecuencia, proxima_fecha: r.proxima_fecha, activa: r.activa,
+    medio_pago: r.medio_pago ?? null, frecuencia: r.frecuencia, activa: r.activa,
     ...cambios,
   })
 
@@ -205,6 +213,7 @@ export default function RecurringPage() {
       refrescar()
     } catch (err) {
       notify(apiErrorMessage(err, 'No se pudo cambiar el estado.'), 'error')
+      refrescar()
     }
   }
 
@@ -259,11 +268,13 @@ export default function RecurringPage() {
           editing={form.editing}
           categories={categories}
           onCancel={() => setForm(null)}
+          onConflict={() => { setForm(null); refrescar() }}
           onSaved={() => { notify(form.editing ? 'Recurrente actualizada' : 'Recurrente creada', 'success'); setForm(null); refrescar() }}
         />
       )}
 
-      <PendingRecurring refreshKey={pendingKey} onChanged={() => fetchData()} />
+      {/* Registrar u omitir cierra una edición abierta: así nunca se guarda con una fecha vieja */}
+      <PendingRecurring refreshKey={pendingKey} onChanged={() => { if (form?.editing) setForm(null); fetchData() }} />
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />

@@ -92,14 +92,15 @@ class UserDB:
             return False
 
     @staticmethod
-    async def update_password(email: str, new_password: str) -> bool:
+    async def update_password(email: str, new_password: str) -> int:
         """Actualiza la contraseña (y activa la cuenta: el código prueba que el correo es suyo).
 
         También sube la versión de sesión del usuario: así todos los tokens emitidos
-        antes del cambio dejan de servir (INV-016). Los errores de Supabase se propagan.
+        antes del cambio dejan de servir (INV-016). Devuelve la versión nueva (0 si el correo
+        no existe o no hay Supabase). Los errores de Supabase se propagan.
         """
         if not UserDB._is_supabase_available():
-            return False
+            return 0
         client = SupabaseDB.get_client()
         nuevo_hash = get_password_hash(new_password)
         # Actualización condicional (compare-and-set): solo escribe si la versión sigue
@@ -114,7 +115,7 @@ class UserDB:
                 .execute()
             )
             if not actual.data:
-                return False
+                return 0
             version = int(actual.data[0].get("session_version") or 0)
             result = (
                 client.table(UserDB.TABLE_NAME)
@@ -128,7 +129,7 @@ class UserDB:
                 .execute()
             )
             if result.data:
-                return True
+                return version + 1  # versión de sesión nueva (≥ 1, verdadera para quien solo pregunta si cambió)
         raise RuntimeError("No se pudo actualizar la contraseña: la versión de sesión cambió varias veces seguidas")
 
     @staticmethod

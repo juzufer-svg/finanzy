@@ -80,11 +80,11 @@ def users(monkeypatch):
     async def update_password(email, new_password):
         user = store.get(email.lower())
         if not user:
-            return False
+            return 0
         user["hashed_password"] = security.get_password_hash(new_password)
         user["is_active"] = True
         user["session_version"] = user.get("session_version", 0) + 1  # INV-016
-        return True
+        return user["session_version"]
 
     async def get_session_version(user_id):
         user = await get_by_id(user_id)

@@ -11,7 +11,7 @@ from app.schemas.plataapp import (
     PresupuestoCreate, PresupuestoResponse, PresupuestoUpdate,
     MetaCreate, MetaResponse, ActualizarMeta, AbonarMeta,
     CopiarPresupuestos, CopiaPresupuestosResponse,
-    RecurrenteCreate, RecurrenteResponse, OcurrenciaRecurrente, ConfirmarRecurrente, ConfirmacionResponse,
+    RecurrenteCreate, RecurrenteUpdate, RecurrenteResponse, OcurrenciaRecurrente, ConfirmarRecurrente, ConfirmacionResponse,
     MES_PATTERN,
 )
 from app.models.plataapp import (
@@ -328,6 +328,7 @@ def _fecha(valor: str) -> date:
 
 
 _OCURRENCIA_CAMBIADA = "Esta fecha ya se registró u omitió. Actualiza la lista de pendientes."
+_FECHA_CAMBIADA = "La próxima fecha cambió mientras editabas (se registró u omitió una). Recarga e intenta de nuevo."
 
 
 @router.get("/recurrentes", response_model=list[RecurrenteResponse])
@@ -355,16 +356,22 @@ async def crear_recurrente(datos: RecurrenteCreate, authorization: str = Header(
 
 
 @router.put("/recurrentes/{recurrente_id}", response_model=RecurrenteResponse)
-async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteCreate, authorization: str = Header(...)):
+async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteUpdate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     actual = _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id,
                            "Recurrente no encontrada")
     await _ensure_categoria_propia(datos.categoria_id, usuario_id)
-    nueva = _fecha(datos.proxima_fecha)
-    cambios = datos.model_dump()
-    # El día ancla solo cambia si la persona eligió otra próxima fecha: editar el monto de una
-    # recurrente del 31 que hoy cae el 28 de febrero no debe volverla "del 28" para siempre.
-    if datos.proxima_fecha != actual["proxima_fecha"]:
+    cambios = datos.model_dump(exclude={"proxima_fecha", "proxima_fecha_vista"})
+    if datos.proxima_fecha is not None and datos.proxima_fecha != actual["proxima_fecha"]:
+        nueva = _fecha(datos.proxima_fecha)
+        # Cambiar la fecha exige que la persona haya visto la actual (INV-026): si entretanto se
+        # confirmó u omitió una ocurrencia (otra pestaña, el panel de pendientes), 409 y nada cambia.
+        if datos.proxima_fecha_vista != actual["proxima_fecha"]:
+            raise HTTPException(status_code=409, detail=_FECHA_CAMBIADA)
+        if not await RecurrenteDB.avanzar(recurrente_id, usuario_id, actual["proxima_fecha"], nueva.isoformat()):
+            raise HTTPException(status_code=409, detail=_FECHA_CAMBIADA)
+        # El día ancla solo cambia si la persona eligió otra próxima fecha: editar el monto de una
+        # recurrente del 31 que hoy cae el 28 de febrero no debe volverla "del 28" para siempre.
         cambios["dia_ancla"] = nueva.day
     actualizada = await RecurrenteDB.actualizar(recurrente_id, usuario_id, cambios)
     if not actualizada:
@@ -415,7 +422,18 @@ async def confirmar_recurrente(recurrente_id: str, datos: ConfirmarRecurrente, a
         )
     except Exception:
         # Sin transacción la ocurrencia vuelve a quedar pendiente (no se pierde)
-        await RecurrenteDB.avanzar(recurrente_id, usuario_id, siguiente, datos.ocurrencia)
+        try:
+            revertida = await RecurrenteDB.avanzar(recurrente_id, usuario_id, siguiente, datos.ocurrencia)
+        except Exception as e:
+            revertida = None
+            print(f"[recurrentes.confirmar] no se pudo revertir ({type(e).__name__})")
+        if not revertida:
+            print(f"[recurrentes.confirmar] la ocurrencia {datos.ocurrencia} de {recurrente_id} quedó saltada sin transacción")
+            raise HTTPException(
+                status_code=500,
+                detail=f"No se pudo registrar la transacción y la fecha {datos.ocurrencia} quedó omitida. "
+                       "Regístrala a mano en Transacciones.",
+            )
         raise HTTPException(status_code=500, detail="No se pudo registrar la transacción")
     return {"transaccion": transaccion, "recurrente": avanzada}
 
