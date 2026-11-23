@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import apiClient from '@/lib/api-client'
 import { apiErrorMessage } from '@/components/DialogProvider'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
@@ -139,10 +138,7 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
             ))}
           </select>
           {filteredCategories.length === 0 && (
-            <p className="text-xs text-slate-500 mt-1">
-              Aún no tienes categorías de este tipo.{' '}
-              <Link href="/dashboard/categories" className="font-semibold text-blue-600 hover:underline">Crear una categoría</Link>
-            </p>
+            <p className="text-xs text-slate-500 mt-1">Aún no tienes categorías de este tipo. Créalas en el menú «Categorías».</p>
           )}
         </div>
 

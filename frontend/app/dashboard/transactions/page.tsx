@@ -6,7 +6,6 @@ import TransactionForm from '@/components/TransactionForm'
 import { useDialog, apiErrorMessage } from '@/components/DialogProvider'
 import ErrorState from '@/components/ErrorState'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useCurrencyStore } from '@/store/currency'
 import { filterTransactions, shortDate } from '@/lib/month-stats'
 import PageHeader from '@/components/PageHeader'
@@ -477,16 +476,7 @@ export default function TransactionsPage() {
         wideActions
         title="Transacciones"
         subtitle="Ingresos y gastos del período"
-        actions={<>
-          <Link href="/dashboard/categories" className="btn-secondary" title="Crear o gestionar categorías">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h.008v.008H6V6Z" />
-            </svg>
-            Categorías
-          </Link>
-          <PeriodPicker />
-        </>}
+        actions={<PeriodPicker />}
       />
 
       {/* Mini stats */}
