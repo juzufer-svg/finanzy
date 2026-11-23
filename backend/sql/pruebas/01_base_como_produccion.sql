@@ -15,7 +15,7 @@ create extension if not exists pgcrypto;
 do $$ begin if not exists (select 1 from pg_roles where rolname='anon') then create role anon; end if;
 if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if; end $$;
 create table users (id uuid primary key default gen_random_uuid(), email text unique);
-create table categorias (id uuid primary key default gen_random_uuid(), usuario_id uuid, nombre varchar(100), icono varchar(10), tipo varchar(20), created_at timestamp default now());
+create table categorias (id uuid primary key default gen_random_uuid(), usuario_id uuid, nombre varchar(100), icono varchar(10), tipo varchar(20));  -- en producción no tiene created_at
 create table transacciones (id uuid primary key default gen_random_uuid(), usuario_id uuid, categoria_id uuid references categorias(id), monto numeric(12,2), descripcion text, fecha date, tipo varchar(20), created_at timestamp default now(), updated_at timestamp default now());
 create table presupuestos (id uuid primary key default gen_random_uuid(), usuario_id uuid, categoria_id uuid, limite_mensual numeric(12,2), mes_ano varchar(7), "mes_año" varchar(7));
 create table metas (id uuid primary key default gen_random_uuid(), usuario_id uuid, nombre text, monto_objetivo numeric, monto_actual numeric default 0, fecha_objetivo date, estado varchar(20));

@@ -2,7 +2,8 @@
 -- Ejecutar en Supabase → SQL Editor DESPUÉS de 2026-11-23_recurrentes.sql y ANTES (o junto con) el despliegue.
 -- Es seguro repetirlo.
 --
--- 1. Categorías repetidas (misma persona, mismo nombre exacto y mismo tipo): se conserva la más antigua.
+-- 1. Categorías repetidas (misma persona, mismo nombre exacto y mismo tipo): se conserva la que tiene más
+--    transacciones (la tabla real no tiene fecha de creación).
 --    Sus transacciones, presupuestos y recurrentes pasan a la que se conserva; nada se pierde.
 -- 2. Presupuestos repetidos (misma persona, categoría y mes): se conserva el de mayor límite.
 -- 3. Se crean las restricciones UNIQUE para que no vuelva a pasar.
@@ -31,9 +32,10 @@ begin;
 create temporary table mapa_categorias on commit drop as
 select id as duplicada_id, conservada_id
   from (
-    select id,
-           first_value(id) over (partition by usuario_id, nombre, tipo order by created_at nulls last, id) as conservada_id
-      from public.categorias
+    select c.id,
+           first_value(c.id) over (partition by c.usuario_id, c.nombre, c.tipo
+                                   order by (select count(*) from public.transacciones t where t.categoria_id = c.id) desc, c.id) as conservada_id
+      from public.categorias c
   ) t
  where id <> conservada_id;
 
