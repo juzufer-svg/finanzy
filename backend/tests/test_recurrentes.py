@@ -299,3 +299,7 @@ def test_si_tambien_falla_la_reversion_se_avisa_sin_error_no_controlado(client, 
     monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(avanzar_y_luego_falla))
     r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
     assert r.status_code == 500 and "Regístrala a mano" in r.json()["detail"]
+    # Estado coherente con el mensaje: sin transacción y con la fecha ya avanzada
+    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(original))
+    assert _transacciones(client) == []
+    assert client.get("/api/v1/recurrentes", headers=A).json()[0]["proxima_fecha"] == "2026-12-05"

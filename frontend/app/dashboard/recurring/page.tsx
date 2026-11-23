@@ -49,7 +49,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
   onCancel: () => void
   onSaved: () => void
   /** La próxima fecha cambió mientras se editaba: hay que recargar los datos. */
-  onConflict: () => void
+  onConflict: (mensaje: string) => void
 }) {
   const [form, setForm] = useState<FormState>(initial)
   const [saving, setSaving] = useState(false)
@@ -76,8 +76,10 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
       else await apiClient.post('/api/v1/recurrentes', body)
       onSaved()
     } catch (err) {
-      setError(apiErrorMessage(err, 'No se pudo guardar la recurrente.'))
-      if ((err as { response?: { status?: number } })?.response?.status === 409) onConflict()
+      const mensaje = apiErrorMessage(err, 'No se pudo guardar la recurrente.')
+      // 409: la fecha cambió mientras se editaba; se avisa y se recarga con los datos vigentes
+      if ((err as { response?: { status?: number } })?.response?.status === 409) onConflict(mensaje)
+      else setError(mensaje)
     } finally {
       setSaving(false)
     }
@@ -268,13 +270,17 @@ export default function RecurringPage() {
           editing={form.editing}
           categories={categories}
           onCancel={() => setForm(null)}
-          onConflict={() => { setForm(null); refrescar() }}
+          onConflict={mensaje => { notify(mensaje, 'error'); setForm(null); refrescar() }}
           onSaved={() => { notify(form.editing ? 'Recurrente actualizada' : 'Recurrente creada', 'success'); setForm(null); refrescar() }}
         />
       )}
 
       {/* Registrar u omitir cierra una edición abierta: así nunca se guarda con una fecha vieja */}
-      <PendingRecurring refreshKey={pendingKey} onChanged={() => { if (form?.editing) setForm(null); fetchData() }} />
+      <PendingRecurring refreshKey={pendingKey} onChanged={id => {
+        // Si se estaba editando esa misma recurrente, la edición se cierra con aviso (su fecha cambió)
+        if (form?.editing?.id === id) { setForm(null); notify('La edición se cerró porque esa recurrente cambió de fecha. Ábrela de nuevo.', 'info') }
+        fetchData()
+      }} />
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />

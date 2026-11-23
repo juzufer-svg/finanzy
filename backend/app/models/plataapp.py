@@ -488,16 +488,21 @@ class RecurrenteDB:
             raise
 
     @staticmethod
-    async def actualizar(recurrente_id: str, usuario_id: str, datos: dict) -> Optional[dict]:
+    async def actualizar(recurrente_id: str, usuario_id: str, datos: dict,
+                         esperada: Optional[str] = None) -> Optional[dict]:
+        """Actualiza los campos. Con `esperada`, solo si la próxima fecha sigue siendo esa (compare-and-set)."""
         fila = RecurrenteDB._normalizar(datos)
         if not _supabase_ok():
-            if not _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id):
+            actual = _de_usuario(await DemoRecurrenteDB.obtener_por_id(recurrente_id), usuario_id)
+            if not actual or (esperada is not None and actual["proxima_fecha"] != esperada):
                 return None
             return await DemoRecurrenteDB.actualizar(recurrente_id, fila)
         try:
             client = SupabaseDB.get_client()
-            result = client.table("recurrentes").update(fila).eq("id", recurrente_id)\
-                .eq("usuario_id", usuario_id).execute()
+            q = client.table("recurrentes").update(fila).eq("id", recurrente_id).eq("usuario_id", usuario_id)
+            if esperada is not None:
+                q = q.eq("proxima_fecha", esperada)
+            result = q.execute()
             return RecurrenteDB._salida(result.data[0]) if result.data else None
         except Exception as e:
             print(f"[Supabase] recurrentes.actualizar error: {e}")

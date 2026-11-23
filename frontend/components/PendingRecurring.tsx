@@ -17,7 +17,7 @@ interface Category { id: string; nombre: string; icono?: string }
 
 export default function PendingRecurring({ onChanged, hideWhenEmpty = false, refreshKey = 0 }: {
   /** Se llama después de registrar u omitir (para recargar la vista que lo contiene). */
-  onChanged?: () => void
+  onChanged?: (recurrenteId: string) => void
   /** En el Inicio no se muestra nada si no hay pendientes. */
   hideWhenEmpty?: boolean
   /** Cambiarlo fuerza una recarga (p. ej. tras crear una recurrente en la misma página). */
@@ -76,7 +76,7 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
       await apiClient.post(`/api/v1/recurrentes/${r.id}/confirmar`, { ocurrencia: r.proxima_fecha, ...(monto !== undefined ? { monto } : {}) })
       notify(`${nombre(r)} registrado`, 'success')
       await fetchPending()
-      onChanged?.()
+      onChanged?.(r.id)
     } catch (err) {
       notify(apiErrorMessage(err, 'No se pudo registrar.'), 'error')
       await fetchPending()
@@ -96,7 +96,7 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
     try {
       await apiClient.post(`/api/v1/recurrentes/${r.id}/omitir`, { ocurrencia: r.proxima_fecha })
       await fetchPending()
-      onChanged?.()
+      onChanged?.(r.id)
     } catch (err) {
       notify(apiErrorMessage(err, 'No se pudo omitir.'), 'error')
       await fetchPending()

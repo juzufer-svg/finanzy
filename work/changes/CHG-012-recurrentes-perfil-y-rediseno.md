@@ -1,6 +1,6 @@
 # CHG-012 — Recurrentes, copiar presupuestos, perfil, categorías, avisos y rediseño visual
 
-- **Estado:** en revisión (falta el visto bueno del dueño y ejecutar el SQL en Supabase)
+- **Estado:** listo-para-aprobar (falta el visto bueno del dueño y ejecutar el SQL en Supabase)
 - **Fecha:** 2026-11-23 · **Solicitante:** dueño del proyecto
 - **Riesgo:** medio (datos nuevos, contraseña y sesión) · modo `completo`
 
@@ -58,3 +58,9 @@ muestre en otra moneda. Las pendientes siguen la misma regla (proponen el monto 
 | H5 | Menor | Error de pendientes sin «Reintentar» | Corregido: `<ErrorState onRetry>` |
 
 Tras las correcciones: backend 220 pruebas, frontend lint 0, `npm test` 24/24, build correcto.
+
+**Ciclo 2 (agente `revisor`): APROBADO CON OBSERVACIONES**, confianza 88 %. H1-H5 verificados; sin defectos nuevos en el
+backend. Observaciones atendidas: aviso cuando la edición recibe 409 (antes el formulario se cerraba sin explicación);
+registrar desde pendientes solo cierra la edición de esa misma recurrente y avisa; la edición con cambio de fecha
+es una sola escritura condicional (`RecurrenteDB.actualizar(..., esperada=)`); escenario BDD del 409; la prueba de H2
+comprueba también el estado final. Resultado: backend 220 pruebas, lint 0, `npm test` 24/24, build correcto.

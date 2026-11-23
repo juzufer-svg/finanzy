@@ -362,19 +362,22 @@ async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteUpdate, aut
                            "Recurrente no encontrada")
     await _ensure_categoria_propia(datos.categoria_id, usuario_id)
     cambios = datos.model_dump(exclude={"proxima_fecha", "proxima_fecha_vista"})
+    esperada = None
     if datos.proxima_fecha is not None and datos.proxima_fecha != actual["proxima_fecha"]:
         nueva = _fecha(datos.proxima_fecha)
         # Cambiar la fecha exige que la persona haya visto la actual (INV-026): si entretanto se
         # confirmó u omitió una ocurrencia (otra pestaña, el panel de pendientes), 409 y nada cambia.
         if datos.proxima_fecha_vista != actual["proxima_fecha"]:
             raise HTTPException(status_code=409, detail=_FECHA_CAMBIADA)
-        if not await RecurrenteDB.avanzar(recurrente_id, usuario_id, actual["proxima_fecha"], nueva.isoformat()):
-            raise HTTPException(status_code=409, detail=_FECHA_CAMBIADA)
+        cambios["proxima_fecha"] = nueva.isoformat()
+        esperada = actual["proxima_fecha"]  # fecha, ancla y demás campos en una sola escritura condicional
         # El día ancla solo cambia si la persona eligió otra próxima fecha: editar el monto de una
         # recurrente del 31 que hoy cae el 28 de febrero no debe volverla "del 28" para siempre.
         cambios["dia_ancla"] = nueva.day
-    actualizada = await RecurrenteDB.actualizar(recurrente_id, usuario_id, cambios)
+    actualizada = await RecurrenteDB.actualizar(recurrente_id, usuario_id, cambios, esperada=esperada)
     if not actualizada:
+        if esperada is not None:  # otra petición movió la fecha entre la lectura y la escritura
+            raise HTTPException(status_code=409, detail=_FECHA_CAMBIADA)
         raise HTTPException(status_code=404, detail="Recurrente no encontrada")
     return actualizada
 

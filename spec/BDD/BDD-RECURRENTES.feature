@@ -37,3 +37,11 @@ Característica: Transacciones recurrentes
     Cuando otro usuario intenta verla, editarla, confirmarla u omitirla
     Entonces recibe 404 y no se registra nada
     # Prueba: backend/tests/test_recurrentes.py::test_inv001_otro_usuario_no_ve_ni_toca_mis_recurrentes
+
+  @BDD-RECURRENTES @invariante @INV-026
+  Escenario: Editar o pausar con datos viejos no hace retroceder la fecha
+    Dado una recurrente que registré desde pendientes y ahora tiene próxima fecha el 5 de diciembre
+    Cuando otra pantalla con datos viejos intenta guardarla con el 5 de noviembre
+    Entonces recibe 409 y la fecha sigue en el 5 de diciembre
+    Y pausar o editar el monto sin enviar fecha la conserva
+    # Prueba: backend/tests/test_recurrentes.py::test_inv026_editar_con_la_fecha_vieja_no_la_hace_retroceder
