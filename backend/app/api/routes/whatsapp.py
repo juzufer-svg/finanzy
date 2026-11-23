@@ -55,6 +55,8 @@ async def recibir_webhook(request: Request, background_tasks: BackgroundTasks):
         payload = await request.json()
     except ValueError:
         return {"ok": True}
+    for fallo in whatsapp.estados_fallidos(payload):   # por qué Meta no entregó una respuesta (sin datos personales)
+        print(f"[whatsapp] Meta no entregó una respuesta: código {fallo['codigo']} {fallo['titulo']}")
     for mensaje in whatsapp.mensajes_de_texto(payload):
         background_tasks.add_task(procesar_mensaje, mensaje)
     return {"ok": True}

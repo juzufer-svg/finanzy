@@ -74,14 +74,36 @@ def token_de_verificacion_valido(token: Optional[str]) -> bool:
     return bool(propio) and token is not None and hmac.compare_digest(propio, token)
 
 
+def _lista(valor: Any) -> list:
+    return valor if isinstance(valor, list) else []
+
+
+def _objeto(valor: Any) -> dict:
+    return valor if isinstance(valor, dict) else {}
+
+
+def estados_fallidos(payload: Any) -> list[dict]:
+    """Avisos de Meta de que una respuesta NO se entregó: solo código y título del error.
+
+    Nunca incluye el teléfono, el texto ni los ids (van al log para diagnosticar, CHG-014)."""
+    salida: list[dict] = []
+    for entrada in _lista(_objeto(payload).get("entry")):
+        for cambio in _lista(_objeto(entrada).get("changes")):
+            valor = _objeto(_objeto(cambio).get("value"))
+            for estado in _lista(valor.get("statuses")):
+                estado = _objeto(estado)
+                if estado.get("status") != "failed":
+                    continue
+                for error in _lista(estado.get("errors")) or [{}]:
+                    error = _objeto(error)
+                    salida.append({"codigo": str(error.get("code") or "?")[:12],
+                                   "titulo": re.sub(r"[^\w .,:;()/-]", "", str(error.get("title") or error.get("message") or ""))[:80]})
+    return salida
+
+
 def mensajes_de_texto(payload: Any) -> list[dict]:
     """Extrae {id, de, texto} de los mensajes de texto del webhook (ignora estados, audios, etc.)."""
-    def lista(valor: Any) -> list:
-        return valor if isinstance(valor, list) else []
-
-    def objeto(valor: Any) -> dict:
-        return valor if isinstance(valor, dict) else {}
-
+    lista, objeto = _lista, _objeto
     salida: list[dict] = []
     propio = settings.WHATSAPP_PHONE_NUMBER_ID.strip()
     for entrada in lista(objeto(payload).get("entry")):
@@ -89,6 +111,8 @@ def mensajes_de_texto(payload: Any) -> list[dict]:
             valor = objeto(objeto(cambio).get("value"))
             numero = str(objeto(valor.get("metadata")).get("phone_number_id") or "")
             if propio and numero and numero != propio:
+                if lista(valor.get("messages")):   # se avisa en el log: una variable mal puesta descarta todo en silencio
+                    print("[whatsapp] Mensajes ignorados: el phone_number_id del aviso no coincide con WHATSAPP_PHONE_NUMBER_ID")
                 continue   # mensajes de otro número de la misma cuenta de Meta: no son para Finanzy
             for m in lista(valor.get("messages")):
                 if not isinstance(m, dict) or not m.get("id") or not m.get("from"):

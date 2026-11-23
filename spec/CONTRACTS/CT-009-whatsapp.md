@@ -8,6 +8,10 @@
 | `GET /whatsapp/webhook` | `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge` | 200 texto plano = `hub.challenge` si el token coincide con `WHATSAPP_VERIFY_TOKEN`; si no, 403 |
 | `POST /whatsapp/webhook` | Cuerpo de Meta + cabecera `X-Hub-Signature-256: sha256=<HMAC-SHA256(cuerpo, WHATSAPP_APP_SECRET)>` | 403 «Firma inválida» si falta o no coincide (o no hay App Secret). Si es válida, 200 `{"ok": true}` de inmediato y los mensajes se procesan en segundo plano |
 
+Diagnóstico (log de Railway, sin teléfono, texto ni ids): cuando Meta avisa que una respuesta **no se entregó** (`statuses` con `failed`)
+se escribe `[whatsapp] Meta no entregó una respuesta: código N título`; y si un aviso trae mensajes de otro `phone_number_id`
+se escribe `[whatsapp] Mensajes ignorados…` (una variable `WHATSAPP_PHONE_NUMBER_ID` mal puesta descartaba todo en silencio).
+
 Procesamiento de cada mensaje de texto (en orden):
 0. Mensajes dirigidos a otro número de la cuenta de Meta (`metadata.phone_number_id` distinto) se ignoran.
 1. Un número no enlazado que no envía un código se ignora sin guardar nada. Si el id del mensaje ya se procesó → se ignora (Meta reintenta; los ids se guardan 7 días).

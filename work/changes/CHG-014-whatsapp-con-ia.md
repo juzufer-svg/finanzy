@@ -65,3 +65,10 @@ Resultado: backend 300 pruebas. Ciclos usados: 2 de 3. **Pendiente: visto bueno 
 - Prueba en Meta: los mensajes entrantes llegan al webhook de prueba; el envío falla con 131031 «Business Account locked» (restricción de la cuenta en Meta, no del código).
 - 2026-11-23: página pública de privacidad `frontend/app/privacidad/page.tsx` (`/privacidad`, enlazada desde la portada). Meta la exige para publicar la app; su sección 6 sirve como instrucciones de eliminación de datos. Aprobada por el dueño («Si créala… y despliega en main»).
 - 2026-11-23: página pública de condiciones del servicio `frontend/app/terminos/page.tsx` (`/terminos`) y diseño común `components/LegalPage.tsx` para ambas páginas legales. Pedida por el dueño para la configuración de Meta.
+
+## 8. Puesta en marcha con Meta (2026-11-23) y diagnóstico
+- Causa de que no llegaran mensajes (1): la app Finanzy **no estaba suscrita** a la cuenta de WhatsApp (solo la app interna de pruebas de Meta). Se suscribió con `POST /{waba}/subscribed_apps` (autorizado por el dueño).
+- Causa (2): `WHATSAPP_PHONE_NUMBER_ID` en Railway tenía el ID de la **cuenta** (1867408384707548) en vez del del **teléfono** (1559429597244043): el filtro del número descartaba todos los mensajes. Corregido por el dueño en Railway.
+- Resultado: el registro por WhatsApp **funciona** (verificado en la BD: enlace, mensajes procesados y transacciones creadas).
+- Pendiente: Meta no entrega las **respuestas** (cuenta con `can_send_message: BLOCKED`: 141006 método de pago y 141010 empresa sin verificar; el 131000 de perfil incompleto ya se resolvió). Finanzy envía y Meta acepta la solicitud sin error, por lo que la entrega falla de forma asíncrona.
+- Cambio de diagnóstico: el webhook registra en el log el código de las entregas fallidas y los mensajes descartados por número distinto (sin datos personales). Pruebas: `test_una_entrega_fallida_*`, `test_un_numero_de_telefono_distinto_*`. Backend: 306 pruebas.

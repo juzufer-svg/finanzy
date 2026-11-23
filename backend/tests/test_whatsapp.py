@@ -625,3 +625,42 @@ def test_inv030_ayuda_tambien_respeta_el_tope_por_minuto(client, meta):
     for _ in range(15):
         _msg(client, "ayuda")
     assert len(meta["enviados"]) - antes == 10
+
+
+# ── Diagnóstico de entrega (CHG-014): por qué Meta no entrega una respuesta ───
+
+def _firmar(client, payload):
+    raw = json.dumps(payload).encode()
+    firma = "sha256=" + hmac.new(SECRETO.encode(), raw, hashlib.sha256).hexdigest()
+    return client.post("/api/v1/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": firma})
+
+
+def test_una_entrega_fallida_se_registra_en_el_log_sin_datos_personales(client, meta, capsys):
+    payload = {"entry": [{"changes": [{"value": {"statuses": [{
+        "id": "wamid.SECRETO123", "status": "failed", "recipient_id": TEL_A,
+        "errors": [{"code": 131031, "title": "Business Account locked", "message": "x", "error_data": {"details": "y"}}]}]}}]}]}
+    assert _firmar(client, payload).status_code == 200
+    salida = capsys.readouterr().out
+    assert "Meta no entregó una respuesta: código 131031 Business Account locked" in salida
+    assert TEL_A not in salida and "wamid.SECRETO123" not in salida and "token" not in salida.lower()
+
+
+def test_los_estados_que_no_fallaron_no_se_registran(client, meta, capsys):
+    payload = {"entry": [{"changes": [{"value": {"statuses": [{"status": "delivered"}, {"status": "sent"}, {"status": "read"}]}}]}]}
+    _firmar(client, payload)
+    assert "no entregó" not in capsys.readouterr().out
+
+
+def test_un_numero_de_telefono_distinto_se_avisa_en_el_log(client, meta, capsys):
+    payload = {"entry": [{"changes": [{"value": {"metadata": {"phone_number_id": "999"},
+                                                 "messages": [{"id": "w1", "from": TEL_A, "type": "text", "text": {"body": "hola"}}]}}]}]}
+    _firmar(client, payload)
+    salida = capsys.readouterr().out
+    assert "no coincide con WHATSAPP_PHONE_NUMBER_ID" in salida and TEL_A not in salida
+
+
+@pytest.mark.parametrize("payload", [{"entry": [{"changes": [{"value": {"statuses": "no es lista"}}]}]},
+                                     {"entry": [{"changes": [{"value": {"statuses": [{"status": "failed", "errors": "x"}]}}]}]},
+                                     {"entry": [{"changes": [{"value": {"statuses": [None, 5]}}]}]}])
+def test_estados_raros_no_rompen_el_webhook(client, meta, payload):
+    assert _firmar(client, payload).status_code == 200
