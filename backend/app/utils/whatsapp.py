@@ -76,16 +76,24 @@ def token_de_verificacion_valido(token: Optional[str]) -> bool:
 
 def mensajes_de_texto(payload: Any) -> list[dict]:
     """Extrae {id, de, texto} de los mensajes de texto del webhook (ignora estados, audios, etc.)."""
-    salida = []
-    if not isinstance(payload, dict):
-        return salida
-    for entrada in payload.get("entry") or []:
-        for cambio in (entrada or {}).get("changes") or []:
-            valor = (cambio or {}).get("value") or {}
-            for m in valor.get("messages") or []:
+    def lista(valor: Any) -> list:
+        return valor if isinstance(valor, list) else []
+
+    def objeto(valor: Any) -> dict:
+        return valor if isinstance(valor, dict) else {}
+
+    salida: list[dict] = []
+    propio = settings.WHATSAPP_PHONE_NUMBER_ID.strip()
+    for entrada in lista(objeto(payload).get("entry")):
+        for cambio in lista(objeto(entrada).get("changes")):
+            valor = objeto(objeto(cambio).get("value"))
+            numero = str(objeto(valor.get("metadata")).get("phone_number_id") or "")
+            if propio and numero and numero != propio:
+                continue   # mensajes de otro número de la misma cuenta de Meta: no son para Finanzy
+            for m in lista(valor.get("messages")):
                 if not isinstance(m, dict) or not m.get("id") or not m.get("from"):
                     continue
-                texto = (m.get("text") or {}).get("body") if m.get("type") == "text" else None
+                texto = objeto(m.get("text")).get("body") if m.get("type") == "text" else None
                 salida.append({"id": str(m["id"]), "de": re.sub(r"\D", "", str(m["from"])),
                                "texto": texto if isinstance(texto, str) else None})
     return salida
@@ -102,6 +110,8 @@ def nuevo_codigo(usuario_id: str) -> str:
     for c in [c for c, (u, vence) in _codigos.items() if u == usuario_id or vence < ahora]:
         del _codigos[c]
     codigo = f"{secrets.randbelow(10**6):06d}"
+    while codigo in _codigos:   # nunca reemplazar el código vigente de otra persona (revisión CHG-014, H4)
+        codigo = f"{secrets.randbelow(10**6):06d}"
     _codigos[codigo] = (usuario_id, ahora + CODIGO_MINUTOS * 60)
     return f"FZ-{codigo}"
 
@@ -197,12 +207,20 @@ HERRAMIENTAS = [
     },
     {
         "name": "corregir_ultimo",
-        "description": "Corrige un movimiento de lo último registrado por WhatsApp (p. ej. «no, eran 80 mil», «era con crédito»). Envía solo los campos que cambian.",
+        "description": ("Corrige un movimiento de lo último registrado por WhatsApp (p. ej. «no, eran 80 mil», "
+                        "«era con crédito»). OMITE por completo los campos que no cambian: no los envíes vacíos."),
         "input_schema": {
             "type": "object",
-            "properties": {**_PROP_MOV,
-                           "numero": {"type": "integer", "minimum": 1, "maximum": MAX_MOVIMIENTOS,
-                                      "description": "Cuál de los movimientos del último mensaje (1 = el primero). Por defecto 1"}},
+            "properties": {
+                "tipo": {"type": "string", "enum": ["gasto", "ingreso"]},
+                "monto": {"type": "number", "description": "Nuevo monto en COP"},
+                "fecha": {"type": "string", "description": "Nueva fecha YYYY-MM-DD"},
+                "categoria": {"type": "string", "description": "Nombre EXACTO de una categoría de la lista"},
+                "medio_pago": {"type": "string", "enum": list(MEDIOS_PAGO)},
+                "descripcion": {"type": "string"},
+                "numero": {"type": "integer", "minimum": 1, "maximum": MAX_MOVIMIENTOS,
+                           "description": "Cuál de los movimientos del último mensaje (1 = el primero). Por defecto 1"},
+            },
         },
     },
 ]
@@ -244,10 +262,11 @@ def _validar_movimiento(m: Any, categorias: list[dict], hoy: date) -> dict:
     tipo = m.get("tipo")
     if tipo not in ("gasto", "ingreso"):
         raise ValueError("tipo inválido")
-    try:
-        monto = round(float(m.get("monto")), 2)
-    except (TypeError, ValueError):
+    valor = m.get("monto")
+    # Solo números: «85.000» como texto daría 85 pesos (revisión CHG-014, H7)
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         raise ValueError("monto inválido")
+    monto = round(float(valor), 2)
     if not (0 < monto <= MONTO_MAX):
         raise ValueError("monto fuera de rango")
     try:
@@ -286,13 +305,24 @@ async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list
             validos.append(_validar_movimiento(m, categorias, hoy))
         except ValueError:
             return "No pude entender bien el monto. ¿Me lo repites? Ej.: «gasté 25 mil en mercado»."
-    creados = []
-    for v in validos:
-        t = await TransaccionDB.crear(usuario_id=usuario_id, categoria_id=v["categoria_id"], monto=v["monto"],
-                                      descripcion=v["descripcion"], fecha=v["fecha"], tipo=v["tipo"],
-                                      medio_pago=v["medio_pago"])
-        await WhatsappDB.guardar_registro(str(t["id"]), usuario_id, lote)
-        creados.append(v)
+    creados, ids = [], []
+    try:
+        for v in validos:
+            t = await TransaccionDB.crear(usuario_id=usuario_id, categoria_id=v["categoria_id"], monto=v["monto"],
+                                          descripcion=v["descripcion"], fecha=v["fecha"], tipo=v["tipo"],
+                                          medio_pago=v["medio_pago"])
+            ids.append(str(t["id"]))
+            await WhatsappDB.guardar_registro(str(t["id"]), usuario_id, lote)
+            creados.append(v)
+    except Exception as e:
+        # Todo o nada (revisión CHG-014, H3): se borra lo que alcanzó a crearse de este mensaje
+        print(f"[whatsapp] Falló el registro, se revierte el lote ({type(e).__name__})")
+        for tid in ids:
+            try:
+                await TransaccionDB.eliminar(tid, usuario_id)
+            except Exception:
+                print("[whatsapp] No se pudo revertir una transacción del lote")
+        return "⚠️ No pude guardar el registro por un error del servidor. No se registró nada; intenta de nuevo."
     if len(creados) == 1:
         v = creados[0]
         titulo = "Gasto registrado" if v["tipo"] == "gasto" else "Ingreso registrado"
@@ -339,7 +369,8 @@ async def _corregir(usuario_id: str, entrada: dict, categorias: list[dict], hoy:
     base = {"tipo": actual["tipo"], "monto": actual["monto"], "fecha": str(actual["fecha"])[:10],
             "medio_pago": actual.get("medio_pago") or "", "descripcion": actual.get("descripcion") or "",
             "categoria": nombres.get(str(actual.get("categoria_id")), "")}
-    cambios = {k: v for k, v in entrada.items() if k in _PROP_MOV and v not in (None,)}
+    # Solo cuenta lo que trae un valor: un campo vacío NO borra lo que ya tenía (revisión CHG-014, H1)
+    cambios = {k: v for k, v in entrada.items() if k in _PROP_MOV and v is not None and not (isinstance(v, str) and not v.strip())}
     if not cambios:
         return "¿Qué quieres corregir? Por ejemplo: «eran 80 mil» o «fue con crédito»."
     if "tipo" in cambios and "categoria" not in cambios:
@@ -359,11 +390,15 @@ async def _corregir(usuario_id: str, entrada: dict, categorias: list[dict], hoy:
 
 # ==================== Procesar un mensaje ====================
 
+def es_ayuda(texto: str) -> bool:
+    return _sin_tildes(texto) in ("ayuda", "help", "menu", "?")
+
+
 async def responder(usuario_id: str, texto: str, lote: str, ahora: Optional[datetime] = None) -> str:
     """Una llamada a Claude; si pide una herramienta, el backend la valida, la ejecuta y arma la respuesta."""
     hoy = (ahora or datetime.now(ZONA_COLOMBIA)).astimezone(ZONA_COLOMBIA).date()
     texto = texto.strip()[:MAX_TEXTO]
-    if _sin_tildes(texto) in ("ayuda", "help", "menu", "?"):
+    if es_ayuda(texto):
         return AYUDA
     categorias = await CategoriaDB.obtener_por_usuario(usuario_id)
     payload = {

@@ -95,6 +95,14 @@ class WhatsappDB:
                 return False
             raise
 
+    @staticmethod
+    async def limpiar_mensajes_antiguos(dias: int = 7) -> None:
+        """Borra los ids de mensajes procesados de más de `dias` (Meta solo reintenta durante unos días)."""
+        if not _supabase_ok():
+            return
+        limite = (_ahora() - timedelta(days=dias)).isoformat()
+        SupabaseDB.get_client().table("whatsapp_mensajes").delete().lt("recibido_en", limite).execute()
+
     # ── Transacciones creadas por WhatsApp ──
     @staticmethod
     async def guardar_registro(transaccion_id: str, usuario_id: str, lote: str) -> None:

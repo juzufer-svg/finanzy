@@ -9,16 +9,20 @@
 | `POST /whatsapp/webhook` | Cuerpo de Meta + cabecera `X-Hub-Signature-256: sha256=<HMAC-SHA256(cuerpo, WHATSAPP_APP_SECRET)>` | 403 «Firma inválida» si falta o no coincide (o no hay App Secret). Si es válida, 200 `{"ok": true}` de inmediato y los mensajes se procesan en segundo plano |
 
 Procesamiento de cada mensaje de texto (en orden):
-1. Si el id del mensaje ya se procesó → se ignora (Meta reintenta).
+0. Mensajes dirigidos a otro número de la cuenta de Meta (`metadata.phone_number_id` distinto) se ignoran.
+1. Un número no enlazado que no envía un código se ignora sin guardar nada. Si el id del mensaje ya se procesó → se ignora (Meta reintenta; los ids se guardan 7 días).
 2. Si el texto es un código `FZ-NNNNNN` (5 intentos/hora por número) → si es válido y vigente, enlaza el número a la
    cuenta que lo generó y responde «✅ ¡Listo!»; si no, responde que no es válido.
 3. Si el número no está enlazado → se ignora sin responder ni llamar a la IA.
 4. Mensajes que no son texto → responde que solo entiende texto (sin IA).
 5. Topes (INV-030): 10 por minuto por número; `WHATSAPP_MENSAJES_POR_DIA` (50) por usuario y
    `WHATSAPP_MENSAJES_TOTALES_DIA` (300) en total al día; al pasarse se avisa una vez y se ignora el resto.
-6. «ayuda» → ejemplos sin IA. Sin `ANTHROPIC_API_KEY` → aviso, nada se registra.
+6. «ayuda» → ejemplos sin IA y sin gastar cupo (antes de los topes). Sin `ANTHROPIC_API_KEY` → aviso, nada se registra. Topes: el aviso distingue el tope propio del global.
 7. Una llamada a Claude con las herramientas `registrar_movimientos`, `deshacer_ultimo`, `corregir_ultimo`.
    El backend valida y ejecuta, y responde con el resultado. Si Claude falla → aviso «No se registró nada».
+   Registrar es todo o nada: si falla a mitad del lote se borra lo creado y se avisa. `corregir_ultimo` solo cambia
+   los campos que trae con valor (un campo vacío no borra nada). Un error inesperado se avisa al número enlazado.
+8. Cambiar o restablecer la contraseña desconecta el número (INV-016).
 
 ## Enlace desde la app (con sesión; errores comunes 401/503 en CT-002)
 | Endpoint | Respuesta | Errores |

@@ -421,3 +421,137 @@ def test_mensajes_que_no_son_texto_se_responden_sin_ia(client, meta):
     firma = "sha256=" + hmac.new(SECRETO.encode(), raw, hashlib.sha256).hexdigest()
     client.post("/api/v1/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": firma})
     assert meta["payloads"] == [] and "solo entiendo mensajes de texto" in meta["enviados"][-1][1]
+
+
+# ── Revisión independiente de CHG-014 ─────────────────────────────────────────
+
+def test_h1_corregir_con_campos_vacios_no_borra_lo_que_tenia(client, meta):
+    _enlazar(client, meta)
+    meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [
+        {"tipo": "gasto", "monto": 85000, "fecha": "2026-11-20", "categoria": "Hogar", "medio_pago": "credito", "descripcion": "Internet"}]}))
+    meta["claude"].append(herramienta("corregir_ultimo", {"monto": 80000, "categoria": "", "medio_pago": "", "fecha": "", "descripcion": "  "}))
+    _msg(client, "85 mil de internet el 20")
+    _msg(client, "no, eran 80 mil")
+    t = _tx(client)[0]
+    assert (t["monto"], t["categoria_id"], t["medio_pago"], t["fecha"], t["descripcion"]) == \
+        (80000, _cat(client, "Hogar")["id"], "credito", "2026-11-20", "Internet")
+
+
+def test_h2_cambiar_la_contrasena_desconecta_whatsapp(client, meta, users):
+    from app.core import security
+    users["ana@example.com"] = {"id": "user-a", "email": "ana@example.com", "hashed_password": security.get_password_hash("Vieja1234"),
+                                "is_active": True, "full_name": "Ana", "currency": "COP", "session_version": 0}
+    _enlazar(client, meta)
+    r = client.post("/api/v1/users/me/password", json={"actual": "Vieja1234", "nueva": "NuevaClave1"}, headers=A)
+    assert r.status_code == 200
+    nueva = {"Authorization": "Bearer " + r.json()["access_token"]}
+    assert client.get("/api/v1/whatsapp/enlace", headers=nueva).json()["enlazado"] is False
+    _msg(client, "gasté 10 mil")   # el número ya no puede registrar
+    assert meta["payloads"] == []
+
+
+def test_h2_restablecer_la_contrasena_desconecta_whatsapp(client, meta, users, sent_emails):
+    from app.core import security
+    from conftest import ip
+    users["ana@example.com"] = {"id": "user-a", "email": "ana@example.com", "hashed_password": security.get_password_hash("Vieja1234"),
+                                "is_active": True, "full_name": "Ana", "currency": "COP", "session_version": 0}
+    _enlazar(client, meta)
+    client.post("/api/v1/auth/forgot-password", json={"email": "ana@example.com"}, headers=ip(1))
+    code = [s for s in sent_emails if s[2] == "reset"][-1][1]
+    r = client.post("/api/v1/auth/reset-password", json={"email": "ana@example.com", "code": code, "new_password": "NuevaClave1"}, headers=ip(1))
+    assert r.status_code == 200
+    from app.models.whatsapp import _Memoria
+    assert "user-a" not in _Memoria.enlaces
+
+
+def test_h3_si_falla_a_mitad_del_lote_no_queda_nada_y_se_avisa(client, meta, monkeypatch):
+    from app.models import plataapp as modelos
+    _enlazar(client, meta)
+    original = modelos.TransaccionDB.crear
+    llamadas = {"n": 0}
+
+    async def falla_en_la_segunda(*args, **kwargs):
+        llamadas["n"] += 1
+        if llamadas["n"] == 2:
+            raise RuntimeError("Supabase caído")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(falla_en_la_segunda))
+    meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [
+        {"tipo": "gasto", "monto": 1000, "fecha": "2026-11-23"}, {"tipo": "gasto", "monto": 2000, "fecha": "2026-11-23"}]}))
+    _msg(client, "mil y dos mil")
+    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(original))
+    assert _tx(client) == [] and "No se registró nada" in meta["enviados"][-1][1]
+
+
+def test_h3_un_error_inesperado_se_avisa_al_numero_enlazado(client, meta, monkeypatch):
+    _enlazar(client, meta)
+
+    async def explota(*args, **kwargs):
+        raise RuntimeError("inesperado")
+
+    monkeypatch.setattr(wa, "responder", explota)
+    _msg(client, "gasté 5 mil")
+    assert "error del servidor" in meta["enviados"][-1][1]
+
+
+def test_h4_un_codigo_nunca_reemplaza_el_de_otra_persona(monkeypatch):
+    secuencia = iter([123456, 123456, 654321])
+    monkeypatch.setattr(wa.secrets, "randbelow", lambda n: next(secuencia))
+    assert wa.nuevo_codigo("user-a") == "FZ-123456"
+    assert wa.nuevo_codigo("user-b") == "FZ-654321"
+    assert wa.usar_codigo("FZ-123456") == "user-a"
+
+
+def test_h5_ayuda_no_gasta_cupo_ni_requiere_clave_de_ia(client, meta, monkeypatch):
+    from app.api.routes import whatsapp as rutas
+    _enlazar(client, meta)
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(rutas._por_usuario_dia, "limit", 1)
+    for _ in range(3):
+        _msg(client, "ayuda")
+    assert all("deshacer" in t for _, t in meta["enviados"][1:]) and meta["payloads"] == []
+
+
+def test_h6_el_tope_global_tiene_su_propio_aviso(client, meta, monkeypatch):
+    from app.api.routes import whatsapp as rutas
+    monkeypatch.setattr(rutas._global_dia, "limit", 0)
+    _enlazar(client, meta)
+    _msg(client, "hola")
+    assert "registro por WhatsApp alcanzó su límite" in meta["enviados"][-1][1]
+
+
+@pytest.mark.parametrize("monto", ["85.000", "85000", True, None])
+def test_h7_monto_que_no_es_numero_se_rechaza(client, meta, monto):
+    _enlazar(client, meta)
+    meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [{"tipo": "gasto", "monto": monto, "fecha": "2026-11-23"}]}))
+    _msg(client, "algo")
+    assert _tx(client) == []
+
+
+def test_h9_numero_desconocido_no_deja_rastro(client, meta):
+    from app.models.whatsapp import _Memoria
+    _msg(client, "spam", de="570000000000")
+    assert _Memoria.mensajes == set()
+
+
+@pytest.mark.parametrize("payload", [
+    {"entry": {"no": "es lista"}},
+    {"entry": [{"changes": "texto"}]},
+    {"entry": [{"changes": [{"value": {"messages": [{"id": "x", "from": "1", "type": "text", "text": "no es objeto"}]}}]}]},
+    ["lista"],
+])
+def test_h10_payloads_raros_no_rompen_el_webhook(client, meta, payload):
+    raw = json.dumps(payload).encode()
+    firma = "sha256=" + hmac.new(SECRETO.encode(), raw, hashlib.sha256).hexdigest()
+    assert client.post("/api/v1/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": firma}).status_code == 200
+
+
+def test_h10_mensajes_de_otro_numero_de_meta_se_ignoran(client, meta):
+    _enlazar(client, meta)
+    payload = {"entry": [{"changes": [{"value": {"metadata": {"phone_number_id": "999"},
+                                                 "messages": [{"id": "wamid.otro", "from": TEL_A, "type": "text", "text": {"body": "hola"}}]}}]}]}
+    raw = json.dumps(payload).encode()
+    firma = "sha256=" + hmac.new(SECRETO.encode(), raw, hashlib.sha256).hexdigest()
+    client.post("/api/v1/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": firma})
+    assert meta["payloads"] == [] and len(meta["enviados"]) == 1   # solo la confirmación del enlace

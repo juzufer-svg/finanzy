@@ -54,7 +54,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-013 | `test_app_seguridad.py::test_inv013_*` |
 | INV-014 | `test_auth.py::test_inv014_correo_se_normaliza_a_minusculas` |
 | INV-015 | `test_auth.py::test_inv015_*` |
-| INV-016 | `test_sesiones.py::test_inv016_*`, `test_sesiones.py::test_login_y_verificacion_emiten_la_version_de_sesion_vigente` |
+| INV-016 | `test_whatsapp.py::test_h2_*` (WhatsApp se desconecta), `test_sesiones.py::test_inv016_*`, `test_sesiones.py::test_login_y_verificacion_emiten_la_version_de_sesion_vigente` |
 | INV-017 | `test_endurecimiento.py::test_inv017_*` |
 | INV-018 | `test_endurecimiento.py::test_inv018_*` |
 | INV-019 | `test_endurecimiento.py` (configuración y CORS) |

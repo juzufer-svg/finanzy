@@ -232,6 +232,10 @@ async def reset_password(data: ResetPasswordRequest, request: Request):
 
     if not await UserDB.update_password(email, data.new_password):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
+    usuario = await UserDB.get_by_email(email)
+    if usuario:   # restablecer la contraseña también desconecta WhatsApp (INV-016, CHG-014)
+        from app.api.routes.users import _desconectar_whatsapp
+        await _desconectar_whatsapp(usuario["id"])
 
     _login_fails.pop(email, None)  # desbloquear el login tras el cambio
     return MessageResponse(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión.")

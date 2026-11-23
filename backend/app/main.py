@@ -13,9 +13,14 @@ from app.api.routes import auth, users, plataapp, asistente, whatsapp
 async def cleanup_unverified_loop():
     """Tarea de fondo: cada 10 minutos elimina las cuentas pendientes con más de 1 hora."""
     from app.models.user import UserDB
+    from app.models.whatsapp import WhatsappDB
     while True:
         await asyncio.sleep(600)
         await UserDB.delete_unverified_expired()
+        try:   # ids de mensajes de WhatsApp ya procesados de más de 7 días (CHG-014)
+            await WhatsappDB.limpiar_mensajes_antiguos()
+        except Exception as e:
+            print(f"[cleanup] whatsapp_mensajes: {type(e).__name__}")
 
 
 @asynccontextmanager

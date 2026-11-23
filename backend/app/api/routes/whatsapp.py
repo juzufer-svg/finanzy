@@ -29,7 +29,10 @@ _global_dia = SlidingWindow(limit=max(1, settings.WHATSAPP_MENSAJES_TOTALES_DIA)
 _intentos_codigo = SlidingWindow(limit=5, window_seconds=60 * 60)
 _avisado_limite: set[str] = set()   # para avisar del tope una sola vez por día (no gastar respuestas)
 
-LIMITE_DIA = "Llegaste al límite de {n} mensajes de hoy. Vuelve mañana o registra desde la app."
+LIMITE_DIA = ("Llegaste al límite de {n} mensajes en las últimas 24 horas. Vuelve en unas horas o registra "
+              "desde la app.")
+LIMITE_GLOBAL = "El registro por WhatsApp alcanzó su límite diario. Vuelve en unas horas o registra desde la app."
+ERROR_GENERAL = "⚠️ No pude completar lo que pediste por un error del servidor. Revisa en la app si quedó registrado."
 
 
 @router.get("/webhook")
@@ -58,25 +61,35 @@ async def recibir_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 async def procesar_mensaje(mensaje: dict) -> None:
-    """Procesa un mensaje entrante. Nunca lanza: los errores se registran sin datos sensibles."""
+    """Procesa un mensaje entrante. Nunca lanza: los errores se registran sin datos sensibles y se avisa
+    a la persona (revisión CHG-014, H3) solo si su número está enlazado o enviaba un código."""
     try:
         await _procesar(mensaje)
     except Exception as e:
         print(f"[whatsapp] Error procesando un mensaje ({type(e).__name__})")
+        if mensaje.get("avisar_error"):
+            try:
+                await whatsapp.enviar(mensaje["de"], ERROR_GENERAL)
+            except Exception:
+                pass
 
 
 async def _procesar(mensaje: dict) -> None:
     telefono, texto, wamid = mensaje["de"], mensaje.get("texto"), mensaje["id"]
     usuario_id = await WhatsappDB.usuario_de_telefono(telefono)
+    es_codigo = bool(texto and whatsapp.CODIGO.match(texto))
+    if not usuario_id and not es_codigo:
+        return  # número no enlazado: se ignora en silencio, sin guardar nada (no gasta IA ni respuestas)
+    if es_codigo and not _intentos_codigo.allowed(telefono):
+        return
 
     # Idempotencia: Meta puede reenviar el mismo mensaje (INV-029)
     if not await WhatsappDB.marcar_procesado(wamid, usuario_id):
         return
+    mensaje["avisar_error"] = True
 
     # Código de enlace: lo único que acepta un número desconocido (nunca llega a la IA)
-    if texto and whatsapp.CODIGO.match(texto):
-        if not _intentos_codigo.allowed(telefono):
-            return
+    if es_codigo:
         _intentos_codigo.hit(telefono)
         dueno = whatsapp.usar_codigo(texto)
         if dueno:
@@ -86,19 +99,22 @@ async def _procesar(mensaje: dict) -> None:
             await whatsapp.enviar(telefono, "Ese código no es válido o ya venció. Genera uno nuevo en Finanzy → Perfil → WhatsApp.")
         return
 
-    if not usuario_id:
-        return  # número no enlazado: se ignora en silencio (no gasta IA ni respuestas)
     if not texto:
         await whatsapp.enviar(telefono, "Por ahora solo entiendo mensajes de texto. " + whatsapp.AYUDA.split("\n")[0])
+        return
+    if whatsapp.es_ayuda(texto):   # sin IA y sin gastar cupo (revisión CHG-014, H5)
+        await whatsapp.enviar(telefono, whatsapp.AYUDA)
         return
 
     if not _por_minuto.allowed(telefono):
         return
     _por_minuto.hit(telefono)
-    if not _por_usuario_dia.allowed(usuario_id) or not _global_dia.allowed("global"):
+    propio_agotado = not _por_usuario_dia.allowed(usuario_id)
+    if propio_agotado or not _global_dia.allowed("global"):
         if usuario_id not in _avisado_limite:
             _avisado_limite.add(usuario_id)
-            await whatsapp.enviar(telefono, LIMITE_DIA.format(n=settings.WHATSAPP_MENSAJES_POR_DIA))
+            aviso = LIMITE_DIA.format(n=settings.WHATSAPP_MENSAJES_POR_DIA) if propio_agotado else LIMITE_GLOBAL
+            await whatsapp.enviar(telefono, aviso)
         return
     _avisado_limite.discard(usuario_id)
     _por_usuario_dia.hit(usuario_id)

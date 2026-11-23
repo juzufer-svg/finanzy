@@ -21,10 +21,11 @@ export default function WhatsAppCard() {
   const cargar = useCallback((isActive: () => boolean = () => true) => {
     return apiClient.get<Estado>('/api/v1/whatsapp/enlace')
       .then(res => {
-        if (!isActive()) return
+        if (!isActive()) return null
         setEstado(res.data)
         setError('')
         if (res.data.enlazado) setCodigo(null)
+        return res.data
       })
       .catch(err => {
         if (isActive()) setError(apiErrorMessage(err, 'No se pudo cargar el estado de WhatsApp.'))
@@ -51,8 +52,10 @@ export default function WhatsAppCard() {
 
   const comprobar = async () => {
     setBusy(true)
-    await cargar()
+    const actual = await cargar()
     setBusy(false)
+    if (actual?.enlazado) notify('¡WhatsApp conectado!', 'success')
+    else if (actual) notify('Aún no llega el código. Espera unos segundos y vuelve a intentarlo.', 'info')
   }
 
   const desconectar = async () => {
@@ -89,7 +92,7 @@ export default function WhatsAppCard() {
       {error ? (
         <ErrorState message={error} onRetry={() => { setError(''); cargar() }} />
       ) : !estado ? (
-        <div className="h-16 rounded-lg bg-slate-100 animate-pulse" />
+        <div className="h-16 rounded-lg bg-slate-100 animate-pulse" aria-busy="true" aria-label="Cargando el estado de WhatsApp" role="status" />
       ) : !estado.configurado ? (
         <p className="text-sm text-slate-600">Aún no está activado en el servidor. Cuando se configure (ver la guía de WhatsApp), aquí podrás conectarlo.</p>
       ) : estado.enlazado ? (

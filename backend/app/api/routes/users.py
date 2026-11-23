@@ -15,6 +15,15 @@ from app.core.security import create_access_token, verify_password
 
 _NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos."
 
+
+async def _desconectar_whatsapp(user_id: str) -> None:
+    """Un cambio de contraseña cierra también el acceso por WhatsApp, como las demás sesiones (INV-016, CHG-014)."""
+    from app.models.whatsapp import WhatsappDB
+    try:
+        await WhatsappDB.desenlazar(user_id)
+    except Exception as e:
+        print(f"[users] No se pudo desconectar WhatsApp ({type(e).__name__})")
+
 router = APIRouter()
 
 
@@ -121,6 +130,7 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     if type(nueva_version) is not int or nueva_version < 1:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
     auth_routes._login_fails.pop(email, None)
+    await _desconectar_whatsapp(user_id)
 
     token = create_access_token(
         data={"sub": user_id, "sv": nueva_version},

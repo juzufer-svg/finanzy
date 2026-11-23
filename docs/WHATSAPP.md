@@ -12,6 +12,10 @@ mal escribes «deshacer» o lo corriges («no, eran 80 mil»).
 
 ## Paso a paso (una sola vez, ~30-45 minutos)
 
+> **Antes:** el backend con este cambio debe estar desplegado (push a `main`), si no Meta no podrá verificar el
+> webhook del paso 7. Los códigos de enlace y los topes viven en memoria: tras cada despliegue un código pendiente
+> deja de servir (genera otro). El número de prueba solo conversa con los números verificados en **To** (paso 3).
+
 ### 1. Ejecutar el SQL en Supabase
 Supabase → SQL Editor → New query → pegar `backend/sql/2026-11-23_whatsapp.sql` → Run. Debe mostrar 3 tablas con
 `rowsecurity = true`.
@@ -50,6 +54,9 @@ Railway → tu servicio del backend → **Variables** → agrega:
 
 `ANTHROPIC_API_KEY` ya existe (la usa el Asistente). Railway se reinicia solo al guardar.
 
+Opcionales: `WHATSAPP_MENSAJES_POR_DIA` (50 por defecto), `WHATSAPP_MENSAJES_TOTALES_DIA` (300) y
+`WHATSAPP_GRAPH_VERSION` (`v23.0`, la versión de la API de Meta).
+
 ### 7. Webhook
 Panel de la app → **WhatsApp → Configuration** → **Webhook** → Edit:
 - **Callback URL:** `https://<URL-de-tu-backend-en-Railway>/api/v1/whatsapp/webhook`
@@ -66,7 +73,9 @@ Finanzy → **Perfil → WhatsApp → Conectar WhatsApp** → envía el código 
 - Montos siempre en **pesos colombianos**. Si no dices la fecha, es hoy. Si no dices el medio de pago, queda sin especificar.
 - La categoría la elige la IA entre **tus** categorías; si ninguna encaja queda «Sin categoría».
 - Si falta el monto, te pregunta. «deshacer» borra lo último registrado por WhatsApp; «no, eran 80 mil» lo corrige.
-- «ayuda» muestra ejemplos (sin gastar IA).
+- «ayuda» muestra ejemplos (sin gastar IA ni cupo).
+- **Seguridad:** al cambiar o restablecer tu contraseña, WhatsApp se desconecta (igual que tus sesiones abiertas).
+  Vuelve a conectarlo desde Perfil.
 
 ## Problemas comunes
 | Síntoma | Causa probable |
