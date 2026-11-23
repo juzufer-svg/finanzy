@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     WHATSAPP_APP_SECRET: str = Field(default="")       # para verificar la firma de cada webhook
     WHATSAPP_PHONE_NUMBER_ID: str = Field(default="")  # id del número (de prueba) de Meta
     WHATSAPP_VERIFY_TOKEN: str = Field(default="")     # palabra secreta para verificar el webhook
-    WHATSAPP_GRAPH_VERSION: str = Field(default="v23.0")
+    WHATSAPP_GRAPH_VERSION: str = Field(default="v25.0")
     # Topes de costo (INV-030): mensajes procesados por usuario al día y en total al día
     WHATSAPP_MENSAJES_POR_DIA: int = Field(default=50)
     WHATSAPP_MENSAJES_TOTALES_DIA: int = Field(default=300)

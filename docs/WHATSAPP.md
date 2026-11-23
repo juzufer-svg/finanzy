@@ -55,7 +55,7 @@ Railway → tu servicio del backend → **Variables** → agrega:
 `ANTHROPIC_API_KEY` ya existe (la usa el Asistente). Railway se reinicia solo al guardar.
 
 Opcionales: `WHATSAPP_MENSAJES_POR_DIA` (50 por defecto), `WHATSAPP_MENSAJES_TOTALES_DIA` (300) y
-`WHATSAPP_GRAPH_VERSION` (`v23.0`, la versión de la API de Meta).
+`WHATSAPP_GRAPH_VERSION` (`v25.0`, la versión de la API de Meta).
 
 ### 7. Webhook
 Panel de la app → **WhatsApp → Configuration** → **Webhook** → Edit:

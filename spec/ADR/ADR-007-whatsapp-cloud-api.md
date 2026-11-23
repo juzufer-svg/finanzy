@@ -25,6 +25,7 @@ Interpretación: formato fijo (gratis) vs. **IA en lenguaje libre** (elegida por
 - La IA solo propone; el backend valida con las reglas de la app. El usuario sale del número enlazado.
 - Una llamada a Claude por mensaje; la respuesta de confirmación la arma el backend.
 - Registro inmediato sin confirmación (con «deshacer»), montos en COP, tope de 50 mensajes por día.
+- Cambiar o restablecer la contraseña desconecta WhatsApp (INV-016 ampliado, aprobado por el dueño el 2026-11-23).
 
 ## Consecuencias
 - Nuevas variables en Railway (`WHATSAPP_*`) y migración `backend/sql/2026-11-23_whatsapp.sql`.

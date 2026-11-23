@@ -1,6 +1,6 @@
 # CHG-014 — Registrar ingresos y gastos por WhatsApp con IA
 
-- **Estado:** en revisión (falta revisión independiente, el visto bueno del dueño, el SQL y la configuración en Meta/Railway)
+- **Estado:** aprobado por el dueño (2026-11-23: «Sí apruebo la 1 y la 2»: la ampliación de INV-016 y el push a `main`). Falta el SQL y la configuración en Meta/Railway. La cuenta de WhatsApp Business en Meta está restringida (error 131031) y el dueño pidió revisión a Meta
 - **Fecha:** 2026-11-23 · **Riesgo:** medio-alto (escritura de datos por IA, integración externa) · modo `completo`
 
 ## 1. Pedido original
@@ -18,7 +18,7 @@
 ## 3. Verificado en la documentación oficial de Meta (no supuesto)
 Precios (1.000 mensajes de servicio gratis al mes por número; sin método de pago no se cobra), pasos de creación de
 la app, token permanente de usuario de sistema, verificación `hub.challenge` y firma `X-Hub-Signature-256`,
-reintentos de webhooks (posibles duplicados), versión `v23.0` de la Graph API.
+reintentos de webhooks (posibles duplicados), versión `v25.0` de la Graph API.
 
 ## 4. Spec
 REQ-F-017, INV-029, INV-030, CT-009, UC-013, ADR-007, BDD-WHATSAPP, TRACEABILITY, `docs/WHATSAPP.md`.
@@ -58,3 +58,8 @@ de INV-016). Atendidas:
 - La desconexión vive en `WhatsappDB` (sin import entre rutas); la reversión limpia también los registros en memoria.
 - Documentos: CT-001/002, UC-003, UC-013, CT-009, BDD-WHATSAPP y CONTEXTO.
 Resultado: backend 300 pruebas. Ciclos usados: 2 de 3. **Pendiente: visto bueno del dueño a la regla de INV-016 y al push.**
+
+## 7. Aprobación y despliegue
+- 2026-11-23: el dueño aprueba que cambiar o restablecer la contraseña desconecte WhatsApp (INV-016) y el push a `main`.
+- Versión de la Graph API por defecto: `v25.0` (la que muestra el panel de Meta del dueño).
+- Prueba en Meta: los mensajes entrantes llegan al webhook de prueba; el envío falla con 131031 «Business Account locked» (restricción de la cuenta en Meta, no del código).
