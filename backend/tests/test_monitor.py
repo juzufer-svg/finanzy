@@ -563,7 +563,7 @@ def test_supabase_rpc_lenta_se_corta_a_los_5s(client, sesiones, externas, monkey
 # ---------- Anthropic: estimado con contadores propios, solo el chat (CHG-017) ----------
 
 def _contar(metrica, origen, cantidad, dias_atras=0):
-    hoy = contadores._hoy()
+    hoy = contadores.hoy_colombia()
     clave = (hoy - timedelta(days=dias_atras), metrica, origen)
     contadores._Memoria.filas[clave] = contadores._Memoria.filas.get(clave, 0) + cantidad
 
@@ -591,8 +591,8 @@ def test_anthropic_sin_clave_usa_contadores_solo_asistente(client, sesiones, ext
 
 
 def test_anthropic_contadores_solo_cuentan_el_mes_utc_en_curso(client, sesiones, externas, sin_admin, monkeypatch):
-    hoy = contadores._hoy()
-    monkeypatch.setattr(contadores, "_hoy", lambda: hoy.replace(day=15))   # ni el día 1 ni hoy mismo: mitad de mes
+    hoy = contadores.hoy_colombia()
+    monkeypatch.setattr(contadores, "hoy_colombia", lambda: hoy.replace(day=15))   # ni el día 1 ni hoy mismo: mitad de mes
     _contar("claude_llamadas", "asistente", 1)               # día 15 (hoy simulado)
     contadores._Memoria.filas[(hoy.replace(day=1), "claude_llamadas", "asistente")] = 2   # día 1: cuenta
     contadores._Memoria.filas[(hoy.replace(day=1) - timedelta(days=1), "claude_llamadas", "asistente")] = 50   # mes anterior
@@ -656,7 +656,7 @@ def test_anthropic_con_supabase_lee_el_mes_solo_del_asistente(monkeypatch):
     assert total == {"claude_llamadas": 5, "claude_tokens_entrada": 0, "claude_tokens_salida": 0}
     filtros = consultas[0]
     assert ("eq", "origen", "asistente") in filtros
-    assert ("gte", "fecha", contadores._hoy().replace(day=1).isoformat()) in filtros
+    assert ("gte", "fecha", contadores.hoy_colombia().replace(day=1).isoformat()) in filtros
     with pytest.raises(ValueError):
         contadores.leer_mes_claude("general")
 
@@ -1063,7 +1063,7 @@ def test_inv035_no_store_solo_en_respuestas_del_dueno(client, sesiones, externas
 
 def test_contadores_agregados_por_dia(client, sesiones, externas):
     from datetime import timedelta
-    hoy = contadores._hoy()
+    hoy = contadores.hoy_colombia()
     ayer = hoy - timedelta(days=1)
     vieja = hoy - timedelta(days=45)   # fuera de la ventana de 30 días, pero cuenta para «desde»
     F = contadores._Memoria.filas

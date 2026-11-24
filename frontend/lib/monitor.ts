@@ -261,7 +261,7 @@ export function sumarDias(fecha: string, n: number): string {
 }
 
 /**
- * Serie continua de `n` días terminando en `hasta` (`YYYY-MM-DD`, UTC). El backend solo envía los días con
+ * Serie continua de `n` días terminando en `hasta` (`YYYY-MM-DD`, hoy de Colombia). El backend solo envía los días con
  * datos; aquí se rellenan con ceros para que el gráfico muestre la ventana completa.
  */
 export function serieDias(dias: DiaContador[], hasta: string, n = 30): PuntoDia[] {
@@ -287,10 +287,16 @@ export function serieDias(dias: DiaContador[], hasta: string, n = 30): PuntoDia[
   return serie
 }
 
-/** Día UTC (`YYYY-MM-DD`) de un instante ISO; si no es válido, `null`. */
+/**
+ * Día de Colombia (`YYYY-MM-DD`, UTC−5) de un instante UTC ISO-8601 con «Z»; si no es válido, `null`. Los días de
+ * los contadores son días de Colombia: ni el día UTC ni el del navegador. Es el «hoy» con que termina la serie.
+ */
 export function diaDeInstante(iso: unknown): string | null {
-  const m = typeof iso === 'string' ? /^(\d{4}-\d{2}-\d{2})T/.exec(iso) : null
-  return m ? m[1] : null
+  const m = typeof iso === 'string' ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso) : null
+  if (!m) return null
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])) + DESFASE_COLOMBIA_MS)
+  if (Number.isNaN(t.getTime())) return null
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
 }
 
 /** Suma de una serie de valores. */

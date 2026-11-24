@@ -2,7 +2,7 @@
 -- Ejecutar en Supabase → SQL Editor ANTES de desplegar el backend que lo usa. No toca datos existentes.
 -- Es seguro repetirlo (idempotente). Puede pegarse completo: no usa tablas temporales entre sentencias.
 
--- Consumo agregado por día UTC. No pertenece a ningún usuario: jamás guarda correos, teléfonos, textos ni ids de usuario.
+-- Consumo agregado por día de Colombia (UTC−5; la fecha la manda el backend). No pertenece a ningún usuario: jamás guarda correos, teléfonos, textos ni ids de usuario.
 create table if not exists public.contadores_diarios (
   fecha date not null,
   metrica varchar(40) not null,

@@ -158,10 +158,10 @@ function TablaDias({ serie }: { serie: PuntoDia[] }) {
       ) : (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-sm">
-            <caption className="sr-only">Contadores propios por día (UTC), últimos 30 días</caption>
+            <caption className="sr-only">Contadores propios por día (hora de Colombia), últimos 30 días</caption>
             <thead>
               <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                <th scope="col" className="py-2 pr-3 font-semibold">Día (UTC)</th>
+                <th scope="col" className="py-2 pr-3 font-semibold">Día</th>
                 <th scope="col" className="py-2 px-2 font-semibold text-right">Llamadas asistente</th>
                 <th scope="col" className="py-2 px-2 font-semibold text-right">Llamadas WhatsApp</th>
                 <th scope="col" className="py-2 px-2 font-semibold text-right">Tokens asistente</th>
@@ -300,7 +300,7 @@ export default function MonitorPage() {
               <h2 id="monitor-contadores" className="text-base font-bold text-slate-900">Contadores propios · últimos 30 días</h2>
               <p className="text-sm text-slate-500">
                 {resumen.contadores.desde
-                  ? `Registrados desde el ${formatFechaDia(resumen.contadores.desde)} (días en UTC).`
+                  ? `Registrados desde el ${formatFechaDia(resumen.contadores.desde)} (días en hora de Colombia).`
                   : 'Aún sin datos desde la activación.'}
               </p>
             </div>

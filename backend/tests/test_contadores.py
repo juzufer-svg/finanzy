@@ -338,9 +338,9 @@ def test_inv036_la_purga_se_intenta_una_sola_vez_al_dia_por_instancia(monkeypatc
         assert contadores.incrementar("whatsapp_enviados", "general", 1) is True
     nombres = [n for n, _a in cliente.llamadas]
     assert nombres.count("incrementar_contador") == 3 and nombres.count("purgar_contadores") == 1
-    # al cambiar el día UTC vuelve a intentarlo (una vez)
-    manana = contadores._hoy() + timedelta(days=1)
-    monkeypatch.setattr(contadores, "_hoy", lambda: manana)
+    # al cambiar el día de Colombia vuelve a intentarlo (una vez)
+    manana = contadores.hoy_colombia() + timedelta(days=1)
+    monkeypatch.setattr(contadores, "hoy_colombia", lambda: manana)
     contadores.incrementar("whatsapp_enviados", "general", 1)
     contadores.incrementar("whatsapp_enviados", "general", 1)
     nombres = [n for n, _a in cliente.llamadas]
@@ -406,3 +406,48 @@ def test_leer_ventana_30_dias_sin_marca_de_purga():
     assert contadores.fecha_mas_antigua() == (hoy - timedelta(days=30)).isoformat()   # no se limita a la ventana
     contadores._Memoria.limpiar()
     assert contadores.fecha_mas_antigua() is None and contadores.leer_ventana() == []
+
+
+# ── Días en hora de Colombia (UTC−5), CHG-017 / INV-036 / CT-010 ──────────────────────────────
+
+def _utc(texto):
+    return datetime.fromisoformat(texto.replace("Z", "+00:00"))
+
+
+@pytest.mark.parametrize("instante,dia", [
+    ("2026-11-25T03:00:00Z", "2026-11-24"),   # en UTC ya es el 25; en Colombia sigue el 24
+    ("2026-11-24T05:00:00Z", "2026-11-24"),   # medianoche de Colombia: empieza el 24
+    ("2026-11-24T04:59:00Z", "2026-11-23"),   # un minuto antes: todavía el 23
+    ("2026-12-01T04:59:59Z", "2026-11-30"),   # cruce de mes
+])
+def test_hoy_colombia_corta_a_medianoche_de_colombia(instante, dia):
+    assert contadores.hoy_colombia(_utc(instante)).isoformat() == dia
+
+
+def test_hoy_colombia_usa_el_reloj_simulado_y_es_la_unica_fuente(monkeypatch):
+    monkeypatch.setattr(contadores, "_ahora_utc", lambda: _utc("2026-11-25T03:00:00Z"))
+    assert contadores.hoy_colombia().isoformat() == "2026-11-24"
+    contadores._Memoria.limpiar()
+    assert contadores.incrementar("whatsapp_enviados", "general", 1) is True
+    assert [f.isoformat() for (f, _m, _o) in contadores._Memoria.filas] == ["2026-11-24", "2026-11-24"]   # dato + marca de purga
+
+
+def test_ventana_mes_y_purga_siguen_el_dia_de_colombia(monkeypatch):
+    # 2026-12-01T03:00Z = 30 nov en Colombia: el «mes» es noviembre y la ventana termina el 30
+    monkeypatch.setattr(contadores, "_ahora_utc", lambda: _utc("2026-12-01T03:00:00Z"))
+    contadores._Memoria.limpiar()
+    f = contadores._Memoria.filas
+    f[(_utc("2026-11-01T12:00:00Z").date(), "claude_llamadas", "asistente")] = 4
+    f[(_utc("2026-10-31T12:00:00Z").date(), "claude_llamadas", "asistente")] = 9   # mes anterior
+    f[(_utc("2026-11-01T12:00:00Z").date() - timedelta(days=29), "brevo_correos_enviados", "general")] = 1  # 3 oct: fuera de la ventana
+    f[(_utc("2026-11-30T12:00:00Z").date() - timedelta(days=29), "brevo_correos_enviados", "general")] = 2  # 1 nov: dentro
+    assert contadores.leer_mes_claude("asistente")["claude_llamadas"] == 4
+    fechas = {x["fecha"] for x in contadores.leer_ventana()}
+    assert "2026-11-01" in fechas and "2026-10-03" not in fechas
+    # purga: con hoy = 30 nov se borra lo anterior a 30 nov − 90 d = 1 sep
+    f[(_utc("2026-08-31T12:00:00Z").date(), "whatsapp_enviados", "general")] = 1
+    f[(_utc("2026-09-01T12:00:00Z").date(), "whatsapp_enviados", "general")] = 1
+    contadores.incrementar("whatsapp_enviados", "general", 1)
+    claves = {k[0].isoformat() for k in f}
+    assert "2026-08-31" not in claves and "2026-09-01" in claves
+    assert ("2026-11-30", "purga") in {(k[0].isoformat(), k[1]) for k in f}

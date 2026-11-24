@@ -352,7 +352,7 @@ def _costo_estimado(modelo: str, entrada: int, salida: int) -> Optional[float]:
 
 
 async def _anthropic_contadores() -> dict:
-    """Sin clave de administración: consumo del MES UTC del chat del Asistente (origen `asistente`; el de
+    """Sin clave de administración: consumo del MES de Colombia (UTC−5) del chat del Asistente (origen `asistente`; el de
     WhatsApp NO se suma) a partir de los contadores propios (INV-036). Es una ESTIMACIÓN. Si el contador falla
     → no disponible (el error se propaga a `_consultar`)."""
     try:

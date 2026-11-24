@@ -46,7 +46,7 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   - **Brevo: la clave es de acceso completo.** Brevo no ofrece claves de solo lectura; `MONITOR_BREVO_KEY` es una
     clave de API distinta de la de envío, pero con permisos completos. El código solo la usa en GET de cuenta e informe.
   - **Anthropic:** con clave de administración de una organización (`sk-ant-admin...`) se usa la fuente oficial y
-    prevalece; otra clave no se envía. Sin ella (el Dueño no la tiene), la tarjeta estima el MES UTC en curso con
+    prevalece; otra clave no se envía. Sin ella (el Dueño no la tiene), la tarjeta estima el MES de Colombia (UTC−5) en curso con
     los contadores propios (INV-036), solo del origen `asistente` (WhatsApp aparte), y el costo con una tabla fija
     de precios por modelo (`claude-haiku-5-5`: US$ 0,10/M entrada y US$ 0,50/M salida; precios del 2026-11-24, a
     revisar si cambia el modelo o el precio). Modelo desconocido: se omite el costo. Es una estimación y se rotula así.
@@ -93,3 +93,6 @@ GraphQL de solo lectura (`query`, sin mutaciones) a la misma URL fija y con el m
 `estimatedUsage` (`asyncio.gather` con `return_exceptions`) dentro del mismo plazo total de 5 s; si una falla, la otra
 se muestra. Verificada contra la API real de Railway con una credencial de cuenta. `currentUsage` es un valor en caché
 (puede ir algo retrasado). Sin costo adicional ni nuevas variables.
+
+## Nota (CHG-017): días de los contadores en hora de Colombia
+El dueño aprobó explícitamente que los **días de los contadores propios** corten a medianoche de Colombia (UTC−5 todo el año, sin horario de verano) y no de UTC. Es una excepción deliberada a «fechas en UTC» de `CLAUDE.md`. Se implementa con una zona fija (`timezone(timedelta(hours=-5))`, sin tzdata) en una única función `hoy_colombia()` (`backend/app/models/contadores.py`), que fija «hoy», el mes en curso del consumo estimado de Claude, la ventana de 30 días, `desde` y la purga a 90 días. Los instantes (`generado_en`, `actualizado_en`) siguen en UTC. Los periodos que define el proveedor (Railway, Meta, Brevo `enviados_hoy`) no cambian. El SQL no cambia: ninguna función usa `current_date`; recibe la fecha como parámetro (`p_fecha`, `p_hoy`). No se migran filas (aún no hay datos reales).

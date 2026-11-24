@@ -82,7 +82,7 @@
 
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
-| fecha | Fecha (día UTC) | Sí | Día en que ocurrió el consumo |
+| fecha | Fecha (día de Colombia, UTC−5) | Sí | Día en que ocurrió el consumo |
 | métrica | Texto de lista fija | Sí | Solo estos nombres (CT-010): `claude_llamadas`, `claude_tokens_entrada`, `claude_tokens_salida`, `brevo_correos_enviados`, `whatsapp_enviados`, `whatsapp_recibidos`, y `purga` (fila marcadora, no es consumo) |
 | origen | Texto de lista fija | Sí | `asistente` o `whatsapp` para Claude; `general` cuando no aplica |
 | cantidad | Entero | Sí | ≥ 0; se incrementa de forma atómica (varias escrituras simultáneas no pierden cuenta) |

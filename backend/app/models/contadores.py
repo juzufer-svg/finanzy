@@ -1,7 +1,7 @@
 """
 Contadores diarios del Monitor (CHG-017, INV-036, CT-010).
 
-Solo agregados por día UTC (fecha, métrica, origen, cantidad): jamás correos, teléfonos, textos ni ids
+Solo agregados por día de Colombia (UTC−5) (fecha, métrica, origen, cantidad): jamás correos, teléfonos, textos ni ids
 de usuario. Con Supabase usa la tabla y las funciones de `backend/sql/2026-11-24_monitor.sql` (incremento
 atómico por RPC); sin Supabase (desarrollo y pruebas) guarda en memoria. En producción NUNCA se guarda en
 memoria (INV-013): sin Supabase simplemente no se cuenta.
@@ -31,8 +31,20 @@ def _supabase_ok() -> bool:
     return bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
 
 
-def _hoy() -> date:
-    return datetime.now(timezone.utc).date()
+# EXCEPCIÓN DELIBERADA a «fechas en UTC» de CLAUDE.md (aprobada por el dueño, CHG-017, ADR-008): los DÍAS de los
+# contadores propios cortan a medianoche de Colombia. Colombia es UTC−5 todo el año (sin horario de verano), así
+# que basta una zona fija, sin depender de tzdata. Los instantes (`generado_en`, `actualizado_en`) siguen en UTC.
+COLOMBIA = timezone(timedelta(hours=-5))
+
+
+def _ahora_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def hoy_colombia(ahora: Optional[datetime] = None) -> date:
+    """Día calendario de Colombia (UTC−5) del instante `ahora` (con zona; por defecto, el reloj actual).
+    Única fuente de «hoy», «mes en curso», ventana de 30 días, `desde` y purga a 90 días de los contadores."""
+    return (ahora or _ahora_utc()).astimezone(COLOMBIA).date()
 
 
 class _Memoria:
@@ -49,7 +61,7 @@ class _Memoria:
 
 
 def _incrementar_o_falla(metrica: str, origen: str, cantidad: int) -> None:
-    hoy = _hoy()
+    hoy = hoy_colombia()
     if _supabase_ok():
         client = SupabaseDB.get_client()
         client.rpc("incrementar_contador", {
@@ -118,10 +130,10 @@ async def incrementar_async(metrica: str, origen: str = "general", cantidad: int
 
 
 def leer_ventana() -> list[dict]:
-    """Filas de los últimos 30 días UTC (incluido hoy) sin la marca de purga: [{fecha, metrica, origen, cantidad}].
+    """Filas de los últimos 30 días de Colombia (incluido hoy) sin la marca de purga: [{fecha, metrica, origen, cantidad}].
 
     A diferencia de `incrementar`, los errores se propagan: quien lee (T2) decide qué responder."""
-    desde = _hoy() - timedelta(days=VENTANA_DIAS - 1)
+    desde = hoy_colombia() - timedelta(days=VENTANA_DIAS - 1)
     if _supabase_ok():
         client = SupabaseDB.get_client()
         r = (client.table("contadores_diarios").select("fecha,metrica,origen,cantidad")
@@ -137,13 +149,13 @@ METRICAS_CLAUDE = ("claude_llamadas", "claude_tokens_entrada", "claude_tokens_sa
 
 
 def leer_mes_claude(origen: str = "asistente") -> dict[str, int]:
-    """Totales del MES UTC en curso (del día 1 a hoy) de las métricas de Claude de UN origen (por defecto
+    """Totales del MES de Colombia en curso (del día 1 a hoy) de las métricas de Claude de UN origen (por defecto
     `asistente`; el origen `whatsapp` nunca se mezcla): {metrica: total}, con 0 donde no hay filas.
 
     Los errores se propagan: quien lee decide qué responder (el Monitor lo marca «no disponible»)."""
     if origen not in ORIGENES_CLAUDE:
         raise ValueError("origen fuera de la lista fija")
-    desde = _hoy().replace(day=1)
+    desde = hoy_colombia().replace(day=1)
     totales = {m: 0 for m in METRICAS_CLAUDE}
     if _supabase_ok():
         client = SupabaseDB.get_client()

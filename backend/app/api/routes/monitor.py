@@ -62,7 +62,7 @@ def _numero(valor: Any) -> int:
 
 
 def construir_contadores(filas: list[dict], desde: Optional[str]) -> dict:
-    """Agrega las filas por día UTC (CT-010): solo días con algún contador, orden ascendente, claves fijas."""
+    """Agrega las filas por día de Colombia (CT-010): solo días con algún contador, orden ascendente, claves fijas."""
     dias: dict[str, dict] = {}
     for fila in filas:
         if not isinstance(fila, dict):

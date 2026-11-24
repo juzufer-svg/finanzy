@@ -50,6 +50,10 @@ test('fechas de día y hora de Colombia', () => {
   assert.equal(formatInstante('2026-11-24T17:00:00Z'), '24 nov 2026, 12:00 p. m.')     // mediodía
   assert.equal(formatInstante(null), '—')
   assert.equal(diaDeInstante('2026-11-24T15:00:00Z'), '2026-11-24')
+  assert.equal(diaDeInstante('2026-11-25T03:00:00Z'), '2026-11-24')   // Colombia = UTC−5: aún es el 24
+  assert.equal(diaDeInstante('2026-11-24T05:00:00Z'), '2026-11-24')
+  assert.equal(diaDeInstante('2026-11-24T04:59:00Z'), '2026-11-23')
+  assert.equal(diaDeInstante('2026-12-01T02:00:00Z'), '2026-11-30')   // cruza de mes
   assert.equal(diaDeInstante('x'), null)
 })
 
@@ -166,4 +170,11 @@ test('normalizar el resumen: forma inválida, plataformas faltantes y datos suci
   assert.equal(r.plataformas.vercel.estado, 'no_disponible')
   const vacio = normalizarResumen({ generado_en: 'x', contadores: { desde: null, dias: [] }, plataformas: {} })
   assert.deepEqual(vacio.contadores.dias, [])
+})
+
+test('la serie de 30 días termina en el hoy de Colombia, no en el día UTC', () => {
+  const hoy = diaDeInstante('2026-11-25T03:00:00Z')   // en UTC ya es el 25; en Colombia sigue el 24
+  const serie = serieDias([], hoy, 30)
+  assert.equal(serie[29].fecha, '2026-11-24')
+  assert.equal(serie[0].fecha, '2026-10-26')
 })
