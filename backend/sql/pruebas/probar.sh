@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) y estado de autenticación persistente (CHG-020) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -41,6 +41,8 @@ PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 05_comprobar_whatsapp.sql
 # CHG-017: monitor de consumos (dos veces para comprobar que se puede repetir)
 run ../2026-11-24_monitor.sql
 run ../2026-11-24_monitor.sql
+run ../2026-11-24_monitor_tamano_bd.sql
+run ../2026-11-24_monitor_tamano_bd.sql
 PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 06_comprobar_monitor.sql
 # Incremento atómico con dos sesiones simultáneas: contador de hoy en 10 + incrementos de 1 y de 2 = 13
 psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "select public.incrementar_contador(current_date, 'whatsapp_enviados', 'general', 10)" > /dev/null
@@ -51,3 +53,72 @@ wait
 TOTAL=$(psql "$PGURL" -q -t -A -c "select cantidad from public.contadores_diarios where fecha = current_date and metrica = 'whatsapp_enviados' and origen = 'general'")
 if [ "$TOTAL" != "13" ]; then echo "ERROR: incremento simultáneo dio $TOTAL (esperado 13)"; exit 1; fi
 echo "OK: incremento atómico simultáneo = 13"
+# CHG-020: estado de autenticación persistente (dos veces para comprobar que se puede repetir).
+# El rol service_role existe en Supabase (con BYPASSRLS); aquí se crea igual para probar los GRANT y las funciones con su rol.
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; end \$\$"
+# Como en Supabase: los tres roles pueden usar el esquema public (lo que les falta lo deciden los GRANT/REVOKE de cada objeto)
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "grant usage on schema public to anon, authenticated, service_role"
+run ../2026-11-24_auth_persistente.sql
+run ../2026-11-24_auth_persistente.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 07_comprobar_auth_persistente.sql
+# Concurrencia real: una sesión retiene el bloqueo y N sesiones simultáneas hacen cola sobre él (así todas compiten de verdad)
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+sql() { psql "$PGURL" -q -t -A -v ON_ERROR_STOP=1 -c "$1"; }
+# $1 = sentencia que retiene el bloqueo 2 s; $2 = cantidad; $3 = sentencia de cada sesión (resultado en $TMP/r.N)
+en_paralelo() {
+  psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; $1; select pg_sleep(2); commit;" > /dev/null &
+  sleep 0.7   # el bloqueador ya tiene el bloqueo
+  for n in $(seq 1 "$2"); do sql "$3" > "$TMP/r.$n" & done
+  wait
+}
+cuenta() { cat "$TMP"/r.* | grep -c -x "$1" || true; }
+esperar() { if [ "$2" != "$3" ]; then echo "ERROR: $1 dio $2 (esperado $3)"; exit 1; fi; echo "OK: $1 = $2"; }
+
+# 6 reservas de login simultáneas -> exactamente 5 permitidas (la 6.ª recibe 429)
+sql "insert into public.auth_login_intentos(clave) values ('conc_login')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.auth_login_intentos where clave = 'conc_login' for update" 6 "select permitido from public.auth_login_reservar('conc_login')"
+esperar "6 reservas simultáneas permitidas" "$(cuenta t)" 5
+esperar "6 reservas simultáneas rechazadas" "$(cuenta f)" 1
+esperar "fallos tras 6 reservas simultáneas" "$(sql "select fallos from public.auth_login_intentos where clave = 'conc_login'")" 5
+# La 5.ª reserva que acierta (con 4 más en vuelo): entra, se le devuelve el intento y el correo queda desbloqueado
+sql "select public.auth_login_resolver('conc_login', true)" > /dev/null
+esperar "5.ª reserva que acierta: fallos y bloqueo" "$(sql "select fallos || '/' || (bloqueado_hasta is null) || '/' || en_vuelo from public.auth_login_intentos where clave = 'conc_login'")" "4/true/4"
+sql "delete from public.auth_login_intentos" > /dev/null
+
+# Un código de un solo uso con 2 sesiones simultáneas: una sola acierta
+sql "select public.auth_codigo_emitir('conc_cod', 'verify', 'hmac_ok')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.auth_codigos where clave = 'conc_cod' for update" 2 "select public.auth_codigo_verificar('conc_cod', 'verify', 'hmac_ok')"
+esperar "verificaciones simultáneas con ok" "$(cuenta ok)" 1
+esperar "verificaciones simultáneas con invalido" "$(cuenta invalido)" 1
+# 40 verificaciones incorrectas simultáneas: como mucho 5 se evalúan; después ni el código correcto lo activa
+sql "select public.auth_codigo_emitir('conc_cod2', 'verify', 'hmac_ok')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.auth_codigos where clave = 'conc_cod2' for update" 40 "select public.auth_codigo_verificar('conc_cod2', 'verify', 'hmac_mal')"
+esperar "40 verificaciones incorrectas: incorrecto" "$(cuenta incorrecto)" 5
+esperar "40 verificaciones incorrectas: invalido" "$(cuenta invalido)" 35
+esperar "código correcto tras agotar los intentos" "$(sql "select public.auth_codigo_verificar('conc_cod2', 'verify', 'hmac_ok')")" invalido
+sql "delete from public.auth_codigos; delete from public.auth_limites_eventos where clave <> 'purga'" > /dev/null
+
+# 10 emisiones simultáneas al mismo correo -> 1 enviado y 9 reciente (60 s)
+rm -f "$TMP"/r.*
+en_paralelo "select pg_advisory_xact_lock(hashtextextended('auth_emitir:correo:conc_mail', 0))" 10 "select public.auth_codigo_emitir('conc_mail', 'verify', 'h')"
+esperar "10 emisiones simultáneas: enviado" "$(cuenta enviado)" 1
+esperar "10 emisiones simultáneas: reciente" "$(cuenta reciente)" 9
+sql "delete from public.auth_codigos; delete from public.auth_limites_eventos where clave <> 'purga'" > /dev/null
+
+# 15 emisiones simultáneas (p_espacio_seg = 0) a un destinatario con 5 eventos previos -> 5 enviado y 10 limitado (tope de 10/día)
+sql "insert into public.auth_limites_eventos(clave, tipo, ocurrido_en) select 'conc_tope', 'correo', now() - interval '1 hour' from generate_series(1, 5)" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select pg_advisory_xact_lock(hashtextextended('auth_emitir:correo:conc_tope', 0))" 15 "select public.auth_codigo_emitir('conc_tope', 'verify', 'h', 0)"
+esperar "15 emisiones simultáneas: enviado" "$(cuenta enviado)" 5
+esperar "15 emisiones simultáneas: limitado" "$(cuenta limitado)" 10
+esperar "eventos del destinatario tras las 15 emisiones" "$(sql "select count(*) from public.auth_limites_eventos where clave = 'conc_tope' and tipo = 'correo'")" 10
+# Límite por IP simultáneo: 40 intentos con límite 30 -> 30 ok y 10 limitado
+rm -f "$TMP"/r.*
+en_paralelo "select pg_advisory_xact_lock(hashtextextended('auth_limite:conc_ip:ip_intento', 0))" 40 "select public.auth_limite_registrar('conc_ip', 'ip_intento', 30, 600)"
+esperar "40 intentos por IP simultáneos: ok" "$(cuenta ok)" 30
+esperar "40 intentos por IP simultáneos: limitado" "$(cuenta limitado)" 10
+sql "delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos" > /dev/null
+echo "OK: concurrencia real del estado de autenticación"
