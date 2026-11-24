@@ -5,7 +5,7 @@
 
 ## Precondiciones
 `OWNER_EMAIL` configurada en el servidor, el Dueño con sesión activa y, para cada plataforma que quiera ver, su token
-`MONITOR_*_TOKEN` e ids de configuración.
+`MONITOR_*` e ids de configuración.
 
 ## Flujo principal
 1. El Dueño ve el enlace «Monitor» (la interfaz lo muestra solo si `es_dueno` es `true` en `GET /users/me`, CT-002) y abre la página `/dashboard/monitor`.

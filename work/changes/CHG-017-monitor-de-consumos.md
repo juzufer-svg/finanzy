@@ -68,3 +68,10 @@ REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, I
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente (falta la revisión independiente del ciclo 2 y la verificación manual de los tokens reales, ADR-008)
+
+## Cierre (propuesto, a la espera del dueño)
+- Decisiones: ver §4 (1-5 aprobadas por el dueño; 6-20 provisionales del coordinador, por defecto seguro).
+- Pruebas: backend 431 pasan (5 pasadas sin intermitencias), pip-audit limpio; frontend eslint 0, tsc ok, npm test 41/41, next build ok; Playwright dueño/no dueño.
+- Revisión independiente: ciclo 1 CAMBIOS_REQUERIDOS (2 bloqueantes) → ciclo 2 APROBABLE. Menores abiertos y opcionales: pool de hilos propio para el Monitor, aviso en log si cambia el formato de Anthropic, documentar que una purga fallida no se reintenta el mismo día.
+- Despliegue: ejecutar `backend/sql/2026-11-24_monitor.sql` (ya aplicado por el dueño); definir `OWNER_EMAIL` y `MONITOR_*` en Railway; confirmar que la URL del webhook de Meta no termina en `/` (redirect_slashes=False); verificación manual de cada plataforma con tokens reales y registro del permiso elegido en ADR-008.
+- **Aprobación humana final:** pendiente

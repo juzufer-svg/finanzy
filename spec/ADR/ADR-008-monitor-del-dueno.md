@@ -29,7 +29,7 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   90 días (purga oportunista al escribir, como mucho una vez al día, sin tarea programada); la respuesta muestra los
   últimos 30 días; «recibidos» de WhatsApp cuenta solo números enlazados; su escritura nunca rompe el flujo
   principal (INV-036).
-- Lectura de las seis plataformas con tokens **propios** `MONITOR_*_TOKEN`, distintos de los de envío o escritura y con
+- Lectura de las seis plataformas con tokens **propios** `MONITOR_*`, distintos de los de envío o escritura y con
   el menor permiso que la plataforma ofrezca. Algunas plataformas no ofrecen tokens de solo lectura (p. ej. Anthropic
   pide clave de administración y cuenta de organización): se acepta el menor permiso disponible y lo que no se pueda
   leer se muestra «no disponible» (aprobado, pregunta 2). Que cada token tenga ese menor permiso y sea distinto de los
@@ -71,7 +71,7 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   cuenta (BL-036).
 
 ## Consecuencias
-- Nuevas variables en Railway: `OWNER_EMAIL`, `MONITOR_*_TOKEN` e ids de configuración (CT-010). Nueva migración en
+- Nuevas variables en Railway: `OWNER_EMAIL`, `MONITOR_*` e ids de configuración (CT-010). Nueva migración en
   `backend/sql/` para la tabla de contadores (con RLS).
 - Si falta un token, esa plataforma aparece «no disponible»; el resto sigue funcionando.
 - Los tokens del Monitor son secretos adicionales: deben crearse con el mínimo permiso y rotarse si se filtran.
