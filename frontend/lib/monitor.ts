@@ -136,12 +136,19 @@ export function formatFechaDia(fecha: unknown): string {
   return `${Number(m[3])} ${mes} ${m[1]}`
 }
 
-/** Instante UTC ISO-8601 → «24 nov 2026, 15:00 UTC». Si no es válido, devuelve «—». */
+/** Colombia está en UTC−5 todo el año (sin horario de verano): se resta a mano, sin depender de la zona del navegador. */
+const DESFASE_COLOMBIA_MS = -5 * 60 * 60 * 1000
+
+/** Instante UTC ISO-8601 → hora de Colombia: «24 nov 2026, 10:00 a. m.». Si no es válido, devuelve «—». */
 export function formatInstante(iso: unknown): string {
-  const m = typeof iso === 'string' ? /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso) : null
+  const m = typeof iso === 'string' ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso) : null
   if (!m) return '—'
-  const dia = formatFechaDia(m[1])
-  return dia === '—' ? '—' : `${dia}, ${m[2]}:${m[3]} UTC`
+  if (formatFechaDia(`${m[1]}-${m[2]}-${m[3]}`) === '—') return '—'
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])) + DESFASE_COLOMBIA_MS)
+  const dia = formatFechaDia(`${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`)
+  const h = t.getUTCHours()
+  const hora12 = h % 12 === 0 ? 12 : h % 12
+  return `${dia}, ${hora12}:${String(t.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`
 }
 
 function formatCampo(def: CampoDef, valor: ValorDato): string | null {

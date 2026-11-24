@@ -4,6 +4,8 @@
 - Solo lectura. Una única ruta. Errores comunes 401/503 de sesión (CT-002) **no** se usan aquí: ver «Errores».
 - «Dueño» = actor definido en el glosario (no el «propietario del registro» de INV-001).
 
+> Presentación (CHG-017): la API entrega los instantes en UTC; la página los muestra en hora de Colombia (UTC−5, sin horario de verano). Los días de los contadores siguen siendo días UTC.
+
 ## Endpoint
 | Endpoint | Entrada | Respuesta |
 |---|---|---|

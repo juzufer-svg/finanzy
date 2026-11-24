@@ -37,11 +37,17 @@ test('números y dólares con separadores', () => {
   assert.equal(formatUsd(undefined), '—')
 })
 
-test('fechas de día e instantes UTC', () => {
+test('fechas de día y hora de Colombia', () => {
   assert.equal(formatFechaDia('2026-11-24'), '24 nov 2026')
   assert.equal(formatFechaDia('2026-13-01'), '—')
   assert.equal(formatFechaDia('hola'), '—')
-  assert.equal(formatInstante('2026-11-24T15:00:00Z'), '24 nov 2026, 15:00 UTC')
+  assert.equal(formatInstante('2026-11-24T15:00:00Z'), '24 nov 2026, 10:00 a. m.')   // Colombia = UTC−5
+  assert.equal(formatInstante('2026-11-24T11:42:00Z'), '24 nov 2026, 6:42 a. m.')
+  assert.equal(formatInstante('2026-11-24T23:30:00Z'), '24 nov 2026, 6:30 p. m.')
+  assert.equal(formatInstante('2026-11-25T03:00:00Z'), '24 nov 2026, 10:00 p. m.')     // cruza el día hacia atrás
+  assert.equal(formatInstante('2026-12-01T02:00:00Z'), '30 nov 2026, 9:00 p. m.')      // cruza el mes
+  assert.equal(formatInstante('2026-11-24T05:00:00Z'), '24 nov 2026, 12:00 a. m.')     // medianoche
+  assert.equal(formatInstante('2026-11-24T17:00:00Z'), '24 nov 2026, 12:00 p. m.')     // mediodía
   assert.equal(formatInstante(null), '—')
   assert.equal(diaDeInstante('2026-11-24T15:00:00Z'), '2026-11-24')
   assert.equal(diaDeInstante('x'), null)
