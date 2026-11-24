@@ -5,13 +5,15 @@ Funciones SÍNCRONAS pensadas para correr en un hilo (REQ-N-026): la lectura pag
 bloquear el bucle de eventos.
 
 - CSV: UTF-8 con BOM, «;», `\\r\\n`, monto SIN comillas y con coma decimal. TODA celda de texto va entre comillas y,
-  si empieza por = + - @ tab o CR, lleva un apóstrofo delante (INV-043; única defensa posible en un CSV).
+  si empieza por = + - @ tab o CR, lleva un apóstrofo delante, y lo mismo el fragmento que siga a un «,» o «;» interno
+  (INV-043; única defensa posible en un CSV, que por eso altera mínimamente esos textos; la defensa fuerte es el xlsx).
 - xlsx (openpyxl, solo escritura): números y fechas reales; todo texto es una cadena explícita y, si podría leerse
   como fórmula, lleva el estilo `quotePrefix` SIN apóstrofo visible (INV-043).
 - Topes (INV-044): 10 000 filas y 4 000 000 bytes; nunca se entrega un archivo truncado. Se lee de 1000 en 1000
   (PostgREST corta ahí en silencio) y se comprueban filas, bytes y plazo entre página y página.
 """
 import os
+import re
 import tempfile
 import threading
 import time
@@ -61,8 +63,15 @@ def es_peligroso(texto: str) -> bool:
     return texto.startswith(_PELIGROSOS)
 
 
+# «,» o «;» interno seguido de espacios (opcionales) y un carácter peligroso: el apóstrofo va justo tras el separador
+_FRAGMENTO_PELIGROSO = re.compile(r"([,;])( *)(?=[=+\-@\t\r])")
+
+
 def neutralizar_csv(texto: str) -> str:
-    """Apóstrofo delante de un texto peligroso; un texto normal no se toca."""
+    """Apóstrofo delante de un texto peligroso y delante de todo fragmento peligroso que siga a un «,» o «;» interno
+    (`x,=1+1` -> `x,'=1+1`): un lector que parta la línea por «,» no deja ninguna celda que empiece como fórmula.
+    Un texto normal (p. ej. «pan, leche») no se toca."""
+    texto = _FRAGMENTO_PELIGROSO.sub(r"\1'\2", texto)
     return "'" + texto if es_peligroso(texto) else texto
 
 

@@ -779,29 +779,51 @@ def test_h4_csv_todo_el_texto_va_entre_comillas_y_el_monto_no(client):
         sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}", medio_pago="debito")
     texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
     assert texto.startswith('"Fecha";"Tipo";"Categoría";"Descripción";"Medio de pago";"Monto (COP)";"Origen"\r\n')
-    assert '"2026-11-01";"Gasto";"Sin categoría";"x,=1+1";"Débito";1234,50;"App"\r\n' in texto
-    assert '"dijo ""hola"", =1+1"' in texto
-    assert '"línea 1\nlínea 2,=2+2"' in texto
-    assert ';"\'=1+1,=2+2";' in texto            # la neutralización sigue al inicio de la celda, ya entre comillas
+    assert '"2026-11-01";"Gasto";"Sin categoría";"x,\'=1+1";"Débito";1234,50;"App"\r\n' in texto
+    assert '"dijo ""hola"",\' =1+1"' in texto
+    assert '"línea 1\nlínea 2,\'=2+2"' in texto
+    assert ';"\'=1+1,\'=2+2";' in texto          # inicio y fragmento tras «,» neutralizados, ya entre comillas
 
 
 def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_protegen_comas_y_saltos(client):
     for i, d in enumerate(DESCRIPCIONES_CSV):
         sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}")
     texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
-    esperadas = [("'" + d if d.startswith(("=", "+", "-", "@", "\t", "\r")) else d) for d in DESCRIPCIONES_CSV]
+    esperadas = ["x,'=1+1", "x;'=1+1", 'dijo "hola",\' =1+1', "línea 1\nlínea 2,'=2+2", "'=1+1,'=2+2", "a\r\nb;c",
+                 ",'=1", "normal"]
     # con «;» (el separador del archivo) la lectura es exacta
     filas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=";"))[1:]
     assert [f[3] for f in filas] == esperadas and all(len(f) == 7 and f[5] == "1234,50" for f in filas)
-    # El CSV ya está delimitado por «;»: cada celda de texto sale íntegra entre comillas (con «,» o «;» internos) y
-    # ninguna celda de texto leída empieza por un carácter de fórmula. NO se afirma nada sobre una lectura con «,»
-    # como delimitador: ese lector ignora la estructura de «;» y parte la línea (límite documentado en INV-043; ahí
-    # la defensa es el .xlsx).
     for d in esperadas:
         assert '"' + d.replace('"', '""') + '"' in texto
-    for linea in csv.reader(io.StringIO(texto, newline=""), delimiter=";"):
-        for celda in linea[:5] + linea[6:]:
-            assert not celda.startswith(("=", "+", "-", "@", "\t", "\r"))
+    # Con CUALQUIER delimitador («;» o «,») ninguna celda resultante empieza por un carácter de fórmula
+    for delimitador in (";", ","):
+        celdas = [c for linea in csv.reader(io.StringIO(texto, newline=""), delimiter=delimitador) for c in linea]
+        assert any(c.startswith("'") for c in celdas)
+        for celda in celdas:
+            assert not celda.startswith(("=", "+", "-", "@", "\t", "\r")), (delimitador, celda)
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("x,=1+1", "x,'=1+1"), ("x;=1+1", "x;'=1+1"), ("a, =cmd", "a,' =cmd"), ("a,@SUM(1)", "a,'@SUM(1)"),
+    ("a,-1", "a,'-1"), ("a,+1", "a,'+1"), ("a,\t=1", "a,'\t=1"), ("a,\r=1", "a,'\r=1"),
+    ("a,=1,-2; +3,@x", "a,'=1,'-2;' +3,'@x"), ("=1,=2", "'=1,'=2"), ("a,,=1", "a,,'=1"), ("a,   =1", "a,'   =1"),
+    ("pan, leche, huevos", "pan, leche, huevos"), ("ida-vuelta, 3-4", "ida-vuelta, 3-4"), ("a=b, c+d", "a=b, c+d"),
+    ("normal", "normal"), ("", ""), ("a,", "a,"), ("a, ", "a, "),
+])
+def test_inv043_neutralizar_csv_fragmentos_tras_coma_o_punto_y_coma(texto, esperado):
+    assert generador.neutralizar_csv(texto) == esperado
+
+
+def test_inv043_csv_texto_normal_con_comas_no_cambia_y_montos_y_xlsx_no_se_tocan(client):
+    sembrar(descripcion="pan, leche, huevos", monto=1234.5, fecha="2026-11-01")
+    sembrar(descripcion="x,=1+1", monto=-5, fecha="2026-11-02")
+    f = filas_csv(pedir(client, desde="2026-11"))
+    assert f[1][3] == "pan, leche, huevos" and f[1][5] == "1234,50"
+    assert f[2][3] == "x,'=1+1"
+    celdas = [c for fila in hoja_xlsx(pedir(client, desde="2026-11", formato="xlsx")).iter_rows(min_row=2)
+              for c in fila]
+    assert "x,=1+1" in [c.value for c in celdas]    # el xlsx conserva el texto original (quotePrefix solo al inicio)
 
 
 # ── Ciclo 2: H5 año acotado ───────────────────────────────────────────────────

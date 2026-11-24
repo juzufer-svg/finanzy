@@ -100,7 +100,15 @@ Característica: Exportar transacciones a CSV o Excel
     Dado transacciones con descripción "x,=1+1", "x;=1+1", "dijo ""hola"", =1+1" y una con salto de línea
     Cuando se exporta en CSV
     Entonces todas las celdas de texto salen entre comillas dobles y el monto sin comillas y con coma decimal
-    Y al releer con «;» las descripciones coinciden con las originales
+    Y al releer con «;» las descripciones coinciden con las del archivo (con un apóstrofo antes de cada fragmento peligroso)
+
+  @BDD-EXPORTAR @invariante @INV-043
+  # Prueba: tests/test_exportar.py::test_inv043_neutralizar_csv_fragmentos_tras_coma_o_punto_y_coma, ::test_inv043_csv_texto_normal_con_comas_no_cambia_y_montos_y_xlsx_no_se_tocan, ::test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_protegen_comas_y_saltos
+  Escenario: Un lector con coma como delimitador no obtiene celdas que empiecen como fórmula
+    Dado descripciones "x,=1+1", "x;=1+1", "a, =cmd", "a,@SUM(1)", "a,-1" y "pan, leche, huevos"
+    Cuando se exporta en CSV
+    Entonces salen "x,'=1+1", "x;'=1+1", "a,' =cmd", "a,'@SUM(1)", "a,'-1" y "pan, leche, huevos" (el CSV altera mínimamente esos textos; el monto y el xlsx no se tocan)
+    Y al leer con delimitador «,» o «;» ninguna celda empieza por = + - @ tabulación o retorno de carro
 
   @BDD-EXPORTAR @invariante @INV-042 @INV-044
   # Prueba: tests/test_exportar.py::test_h1_supabase_* (cliente de Supabase falso), ::test_h2_*, ::test_h3_*, ::test_h5_*
