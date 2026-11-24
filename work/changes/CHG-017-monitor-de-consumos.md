@@ -1,6 +1,6 @@
 # CHG-017 — Monitor de consumos (solo dueño)
 
-- **Estado:** spec-pendiente
+- **Estado:** spec-aprobada
 - **Fecha:** 2026-11-24 · **Solicitante:** Julián Zúñiga (dueño)
 - **Riesgo:** alto
 
@@ -22,14 +22,14 @@ Requiere cambio de spec: nuevo actor «Dueño» (REQUIREMENTS §3 dice que no ha
 ## 4. Preguntas abiertas
 | # | Pregunta | Impacto | Respuesta | Quién |
 |---|---|---|---|---|
-| 1 | ¿Se aprueba el actor «Dueño» y acotar INV-012 (el monitor no es un endpoint de diagnóstico)? | Regla de negocio/seguridad | pendiente | dueño |
-| 2 | Tokens «de solo lectura»: no todas las plataformas los ofrecen (Anthropic pide clave de administración y cuenta de organización). ¿Se acepta tokens separados con el menor permiso disponible y marcar «no disponible» lo que no se pueda leer? | Alcance y seguridad | pendiente | dueño |
-| 3 | Contadores: ¿desde la puesta en marcha (sin histórico) y retención 90 días? | Datos | pendiente | dueño |
-| 4 | ¿Basta la sesión normal del dueño o se pide reautenticar al entrar al panel? | Seguridad | pendiente | dueño |
-| 5 | Si se elimina la cuenta del dueño o otra persona registra ese correo: el acceso se concede por correo verificado; ¿se acepta? | Seguridad | pendiente | dueño |
+| 1 | ¿Se aprueba el actor «Dueño» y acotar INV-012 (el monitor no es un endpoint de diagnóstico)? | Regla de negocio/seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
+| 2 | Tokens «de solo lectura»: no todas las plataformas los ofrecen (Anthropic pide clave de administración y cuenta de organización). ¿Se acepta tokens separados con el menor permiso disponible y marcar «no disponible» lo que no se pueda leer? | Alcance y seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
+| 3 | Contadores: ¿desde la puesta en marcha (sin histórico) y retención 90 días? | Datos | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
+| 4 | ¿Basta la sesión normal del dueño o se pide reautenticar al entrar al panel? | Seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
+| 5 | Si se elimina la cuenta del dueño o otra persona registra ese correo: el acceso se concede por correo verificado; ¿se acepta? | Seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
 
 ## 5. Spec afectada
-_(pendiente)_ · **Aprobación de la spec:** pendiente
+_(pendiente)_ · **Aprobación de la spec:** Julián Zúñiga, 2026-11-24 («Si apruebo todo del 1 al 5 implementa todo»). Alcance aprobado = lo descrito en §3 y las propuestas de §4.
 
 ## 6. Plan de tareas
 | Tarea | Alcance | Depende de | Estado | Ciclos |
