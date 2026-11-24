@@ -75,7 +75,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 | INV-032 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv032_*` (`no_se_filtran_tokens_en_respuesta_ni_logs`, `datos_solo_lista_blanca`); tokens distintos y de menor permiso: revisión de configuración (ADR-008) |
 | INV-033 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv033_*` (`no_dueno_con_post_recibe_404_identico`, `dueno_con_metodo_no_get_recibe_405`, `no_se_escribe_en_plataformas`) |
 | INV-034 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv034_*` (`id_invalido_deja_la_plataforma_no_disponible_sin_consultar`, `no_sigue_redirecciones`, `timeout_de_5s_marca_no_disponible`, `nada_del_cliente_llega_a_la_url`) |
-| INV-035 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv035_*` (`cache_60s_no_reconsulta`, `limite_20_por_minuto_responde_429`, `no_store_en_todas_las_respuestas`) |
+| INV-035 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv035_*` (`cache_60s_no_reconsulta`, `limite_20_por_minuto_responde_429`, `no_store_solo_en_respuestas_del_dueno`) |
 | INV-036 | _(por escribir, CHG-017)_ `test_monitor.py::test_inv036_*` (`fallo_al_contar_no_rompe_el_flujo`, `solo_cuentan_correos_exitosos`, `recibidos_solo_de_numeros_enlazados`, `purga_a_90_dias_una_vez_al_dia`, `incremento_atomico`), `backend/sql/pruebas/06_comprobar_monitor.sql` |
 
 ## Huérfanos (deben quedar vacíos)

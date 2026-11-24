@@ -20,7 +20,7 @@ En cada petición, en este orden, y **fail-closed**:
 3. `correo_sesion.strip().lower()` y `OWNER_EMAIL.strip().lower()` se comparan con `hmac.compare_digest` sobre sus bytes; distintos → 404.
 4. Solo ahora se sabe que es el Dueño: se aplica el límite de frecuencia (429, INV-035) y se leen los contadores (503 si falla).
 
-El 404 tiene el mismo cuerpo que una ruta inexistente (`{"detail": "Not Found"}`); nunca 401/403/503 a quien no esté confirmado como Dueño, y el cuerpo no menciona el Monitor ni al Dueño. Prueba: se compara byte a byte (cuerpo y cabeceras, salvo `Date`) el 404 del no-Dueño con el de `GET /api/v1/monitor/no-existe`, y el cuerpo con el de `GET /api/v1/no-existe`.
+El 404 tiene el mismo cuerpo que una ruta inexistente (`{"detail": "Not Found"}`); nunca 401/403/503 a quien no esté confirmado como Dueño, y el cuerpo no menciona el Monitor ni al Dueño. El 404 **no lleva `Cache-Control: no-store`** ni ninguna cabecera añadida por el Monitor (CHG-017 §4 pregunta 15). Prueba: se compara byte a byte (cuerpo y cabeceras, salvo `Date`) el 404 del no-Dueño con el de `GET /api/v1/no-existe` y con el de `GET /api/v1/monitor/no-existe`; ambos sin `no-store`.
 
 ## Respuesta 200
 ```json
@@ -78,7 +78,7 @@ Regla comprobable: `datos` es un objeto **plano** (sin anidar) cuyas **claves** 
 | 503 | **Solo el Dueño confirmado**, y la BD de Supabase falla al leer los contadores (INV-013). Las plataformas externas **no** producen 503: se marcan `no_disponible` |
 
 ## Cabeceras
-- `Cache-Control: no-store` en toda respuesta de `/monitor/*` (200, 404, 405, 429, 503) (INV-035).
+- `Cache-Control: no-store` **solo** en las respuestas al Dueño confirmado: 200, 405, 429 y 503 (INV-035). El 404 (no-Dueño, sin sesión, BD caída al autorizar, `OWNER_EMAIL` sin configurar) **no** lleva `no-store`: es idéntico al 404 de una ruta inexistente de la API.
 - Valores fijos (configuración del servidor, no contrato con el cliente; el Dueño puede cambiarlos, CHG-017 §4 pregunta 6): caché en memoria de **60 s por plataforma**, **20 peticiones por minuto por Dueño**, timeout de **5 s por plataforma** (las plataformas se consultan en paralelo).
 
 ## Variables de entorno (nombres; sin valores)

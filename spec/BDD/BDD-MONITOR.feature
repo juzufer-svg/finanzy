@@ -16,7 +16,8 @@ Característica: Monitor de consumos solo para el Dueño
   Escenario: Otro usuario recibe 404 sin pistas
     Dado un usuario con sesión válida que no es el Dueño
     Cuando pide el resumen del Monitor
-    Entonces recibe 404 con el mismo cuerpo y las mismas cabeceras que una ruta inexistente bajo "/api/v1/monitor/"
+    Entonces recibe 404 byte a byte idéntico (cuerpo y cabeceras, salvo "Date") al de "GET /api/v1/no-existe" y al de "GET /api/v1/monitor/no-existe"
+    Y ninguno de esos 404 lleva "Cache-Control: no-store"
     Y la respuesta no menciona el Monitor ni el correo del Dueño
 
   @BDD-MONITOR @invariante @INV-031
@@ -37,7 +38,7 @@ Característica: Monitor de consumos solo para el Dueño
   Escenario: Si la BD falla al autorizar, se niega con 404 y no con 503
     Dado que la base de datos falla al verificar la sesión
     Cuando cualquier persona, incluido el Dueño habitual, pide el resumen
-    Entonces recibe 404 con el mismo cuerpo que una ruta inexistente y no 503
+    Entonces recibe 404 byte a byte idéntico al de una ruta inexistente (sin "Cache-Control: no-store") y no 503
 
   @BDD-MONITOR @invariante @INV-031
   # Prueba: tests/test_monitor.py::test_inv031_bd_caida_al_leer_contadores_responde_503_solo_al_dueno
@@ -64,7 +65,7 @@ Característica: Monitor de consumos solo para el Dueño
   Escenario: Un no-Dueño con POST recibe el mismo 404 que con GET
     Dado un usuario con sesión válida que no es el Dueño
     Cuando envía POST a "/api/v1/monitor/resumen"
-    Entonces recibe 404 con el mismo cuerpo y las mismas cabeceras que una ruta inexistente
+    Entonces recibe 404 byte a byte idéntico al de una ruta inexistente, sin "Cache-Control: no-store"
     Y no recibe 405, que revelaría que la ruta existe
 
   @BDD-MONITOR

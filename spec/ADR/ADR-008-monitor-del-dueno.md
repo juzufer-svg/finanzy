@@ -38,13 +38,17 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
 - `datos` de cada plataforma sigue un esquema mínimo de lista blanca (solo números, fechas ISO y cadenas fijas), CT-010 e INV-032.
 - URLs de proveedores fijas en el código, ids solo de configuración, sin redirecciones, con timeout (INV-034); caché
   corta (60 s por plataforma, timeout de 5 s), límite de 20 peticiones por minuto por Dueño y `Cache-Control: no-store`
-  (INV-035).
+  solo en las respuestas al Dueño confirmado (200, 405, 429, 503; INV-035). El 404 del no-Dueño **no** lleva `no-store`:
+  es byte a byte idéntico al 404 normal de una ruta inexistente de la API, para no delatar el prefijo `/monitor`
+  (un 404 no se cachea de forma útil). Fijado por el coordinador por defecto seguro; el Dueño puede cambiarlo
+  (CHG-017 §4, pregunta 15).
 - Basta la sesión normal del dueño, sin reautenticar (aprobado, pregunta 4).
 - El acceso se concede por correo verificado: si se elimina la cuenta del dueño y otra persona registra ese correo y
   lo verifica, obtendría el acceso. Riesgo aceptado por el dueño (pregunta 5).
 - **Deuda anotada (no se implementa):** mitigación opcional de ese riesgo, p. ej. fijar además en la configuración el
   id de usuario del Dueño, o pedir reautenticación al entrar al Monitor. Requeriría cambio de spec (CHG-017 §4,
-  pregunta 14).
+  pregunta 14). Otra mitigación opcional anotada: aviso en el log cuando el Dueño entre tras haberse eliminado su
+  cuenta (BL-036).
 
 ## Consecuencias
 - Nuevas variables en Railway: `OWNER_EMAIL`, `MONITOR_*_TOKEN` e ids de configuración (CT-010). Nueva migración en
