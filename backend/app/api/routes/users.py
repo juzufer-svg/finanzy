@@ -3,7 +3,7 @@ Users routes
 """
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from app.schemas.auth import (
     UserResponse, UpdateCurrencyRequest, UpdateProfileRequest, ChangePasswordRequest, Token,
 )
@@ -14,6 +14,7 @@ from app.api.dueno import es_correo_dueno
 from app.api.routes import auth as auth_routes
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
+from app.models import auth_estado
 
 _NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos."
 
@@ -102,24 +103,27 @@ async def update_profile(request: UpdateProfileRequest, authorization: str = Hea
     return _respuesta_usuario(user)
 
 
-@router.post("/me/password", response_model=Token)
+@router.post("/me/password", response_model=Token, dependencies=[Depends(auth_routes.iniciar_presupuesto_peticion)])
 async def change_password(data: ChangePasswordRequest, request: Request, authorization: str = Header(...)):
     """Cambia la contraseña con la actual (CHG-012, INV-027).
 
     Sube la versión de sesión: se cierran las sesiones de los demás dispositivos (INV-016) y
     esta recibe un token nuevo (el proxy de Next.js lo guarda en la cookie y lo quita de la respuesta).
     Una contraseña actual incorrecta responde 400 (no 401: el frontend cierra la sesión ante un 401)
-    y cuenta como intento fallido del login: 5 fallos bloquean el correo 15 minutos (INV-010).
+    y cuenta como intento fallido del login: 5 fallos bloquean el correo 15 minutos (INV-010). El bloqueo es el
+    persistente de PostgreSQL (CHG-020, INV-037/038): el intento se reserva antes de comprobar la contraseña actual.
+    Si el estado de autenticación falla, 503 (INV-039).
     """
     user_id = await usuario_de_sesion(authorization)
-    auth_routes._limit_ip_for_auth(request)
+    await auth_routes.limitar_ip_para_auth(request)
     user = await UserDB.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     email = user["email"].lower()
-    auth_routes._check_locked(email)
-    if not verify_password(data.actual, user.get("hashed_password", "")):
-        auth_routes._register_fail(email)
+    await auth_routes.reservar_intento_de_login(email)   # 429 si está bloqueado; cuenta el intento antes de comprobar
+    acierto = verify_password(data.actual, user.get("hashed_password", ""))
+    await auth_estado.login_resolver(email, acierto)
+    if not acierto:
         raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
     if data.nueva == data.actual:
         raise HTTPException(status_code=422, detail="La nueva contraseña debe ser distinta de la actual")
@@ -141,7 +145,7 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     # posterior no puede dejar la contraseña cambiada con un error en pantalla (INV-027).
     if type(nueva_version) is not int or nueva_version < 1:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
-    auth_routes._login_fails.pop(email, None)
+    await auth_estado.login_reiniciar(email)   # desbloquear el login tras el cambio
 
     token = create_access_token(
         data={"sub": user_id, "sv": nueva_version},
@@ -150,10 +154,13 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     return Token(access_token=token, user_id=user_id, full_name=user.get("full_name") or None)
 
 
-@router.delete("/me", status_code=204)
+@router.delete("/me", status_code=204, dependencies=[Depends(auth_routes.iniciar_presupuesto_peticion)])
 async def delete_current_user(authorization: str = Header(...)):
     """Delete the authenticated user's account permanently"""
     user_id = await usuario_de_sesion(authorization)
+    # El correo se lee antes de borrar: el estado de autenticación se borra por huella del correo (INV-040)
+    existente = await UserDB.get_by_id(user_id)
+    correo = (existente or {}).get("email")
     deleted = await UserDB.delete_by_id(user_id)
 
     if not deleted:
@@ -161,3 +168,11 @@ async def delete_current_user(authorization: str = Header(...)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
         )
+
+    # Borra intentos de login y códigos del correo (REQ-F-013 CA-2). Si falla, la baja NO se revierte: solo un aviso sin
+    # datos personales (las filas son huellas y se purgan a los 30 días). Los eventos de límites no se borran (Q-5).
+    if correo:
+        try:
+            await auth_estado.borrar_de_cuenta(correo)
+        except Exception as e:
+            print(f"[users.delete_current_user] No se pudo limpiar el estado de autenticación ({type(e).__name__})")

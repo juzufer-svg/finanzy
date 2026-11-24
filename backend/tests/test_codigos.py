@@ -1,5 +1,8 @@
 """Códigos y recuperación de contraseña: INV-007, INV-009, REQ-F-003. (BDD-RECUPERACION)"""
-from app.utils import email as em
+import asyncio
+
+from app.models import auth_estado as ae
+from app.utils.email import generate_code
 from conftest import ip
 
 
@@ -17,14 +20,14 @@ def test_inv009_forgot_password_responde_igual_exista_o_no(client, users, sent_e
     assert [s[0] for s in sent_emails] == ["ana@example.com"] and sent_emails[0][2] == "reset"
 
 
-def test_inv009_resend_code_responde_igual_y_solo_envia_a_pendientes(client, users, sent_emails):
+def test_inv009_resend_code_responde_igual_y_solo_envia_a_pendientes(client, users, sent_emails, reloj):
     _usuario(users, activa=False)
     a = client.post("/api/v1/auth/resend-code", json={"email": "nadie@example.com"}, headers=ip(1))
     b = client.post("/api/v1/auth/resend-code", json={"email": "ana@example.com"}, headers=ip(1))
     assert a.status_code == b.status_code == 200 and a.json() == b.json()
     assert len(sent_emails) == 1
     users["ana@example.com"]["is_active"] = True
-    em._pending_codes.clear()
+    reloj.avanzar(seconds=61)  # pasaron 60 s: el espacio entre códigos no es lo que se prueba aquí
     client.post("/api/v1/auth/resend-code", json={"email": "ana@example.com"}, headers=ip(1))
     assert len(sent_emails) == 1  # cuenta activa: no se envía
 
@@ -57,18 +60,18 @@ def test_inv007_codigos_de_verificacion_y_reset_no_son_intercambiables(client, u
     assert client.post("/api/v1/auth/verify-email", json={"email": "ana@example.com", "code": code}, headers=ip(1)).status_code == 400
 
 
-def test_inv007_codigo_se_invalida_tras_5_fallos_y_vence():
-    em.save_code("v@example.com", "123456")
+def test_inv007_codigo_se_invalida_tras_5_fallos_y_vence(reloj):
+    run = asyncio.run
+    assert run(ae.codigo_emitir("v@example.com", "verify", "123456")) == "enviado"
     for _ in range(5):
-        assert not em.verify_code("v@example.com", "000000")
-    assert not em.verify_code("v@example.com", "123456")  # invalidado
+        assert run(ae.codigo_verificar("v@example.com", "verify", "000000")) != "ok"
+    assert run(ae.codigo_verificar("v@example.com", "verify", "123456")) != "ok"  # invalidado
 
-    em.save_code("w@example.com", "654321")
-    from datetime import datetime, timedelta, timezone
-    em._pending_codes["w@example.com"]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
-    assert not em.verify_code("w@example.com", "654321")  # vencido
+    assert run(ae.codigo_emitir("w@example.com", "verify", "654321")) == "enviado"
+    reloj.avanzar(minutes=10, seconds=1)
+    assert run(ae.codigo_verificar("w@example.com", "verify", "654321")) != "ok"  # vencido
 
 
 def test_inv007_codigo_de_6_digitos_generado_con_secrets():
-    codigos = {em.generate_code() for _ in range(50)}
+    codigos = {generate_code() for _ in range(50)}
     assert all(len(c) == 6 and c.isdigit() for c in codigos) and len(codigos) > 1

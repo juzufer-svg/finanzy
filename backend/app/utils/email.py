@@ -2,56 +2,18 @@
 Email utility - sends verification codes via the Brevo transactional email API
 """
 import secrets
-from datetime import datetime, timedelta, timezone
 import httpx
 from app.core.config import settings
 from app.models import contadores
 
-# In-memory store: { email: { code, expires_at, attempts } }
-_pending_codes: dict[str, dict] = {}
-
-CODE_EXPIRE_MINUTES = 10
-MAX_CODE_ATTEMPTS = 5  # intentos fallidos permitidos por código
+# Los códigos ya NO se guardan aquí: viven en PostgreSQL solo como HMAC (CHG-020, INV-037/INV-040) y se emiten y
+# verifican con `app.models.auth_estado.codigo_emitir` / `codigo_verificar`. Este módulo solo genera y envía.
+CODE_EXPIRE_MINUTES = 10   # informativo para el correo; la vigencia real es `auth_estado.VIGENCIA_CODIGO_SEG`
 
 
 def generate_code(length: int = 6) -> str:
     # secrets: generador criptográficamente seguro (random es predecible)
     return "".join(secrets.choice("0123456789") for _ in range(length))
-
-
-def save_code(email: str, code: str) -> None:
-    _pending_codes[email.lower()] = {
-        "code": code,
-        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=CODE_EXPIRE_MINUTES),
-        "attempts": 0,
-    }
-
-
-def code_recently_sent(email: str, min_seconds: int = 60) -> bool:
-    """True si ya se emitió un código para este email hace menos de min_seconds."""
-    entry = _pending_codes.get(email.lower())
-    if not entry:
-        return False
-    issued_at = entry["expires_at"] - timedelta(minutes=CODE_EXPIRE_MINUTES)
-    return (datetime.now(timezone.utc) - issued_at).total_seconds() < min_seconds
-
-
-def verify_code(email: str, code: str) -> bool:
-    key = email.lower()
-    entry = _pending_codes.get(key)
-    if not entry:
-        return False
-    if datetime.now(timezone.utc) > entry["expires_at"]:
-        _pending_codes.pop(key, None)
-        return False
-    if not secrets.compare_digest(entry["code"], code):
-        entry["attempts"] += 1
-        # Tras varios fallos el código se invalida: evita probar los 1.000.000 de combinaciones
-        if entry["attempts"] >= MAX_CODE_ATTEMPTS:
-            _pending_codes.pop(key, None)
-        return False
-    _pending_codes.pop(key, None)
-    return True
 
 
 _TEMPLATES = {

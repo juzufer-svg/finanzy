@@ -69,7 +69,8 @@ Característica: Bloqueos, códigos y límites de login persistentes
   Escenario: Si la 5.ª reserva acierta, la persona entra
     Dado un correo con 4 intentos reservados que ya fallaron
     Cuando la 5.ª reserva comprueba una contraseña correcta
-    Entonces recibe sesión (200), el intento se le devuelve, el bloqueo que fijó su propia reserva se levanta y el correo queda con 4 fallos, no bloqueado
+    Entonces recibe sesión (200), el intento se le devuelve y el bloqueo que fijó su propia reserva se levanta
+    Y, si no hay otras reservas en vuelo, la serie se borra (comportamiento real: el desbloqueo visible es el mismo, la persona puede volver a entrar y la serie empieza de cero); si hay otras reservas en vuelo, el correo queda con 4 fallos, no bloqueado, y la serie se conserva
 
   @BDD-AUTH-PERSISTENTE @invariante @INV-038
   # Prueba: tests/test_auth_persistente.py::test_inv038_devolver_el_intento_no_borra_los_fallos_en_vuelo

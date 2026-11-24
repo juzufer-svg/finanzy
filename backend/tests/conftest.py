@@ -32,17 +32,13 @@ from app.utils import whatsapp as whatsapp_utils  # noqa: E402
 from app.core import security  # noqa: E402
 from app.models import demo_db  # noqa: E402
 from app.models.user import UserDB  # noqa: E402
-from app.utils import email as email_utils  # noqa: E402
+from app.models import auth_estado  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def estado_limpio():
     """Reinicia todo el estado en memoria entre pruebas."""
     for limiter in (
-        auth_routes._ip_email_requests,
-        auth_routes._email_daily,
-        auth_routes._global_daily,
-        auth_routes._ip_auth_attempts,
         asistente_routes._por_minuto,
         asistente_routes._por_usuario_dia,
         asistente_routes._global_dia,
@@ -52,8 +48,10 @@ def estado_limpio():
         whatsapp_routes._intentos_codigo,
     ):
         limiter.reset()
-    auth_routes._login_fails.clear()
-    email_utils._pending_codes.clear()
+    # Estado de autenticación (CHG-020): bloqueos, códigos y ventanas por IP/correo viven en `auth_estado._Memoria`
+    # (modo demo, sin Supabase) y el cliente dedicado de Supabase se recrea en cada prueba
+    auth_estado._Memoria.limpiar()
+    auth_estado._cliente_estado = None
     demo_db.DemoTransaccionDB._transacciones.clear()
     demo_db.DemoCategoriaDB._categorias.clear()
     demo_db.DemoPresupuestoDB._presupuestos.clear()
@@ -73,6 +71,9 @@ def users(monkeypatch):
     store: dict[str, dict] = {}
 
     async def get_by_email(email):
+        return store.get(email.lower())
+
+    async def get_by_email_estricto(email):   # lectura estricta (INV-039): aquí nunca falla; las pruebas la rompen a propósito
         return store.get(email.lower())
 
     async def get_by_id(user_id):
@@ -112,11 +113,29 @@ def users(monkeypatch):
         user["full_name"] = full_name
         return True
 
-    for name, fn in [("update_full_name", update_full_name), ("get_by_email", get_by_email), ("get_by_id", get_by_id), ("create", create),
+    for name, fn in [("update_full_name", update_full_name), ("get_by_email", get_by_email), ("get_by_email_estricto", get_by_email_estricto), ("get_by_id", get_by_id), ("create", create),
                      ("activate", activate), ("update_password", update_password),
                      ("get_session_version", get_session_version)]:
         monkeypatch.setattr(UserDB, name, staticmethod(fn))
     return store
+
+
+class RelojAuth:
+    """Reloj controlable del estado de autenticación en modo demo (en PostgreSQL manda el `now()` de la BD)."""
+
+    def __init__(self, monkeypatch):
+        from datetime import datetime, timezone
+        self.t = datetime(2026, 11, 24, 12, 0, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(auth_estado, "_ahora", lambda: self.t)
+
+    def avanzar(self, **kw):
+        from datetime import timedelta
+        self.t += timedelta(**kw)
+
+
+@pytest.fixture
+def reloj(monkeypatch):
+    return RelojAuth(monkeypatch)
 
 
 @pytest.fixture

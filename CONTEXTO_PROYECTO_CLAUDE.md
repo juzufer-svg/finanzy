@@ -74,7 +74,8 @@ backend/app/
   utils/asistente.py      herramientas de solo lectura + ciclo de tool use con la API de Claude
   core/config.py          Settings (variables de entorno)
   core/security.py        JWT (PyJWT, solo HMAC) y hash de contraseñas (bcrypt)
-  core/rate_limit.py      limitadores en memoria (ventana deslizante) + IP del cliente
+  core/rate_limit.py      limitadores en memoria (ventana deslizante; asistente, WhatsApp, Monitor) + `VentanaPersistente` por IP para auth + IP del cliente
+  models/auth_estado.py   estado de autenticación persistente en PostgreSQL (CHG-020, ADR-010): bloqueos, códigos, límites
   core/supabase.py        cliente de Supabase
   models/user.py          tabla users
   models/plataapp.py      tablas de finanzas (si Supabase falla → error, nunca guarda en memoria)
@@ -157,7 +158,7 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 
 - **Registro**: crea usuario inactivo → envía código de 6 dígitos (10 min) → `verify-email` activa y devuelve JWT.
 - **Login**: si la cuenta no está verificada, reenvía código y responde `status: pending`.
-- **Recuperar contraseña**: `/auth/forgot-password` → código por correo (prefijo interno `reset:`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
+- **Recuperar contraseña**: `/auth/forgot-password` → código por correo (propósito interno `reset`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
 - **Sesión**: JWT HS256 de 7 días en una cookie HttpOnly + Secure + SameSite=Lax (ADR-005), con la versión de sesión del usuario (`sv`). Restablecer o cambiar la contraseña desconecta WhatsApp (CHG-014), sube la versión y cierra todas las sesiones abiertas (INV-016).
 - **Moneda**: los montos se almacenan en **COP** y se convierten a la moneda elegida al mostrarlos.
 
@@ -166,9 +167,10 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 - Endpoints de diagnóstico eliminados (antes exponían correos y permitían resetear contraseñas).
 - **Verificación de dueño (anti-IDOR)** en toda operación por ID: si el registro no es del usuario → 404. Al crear transacciones/presupuestos se valida que la categoría sea suya.
 - Validación de datos con Pydantic (montos > 0 y ≤ 1e12, tipos permitidos, formatos de fecha/mes, longitudes).
-- Bloqueo de login: 5 fallos por correo → 15 min.
-- Códigos con `secrets`, un solo uso, se invalidan tras 5 intentos.
-- **Límites de envío de correos** (`core/rate_limit.py`): 10 pedidos de código por IP/hora, 60 s entre códigos al mismo correo, 10 correos/día por destinatario, tope global 250/día; 30 intentos de login/verificación/reseteo por IP cada 10 min.
+- **Estado de autenticación persistente (CHG-020, ADR-010, INV-037 a INV-041; implementado, pendiente de validación y de aprobación del dueño):** bloqueos de login, códigos y límites de envío/intentos viven en PostgreSQL (`auth_login_intentos`, `auth_codigos`, `auth_limites_eventos`, RLS sin políticas, funciones `auth_*` solo para `service_role`, reloj `now()` de la BD) y **sobreviven a despliegues**; correo e IP solo como huella HMAC y códigos solo como HMAC (clave derivada de `SECRET_KEY`: rotarla pierde bloqueos y códigos pendientes). Fail-closed: si falla la BD de estado, la lectura de usuarios (`get_by_email_estricto`) o se pasa el plazo (4 s por llamada, 5 s por petición, 8 hilos), las rutas de auth responden **503** «Servicio no disponible…». Sin Supabase solo hay memoria fuera de producción (en producción, 503). **Orden de despliegue obligatorio: ejecutar `backend/sql/2026-11-24_auth_persistente.sql` en el SQL Editor de Supabase ANTES de desplegar el backend** (si no, todo el login responde 503); sin variables nuevas. Fuera de alcance (BL-040): limitadores en memoria del asistente, WhatsApp y Monitor.
+- Bloqueo de login: 5 fallos por correo **dentro de una ventana de 24 h** → 15 min (persistente; el intento se reserva antes de comprobar la contraseña).
+- Códigos con `secrets`, un solo uso, se invalidan tras 5 intentos (persistidos solo como HMAC).
+- **Límites de envío de correos** (`core/rate_limit.py`, ahora persistentes): 10 pedidos de código por IP/hora, 60 s entre códigos al mismo correo, 10 correos/día por destinatario, tope global 250/día; 30 intentos de login/verificación/reseteo por IP cada 10 min.
 - JWT con PyJWT: solo algoritmos HMAC, exige `exp` y `sub`.
 - **Cierre de sesiones al restablecer la contraseña** (`api/sesion.py`): toda ruta protegida compara el `sv` del token con `users.session_version`; si no coincide o el usuario ya no existe → 401; si Supabase falla → 503 (no cierra la sesión).
 - En producción sin `BREVO_API_KEY` el código **nunca** se escribe en logs.
@@ -216,7 +218,7 @@ La lista viva está en `work/BACKLOG.md`. Los principales:
 1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
 2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
 3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). ~~Abono atómico~~ (BL-013, CHG-004).
-3b. Códigos y límites persistentes en PostgreSQL (BL-014). ~~FKs/huérfanos (BL-015) y limpieza (BL-009)~~: hechos en PR #9, SQL ejecutados en Supabase el 2026-11-22.
+3b. Códigos y límites persistentes en PostgreSQL (BL-014/BL-039: login y códigos de correo implementados en CHG-020, pendientes de validación; asistente, WhatsApp y Monitor siguen en memoria, BL-040). ~~FKs/huérfanos (BL-015) y limpieza (BL-009)~~: hechos en PR #9, SQL ejecutados en Supabase el 2026-11-22.
 4. **Revisar RLS** en Supabase (BL-005).
 5. Preguntas abiertas de la spec (BL-006, BL-008) y decidir la columna `presupuestos."mes_año"` (BL-019).
 

@@ -1,101 +1,95 @@
 """
 Authentication routes
+
+Estado persistente (CHG-020, ADR-010): bloqueos de login, códigos y límites viven en PostgreSQL (`models/auth_estado.py`).
+Fail-closed (INV-039): si la BD de estado o la lectura de usuarios falla, 503; nunca se deja pasar.
 """
-from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
+from datetime import timedelta
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from app.schemas.auth import (
     UserRegistration, UserLogin, Token,
     VerifyEmailRequest, ResendCodeRequest, PendingVerification,
     ForgotPasswordRequest, ResetPasswordRequest, MessageResponse,
 )
+from app.models import auth_estado
+from app.models.auth_estado import EstadoNoDisponible
 from app.models.user import UserDB
 from app.models.whatsapp import WhatsappDB
-from app.core.security import create_access_token, verify_password
-from app.core.config import settings
-from app.core.rate_limit import SlidingWindow, client_ip, enforce
-from app.utils.email import (
-    generate_code, save_code, verify_code, send_verification_email, code_recently_sent,
+from app.core.security import (
+    create_access_token, verify_password, verify_password_senuelo, codigo_senuelo,
 )
-
-router = APIRouter()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-# ── Protección contra fuerza bruta en el login (en memoria, por correo) ───────
-_MAX_LOGIN_FAILS = 5
-_LOCK_MINUTES = 15
-_login_fails: dict[str, dict] = {}
-
-
-def _check_locked(email: str) -> None:
-    entry = _login_fails.get(email)
-    if entry and entry.get("locked_until") and _utcnow() < entry["locked_until"]:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Demasiados intentos fallidos. Intenta de nuevo en {_LOCK_MINUTES} minutos.",
-        )
-
-
-def _register_fail(email: str) -> None:
-    entry = _login_fails.get(email)
-    if not entry or (entry.get("locked_until") and _utcnow() >= entry["locked_until"]):
-        entry = {"count": 0, "locked_until": None}
-    entry["count"] += 1
-    if entry["count"] >= _MAX_LOGIN_FAILS:
-        entry["locked_until"] = _utcnow() + timedelta(minutes=_LOCK_MINUTES)
-    _login_fails[email] = entry
-
-
-# ── Límites de envío de códigos por correo ────────────────────────────────────
-# Evitan que un script agote el cupo diario de Brevo (300 correos/día en el plan
-# gratis) o use la app para enviar correos a direcciones ajenas.
-CODE_RESEND_SECONDS = 60                                      # mínimo entre códigos al mismo correo
-_ip_email_requests = SlidingWindow(limit=10, window_seconds=3600)    # pedidos de código por IP/hora
-_email_daily = SlidingWindow(limit=10, window_seconds=86400)        # correos al mismo destinatario/día
-_global_daily = SlidingWindow(limit=250, window_seconds=86400)      # total de correos/día (margen bajo 300)
-
-# Intentos de credenciales/códigos por IP (complementa el bloqueo por correo)
-_ip_auth_attempts = SlidingWindow(limit=30, window_seconds=600)
+from app.core.config import settings
+from app.core.rate_limit import enforce_persistente, ip_intentos_auth, ip_pedidos_codigo
+from app.utils.email import generate_code, send_verification_email
 
 _TOO_MANY = "Demasiadas solicitudes. Espera unos minutos e intenta de nuevo."
+_LIMITED_MSG = "Ya enviamos varios códigos a este correo hoy. Revisa tu bandeja (y spam) o intenta mañana."
+_BLOQUEADO_MSG = "Demasiados intentos fallidos. Intenta de nuevo en 15 minutos."
 
 
-def _limit_ip_for_email(request: Request) -> None:
-    enforce(_ip_email_requests, client_ip(request), _TOO_MANY)
+async def iniciar_presupuesto_peticion() -> None:
+    """Dependencia de todas las rutas de autenticación: fija el presupuesto de 5 s de la petición (INV-039).
+    Es asíncrona para que la variable de contexto llegue a la ruta (las síncronas corren en otro hilo)."""
+    auth_estado.iniciar_presupuesto()
 
 
-def _limit_ip_for_auth(request: Request) -> None:
-    enforce(_ip_auth_attempts, client_ip(request), _TOO_MANY)
+router = APIRouter(dependencies=[Depends(iniciar_presupuesto_peticion)])
 
 
-def _issue_code(
-    code_key: str, to_email: str, purpose: str, background_tasks: BackgroundTasks
+async def leer_usuario(email: str):
+    """Lectura ESTRICTA del usuario (INV-039): un fallo de la tabla de usuarios es 503, nunca «no existe»."""
+    try:
+        return await UserDB.get_by_email_estricto(email)
+    except EstadoNoDisponible:
+        raise
+    except Exception as e:   # el mensaje del servidor puede traer datos personales: solo el tipo
+        print(f"[auth] Aviso: falló la lectura de usuarios ({type(e).__name__})")
+        raise EstadoNoDisponible("falló la lectura de usuarios")
+
+
+async def limitar_ip_para_correo(request: Request) -> None:
+    await enforce_persistente(ip_pedidos_codigo, request, _TOO_MANY)
+
+
+async def limitar_ip_para_auth(request: Request) -> None:
+    await enforce_persistente(ip_intentos_auth, request, _TOO_MANY)
+
+
+async def reservar_intento_de_login(email: str) -> None:
+    """Cuenta el intento ANTES de comprobar la contraseña (INV-038). 429 si el correo está bloqueado."""
+    permitido, _hasta = await auth_estado.login_reservar(email)
+    if not permitido:
+        raise HTTPException(status_code=429, detail=_BLOQUEADO_MSG)
+
+
+async def cerrar_reserva_tras_fallo_interno(email: str) -> None:
+    """Si algo falla entre reservar y resolver, se cierra la reserva como fallo (el intento ya estaba contado)."""
+    try:
+        await auth_estado.login_resolver(email, False)
+    except EstadoNoDisponible:
+        pass
+
+
+async def _issue_code(
+    email: str, purpose: str, background_tasks: BackgroundTasks, *, enviar: bool = True
 ) -> str:
-    """Genera y envía un código respetando los límites.
+    """Emite un código con una SOLA operación atómica de la BD (60 s, topes y guardado, INV-038).
+
+    Con `enviar=False` ejecuta y cuenta IGUAL pero guarda un código señuelo (que nunca puede verificarse) y no envía
+    nada: así «no existe» y «existe» son indistinguibles (INV-009).
 
     Devuelve:
-      "sent"     → se envió un código nuevo
-      "recent"   → ya se envió uno hace menos de CODE_RESEND_SECONDS (sigue válido)
+      "sent"     → se emitió un código nuevo
+      "recent"   → ya se emitió uno hace menos de 60 s (sigue válido)
       "limited"  → se alcanzó el límite diario (por destinatario o global)
     """
-    if code_recently_sent(code_key, CODE_RESEND_SECONDS):
-        return "recent"
-    if not _email_daily.allowed(to_email) or not _global_daily.allowed("all"):
-        if not _global_daily.allowed("all"):
-            print("[EMAIL LIMIT] Se alcanzó el límite global diario de correos")
-        return "limited"
-    _email_daily.hit(to_email)
-    _global_daily.hit("all")
-    code = generate_code()
-    save_code(code_key, code)
-    background_tasks.add_task(send_verification_email, to_email, code, purpose)
-    return "sent"
-
-
-_LIMITED_MSG = "Ya enviamos varios códigos a este correo hoy. Revisa tu bandeja (y spam) o intenta mañana."
+    codigo = generate_code() if enviar else codigo_senuelo()
+    resultado = await auth_estado.codigo_emitir(email, purpose, codigo)
+    if resultado == "enviado":
+        if enviar:
+            background_tasks.add_task(send_verification_email, email, codigo, purpose)
+        return "sent"
+    return "recent" if resultado == "reciente" else "limited"
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -103,10 +97,10 @@ _LIMITED_MSG = "Ya enviamos varios códigos a este correo hoy. Revisa tu bandeja
 @router.post("/register", response_model=PendingVerification, status_code=201)
 async def register(user_data: UserRegistration, request: Request, background_tasks: BackgroundTasks):
     """Register a new user and send verification code to email"""
-    _limit_ip_for_email(request)
+    await limitar_ip_para_correo(request)
     email = user_data.email.lower()
 
-    existing = await UserDB.get_by_email(email)
+    existing = await leer_usuario(email)
     if existing:
         if existing["is_active"]:
             raise HTTPException(status_code=409, detail="El correo ya está registrado")
@@ -119,7 +113,7 @@ async def register(user_data: UserRegistration, request: Request, background_tas
             is_active=False,
         )
 
-    if _issue_code(email, email, "verify", background_tasks) == "limited":
+    if await _issue_code(email, "verify", background_tasks) == "limited":
         raise HTTPException(status_code=429, detail=_LIMITED_MSG)
 
     return PendingVerification(
@@ -133,13 +127,15 @@ async def register(user_data: UserRegistration, request: Request, background_tas
 @router.post("/verify-email", response_model=Token)
 async def verify_email(data: VerifyEmailRequest, request: Request):
     """Verify email code and return JWT"""
-    _limit_ip_for_auth(request)
+    await limitar_ip_para_auth(request)
     email = data.email.lower()
 
-    if not verify_code(email, data.code):
+    # El usuario se lee ANTES de consumir el código: si la lectura falla (503) el código no se gasta (INV-039).
+    user = await leer_usuario(email)
+
+    if await auth_estado.codigo_verificar(email, "verify", data.code) != "ok":
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
-    user = await UserDB.get_by_email(email)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
@@ -157,14 +153,15 @@ async def verify_email(data: VerifyEmailRequest, request: Request):
 @router.post("/resend-code", response_model=PendingVerification)
 async def resend_code(data: ResendCodeRequest, request: Request, background_tasks: BackgroundTasks):
     """Reenvía el código de verificación de una cuenta pendiente.
-    Responde lo mismo exista o no la cuenta, para no revelar qué correos están registrados."""
-    _limit_ip_for_email(request)
+    Responde y cuenta IGUAL exista o no la cuenta (y esté pendiente o activa): una sola emisión con los mismos
+    60 s y topes y el mismo 429; solo una cuenta pendiente recibe el correo (INV-009)."""
+    await limitar_ip_para_correo(request)
     email = data.email.lower()
-    user = await UserDB.get_by_email(email)
+    user = await leer_usuario(email)
 
-    if user and not user["is_active"]:
-        if _issue_code(email, email, "verify", background_tasks) == "limited":
-            raise HTTPException(status_code=429, detail=_LIMITED_MSG)
+    pendiente = bool(user) and not user["is_active"]
+    if await _issue_code(email, "verify", background_tasks, enviar=pendiente) == "limited":
+        raise HTTPException(status_code=429, detail=_LIMITED_MSG)
 
     return PendingVerification(
         status="pending",
@@ -177,20 +174,29 @@ async def resend_code(data: ResendCodeRequest, request: Request, background_task
 @router.post("/login")
 async def login(user_data: UserLogin, request: Request, background_tasks: BackgroundTasks):
     """Login with email + password. Returns JWT or pending verification."""
-    _limit_ip_for_auth(request)
+    await limitar_ip_para_auth(request)
     email = user_data.email.lower()
-    _check_locked(email)
-    user = await UserDB.get_by_email(email)
+    await reservar_intento_de_login(email)   # el intento se cuenta ANTES de comprobar la contraseña (INV-038)
 
-    if not user or not verify_password(user_data.password, user.get("hashed_password", "")):
-        _register_fail(email)
+    try:
+        user = await leer_usuario(email)
+    except EstadoNoDisponible:
+        await cerrar_reserva_tras_fallo_interno(email)
+        raise
+
+    if user:
+        acierto = verify_password(user_data.password, user.get("hashed_password", ""))
+    else:
+        verify_password_senuelo(user_data.password)   # mismo costo bcrypt que con una cuenta real (INV-009, M-5)
+        acierto = False
+
+    await auth_estado.login_resolver(email, acierto)
+    if not acierto:
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-
-    _login_fails.pop(email, None)
 
     if not user["is_active"]:
         # Cuenta sin verificar: enviar código nuevo (salvo que haya uno reciente o se llegó al límite)
-        _issue_code(email, email, "verify", background_tasks)
+        await _issue_code(email, "verify", background_tasks)
         return PendingVerification(
             status="pending",
             message="Tu cuenta no está verificada. Revisa tu correo e ingresa el código que te enviamos.",
@@ -204,8 +210,7 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
 
 
 # ── Recuperar contraseña ──────────────────────────────────────────────────────
-# Los códigos de reseteo se guardan con prefijo "reset:" para no mezclarse con
-# los de verificación de cuenta.
+# Los códigos de reseteo tienen su propio propósito ("reset") para no mezclarse con los de verificación.
 
 _RESET_MSG = "Si existe una cuenta con ese correo, te enviamos un código para restablecer tu contraseña."
 
@@ -213,37 +218,37 @@ _RESET_MSG = "Si existe una cuenta con ese correo, te enviamos un código para r
 @router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(data: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks):
     """Envía un código de 6 dígitos para restablecer la contraseña.
-    Responde siempre lo mismo para no revelar qué correos están registrados
-    (los límites por destinatario se aplican en silencio por la misma razón)."""
-    _limit_ip_for_email(request)
+    Responde siempre lo mismo para no revelar qué correos están registrados: ejecuta y cuenta IGUAL exista o no la
+    cuenta (código señuelo sin envío) y los topes por destinatario se aplican en silencio (200)."""
+    await limitar_ip_para_correo(request)
     email = data.email.lower()
-    user = await UserDB.get_by_email(email)
-    if user:
-        _issue_code(f"reset:{email}", email, "reset", background_tasks)
+    user = await leer_usuario(email)
+    await _issue_code(email, "reset", background_tasks, enviar=bool(user))
     return MessageResponse(message=_RESET_MSG)
 
 
 @router.post("/reset-password", response_model=MessageResponse)
 async def reset_password(data: ResetPasswordRequest, request: Request):
     """Cambia la contraseña si el código enviado al correo es válido."""
-    _limit_ip_for_auth(request)
+    await limitar_ip_para_auth(request)
     email = data.email.lower()
-    if not verify_code(f"reset:{email}", data.code):
+
+    # El usuario se lee ANTES de consumir el código: si la lectura falla (503) el código no se gasta (INV-039).
+    usuario = await leer_usuario(email)
+
+    if await auth_estado.codigo_verificar(email, "reset", data.code) != "ok" or not usuario:
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
     # Restablecer la contraseña también desconecta WhatsApp (INV-016, CHG-014). Se hace ANTES de cambiarla:
     # si la BD falla, no se cambia nada (nunca queda la contraseña nueva con el WhatsApp viejo conectado).
-    usuario = await UserDB.get_by_email(email)
-    if not usuario:   # los códigos solo se emiten a cuentas existentes: aquí None es un fallo de la BD
-        raise HTTPException(status_code=503, detail="Servicio no disponible. Intenta de nuevo en unos minutos.")
     try:
         await WhatsappDB.desenlazar(usuario["id"])
     except Exception as e:
         print(f"[auth.reset_password] No se pudo desconectar WhatsApp ({type(e).__name__})")
-        raise HTTPException(status_code=503, detail="Servicio no disponible. Intenta de nuevo en unos minutos.")
+        raise HTTPException(status_code=503, detail=auth_estado.MENSAJE_503)
 
     if not await UserDB.update_password(email, data.new_password):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
-    _login_fails.pop(email, None)  # desbloquear el login tras el cambio
+    await auth_estado.login_reiniciar(email)  # desbloquear el login tras el cambio (también si otra persona lo bloqueó)
     return MessageResponse(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión.")

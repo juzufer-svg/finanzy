@@ -4,10 +4,12 @@ Main FastAPI application with Supabase integration
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor
+from app.models.auth_estado import EstadoNoDisponible, MENSAJE_503
 
 
 async def cleanup_unverified_loop():
@@ -95,6 +97,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+
+@app.exception_handler(EstadoNoDisponible)
+async def estado_no_disponible_handler(_request: Request, _exc: EstadoNoDisponible):
+    """Fail-closed del estado de autenticación (CHG-020, INV-039): 503 con un texto fijo, sin filtrar detalles
+    (ni correo, ni IP, ni el mensaje del servidor)."""
+    return JSONResponse(status_code=503, content={"detail": MENSAJE_503})
+
 
 # Include Routes
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
