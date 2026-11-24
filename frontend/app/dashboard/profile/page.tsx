@@ -31,18 +31,11 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!user) return
     apiClient.get('/api/v1/users/me')
-      .then(res => {
-        setUserInfo(res.data)
-        // Keep local selection as source of truth for UI display currency.
-        // Only hydrate from backend if there is no local value yet.
-        const hasLocalCurrency = typeof window !== 'undefined' && !!localStorage.getItem('currency')
-        if (res.data.currency && !hasLocalCurrency) {
-          setCurrency(res.data.currency)
-        }
-      })
+      // La moneda de la cuenta ya la aplicó el layout al entrar (CHG-016); aquí solo se muestran los datos
+      .then(res => setUserInfo(res.data))
       .catch(() => notify('No se pudo cargar tu perfil. Recarga la página.', 'error'))
       .finally(() => setLoading(false))
-  }, [user, setCurrency, notify])
+  }, [user, notify])
 
   async function handleDeleteAccount() {
     setDeleting(true)

@@ -32,3 +32,9 @@ test('símbolo del prefijo', () => {
   assert.equal(currencySymbol('COP'), '$')
   assert.equal(currencySymbol('XYZ'), '$')
 })
+
+test('solo se aceptan las monedas que la app conoce (lo que llega del servidor o del navegador)', async () => {
+  const { isSupportedCurrency } = await import('../lib/currency.ts')
+  for (const c of ['USD', 'EUR', 'MXN', 'ARS', 'COP', 'CLP']) assert.equal(isSupportedCurrency(c), true, c)
+  for (const c of ['BTC', 'usd', '', null, undefined, 5, {}]) assert.equal(isSupportedCurrency(c), false, String(c))
+})

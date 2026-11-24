@@ -43,6 +43,14 @@ export async function fetchRates(): Promise<Record<string, number>> {
   }
 }
 
+/** Monedas que acepta la app (las mismas del backend, UpdateCurrencyRequest). */
+export const MONEDAS_VALIDAS = ['USD', 'EUR', 'MXN', 'ARS', 'COP', 'CLP'] as const
+
+/** ¿Es un código de moneda que la app conoce? Protege lo que llega del servidor o del navegador. */
+export function isSupportedCurrency(code: unknown): code is (typeof MONEDAS_VALIDAS)[number] {
+  return typeof code === 'string' && (MONEDAS_VALIDAS as readonly string[]).includes(code)
+}
+
 export function convertAmount(
   amount: number,
   from: string,

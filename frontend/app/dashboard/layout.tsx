@@ -9,6 +9,7 @@ import { useCurrencyStore } from '@/store/currency'
 import { usePeriodStore } from '@/store/period'
 import FinanzyLogo from '@/components/FinanzyLogo'
 import apiClient from '@/lib/api-client'
+import { isSupportedCurrency } from '@/lib/currency'
 
 // SVG Icon components
 const IconDashboard = () => (
@@ -137,12 +138,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
   const { dark, toggle: toggleTheme } = useThemeStore()
   const { loadRates } = useCurrencyStore()
+  const setCurrency = useCurrencyStore(s => s.setCurrency)
+  // La moneda elegida vive en la cuenta: se aplica al entrar, en cualquier dispositivo (CHG-016, REQ-F-011 CA-4).
+  // Hasta que llega (o falla la consulta) no se muestran montos, para que no aparezcan un instante en dólares.
+  const [monedaLista, setMonedaLista] = useState(false)
   const resetPeriod = usePeriodStore(s => s.resetMes)
 
   useEffect(() => {
     loadAuth()
     loadRates()
   }, [loadAuth, loadRates])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let active = true
+    apiClient.get('/api/v1/users/me')
+      .then(res => { if (active && isSupportedCurrency(res.data?.currency)) setCurrency(res.data.currency) })
+      .catch(() => { /* sin conexión: se usa la moneda guardada en este navegador */ })
+      .finally(() => { if (active) setMonedaLista(true) })
+    return () => { active = false }
+  }, [isAuthenticated, setCurrency])
 
   // Si el usuario ya tiene sesión pero no tiene full_name (sesión antigua), lo carga desde la API
   useEffect(() => {
@@ -170,6 +185,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!hydrated) return null
   if (!isAuthenticated) return null
+  if (!monedaLista) {
+    return (
+      <div className={`min-h-viewport flex items-center justify-center ${dark ? 'bg-slate-900' : 'bg-slate-100'}`} role="status" aria-label="Cargando">
+        <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
