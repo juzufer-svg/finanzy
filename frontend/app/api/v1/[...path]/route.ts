@@ -11,10 +11,16 @@
  *   sesión antigua guardada en localStorage, para que nadie pierda la sesión al desplegar).
  * - Depende de Vercel para la IP real: Vercel reemplaza `x-forwarded-for` con la IP del
  *   visitante y aquí se reenvía tal cual (fuera de Vercel el cliente podría falsificarla).
- * - Del backend solo se reenvía `Content-Type` (la API no usa redirecciones ni descargas).
+ * - Del backend solo se reenvía `Content-Type` (la API no usa redirecciones) y, únicamente en
+ *   `exportaciones/*` (CHG-018, descargas CSV/xlsx), `Content-Disposition` para el nombre del archivo.
+ *   El cuerpo pasa como bytes y toda respuesta lleva `Cache-Control: no-store`.
  */
 import { type NextRequest, NextResponse } from 'next/server'
 import { CSRF_HEADER, CSRF_VALUE } from '@/lib/session'
+import { cabecerasDeDescarga } from '@/lib/exportar'
+
+// Vercel Hobby: tope de la función. El backend corta la exportación a los 8 s (REQ-N-019).
+export const maxDuration = 10
 
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
 const IS_PROD = process.env.NODE_ENV === 'production'
@@ -185,9 +191,10 @@ async function handle(req: NextRequest, ctx: Ctx) {
     return NextResponse.json(data, { status: upstream.status, headers })
   }
 
+  // Content-Type siempre; Content-Disposition solo en exportaciones/* (CT-011, INV-042)
   const res = new NextResponse(upstream.status === 204 ? null : await upstream.arrayBuffer(), {
     status: upstream.status,
-    headers: upstreamType ? { ...headers, 'Content-Type': upstreamType } : headers,
+    headers: { ...headers, ...cabecerasDeDescarga(path, upstream.headers) },
   })
   // Sesión vencida, cerrada o cuenta eliminada: se borra la cookie (un 503 no la toca, INV-016).
   // Un 401 de auth/* (p. ej. contraseña mala en el login) no es una sesión vencida.
