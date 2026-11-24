@@ -68,6 +68,7 @@ Pruebas nombradas: ver INV-042 a INV-045 en `spec/05-INVARIANTS.md` y `spec/BDD/
 | 2026-11-24 | generador | Especificación (sin código) | REQ-F-019, CT-011, UC-015, ADR-011, INV-042 a INV-045, BDD, NFR y trazabilidad escritos. Hallazgo: `origen = recurrente` no es derivable (decisión 12) |
 | 2026-11-24 | validador | Validación independiente de la spec | CHG-018 **no aprobable**: B-1 (sin tope de bytes), I-2/I-3 (proxy y errores Blob), I-4, I-5, I-6, Q-1 |
 | 2026-11-24 | generador | Ciclo 2 de la spec (sin código) | Corregidos B-1, I-2 a I-6 y Q-1 en REQUIREMENTS, INV-043 a INV-045, CT-011, CT-001 (nota), UC-015, ADR-011, BDD-EXPORTAR, NFR (REQ-N-019, 020, 026), TRACEABILITY y BACKLOG; decisiones en §4 filas 3 a 5, 7, 8, 12 y 15 a 19 |
+| 2026-11-24 | generador | T1 (backend) | `openpyxl==3.1.5` (pip-audit: 0 vulnerabilidades); `utils/exportar.py`, `schemas/exportar.py`, `routes/exportar.py`, lectura paginada en `models/plataapp.py`, registro en `main.py`, reinicio del límite en `conftest.py`; `tests/test_exportar.py` (44 pruebas). `python -m pytest -p no:cacheprovider` completo: 673 pasan, 3 corridas seguidas. `quotePrefix` confirmado en `write_only`. Pendiente: validación independiente; T2/T3 |
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente
