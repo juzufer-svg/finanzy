@@ -65,7 +65,7 @@ create index if not exists auth_codigos_emitido_idx on public.auth_codigos (emit
 -- por llamada, con LIMIT): si quedó trabajo pendiente la marca de purga NO se renueva y la siguiente llamada continúa.
 -- Devuelve cuántas filas borró, o -1 si no purgó (ya se purgó hace menos de un día o la está haciendo otra sesión).
 -- No la llama la emisión de códigos (I-4): la dispara el backend aparte, y auth_limite_registrar libera eventos vencidos
--- por su cuenta cuando la tabla se acerca al tope.
+-- por su cuenta en cada llamada (lote pequeño) y en lotes grandes cuando la tabla se acerca a sus topes.
 -- ---------------------------------------------------------------------------------------------------------------------
 drop function if exists public.auth_purgar(timestamptz);     -- firma anterior (sin lote), por si existiera
 create or replace function public.auth_purgar(p_ahora timestamptz default now(), p_lote integer default 10000)
@@ -344,11 +344,16 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 
 -- Cuenta los eventos de la clave dentro de la ventana y solo inserta uno si no se llegó al límite.
--- Devuelve 'ok' | 'limitado' | 'lleno' (más de 500 000 filas DENTRO de la retención de 2 días: tope contra IP falsificadas,
--- INV-040). Las filas vencidas no cuentan para el tope (B-1): si una purga se atrasa, no hay 429 para todos. Cuando las
--- filas vigentes se acercan al tope (450 000 o más) se libera, por lotes de 5 000 y sin esperar a nadie, lo ya vencido.
--- Coste (M-3): el conteo usa el índice por ocurrido_en y se acota con LIMIT 500001, así que como mucho recorre 500 001
--- entradas del índice (decenas de ms en el peor caso); en uso normal solo recorre las de los últimos 2 días.
+-- Devuelve 'ok' | 'limitado' | 'lleno'. 'lleno' (tope contra IP falsificadas, INV-040) cuando hay MÁS de 500 000 filas
+-- DENTRO de la retención de 2 días (las vencidas no cuentan para este tope, B-1: si una purga se atrasa no hay 429 para
+-- todos) o MÁS de 1 500 000 filas EN TOTAL, vencidas incluidas (tope duro, I-A: nada de crecer sin límite aunque las
+-- purgas fallen). Limpieza SIEMPRE activa (I-A), sin esperar a nadie (bloqueo «try»; si otra sesión purga, se omite):
+--   - cada llamada libera un lote pequeño de 200 filas vencidas, así sin nadie pidiendo códigos la tabla no crece sin
+--     límite (una fila vence 2 días después de nacer; cada inserción libera hasta 200, mucho más de lo que vence);
+--   - con 450 000 o más filas vigentes, o 1 350 000 o más en total (el 90 % de cada tope), el lote es de 5 000.
+-- Coste (M-3): una sola consulta recorre el índice por ocurrido_en, de lo más nuevo a lo más viejo, y se acota con
+-- LIMIT 1 500 001: como mucho 1 500 001 entradas del índice (solo en un ataque; en uso normal, las pocas filas de 2 días;
+-- medido con 1,4 millones de filas: ≈ 200 ms por llamada).
 create or replace function public.auth_limite_registrar(
   p_clave text,
   p_tipo text,
@@ -362,7 +367,10 @@ set search_path = public, pg_temp
 as $$
 declare
   v_n integer;
+  v_vigentes integer;
+  v_total integer;
   v_corte timestamptz := p_ahora - interval '2 days';
+  v_lote integer := 200;
 begin
   if p_clave is null or p_clave = '' or p_clave = 'purga' or p_tipo is null or p_tipo = '' then
     raise exception 'parámetros inválidos';
@@ -374,14 +382,18 @@ begin
   if v_n >= p_limite then
     return 'limitado';
   end if;
-  select count(*) into v_n from (
-    select 1 from public.auth_limites_eventos e where e.clave <> 'purga' and e.ocurrido_en >= v_corte limit 500001) s;
-  if v_n >= 450000 and pg_try_advisory_xact_lock(hashtextextended('auth_purgar', 0)) then
+  select count(*), count(*) filter (where s.ocurrido_en >= v_corte) into v_total, v_vigentes from (
+    select e.ocurrido_en from public.auth_limites_eventos e where e.clave <> 'purga'
+     order by e.ocurrido_en desc limit 1500001) s;
+  if v_vigentes >= 450000 or v_total >= 1350000 then
+    v_lote := 5000;
+  end if;
+  if pg_try_advisory_xact_lock(hashtextextended('auth_purgar', 0)) then
     delete from public.auth_limites_eventos e where e.id in (
       select x.id from public.auth_limites_eventos x
-       where x.clave <> 'purga' and x.ocurrido_en < v_corte limit 5000);
+       where x.clave <> 'purga' and x.ocurrido_en < v_corte limit v_lote);
   end if;
-  if v_n > 500000 then
+  if v_vigentes > 500000 or v_total > 1500000 then
     return 'lleno';
   end if;
   insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) values (p_clave, p_tipo, p_ahora);

@@ -121,7 +121,11 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     email = user["email"].lower()
     await auth_routes.reservar_intento_de_login(email)   # 429 si está bloqueado; cuenta el intento antes de comprobar
-    acierto = await auth_routes.comprobar_contrasena(data.actual, user.get("hashed_password", ""))   # bcrypt fuera del loop (I-6)
+    try:
+        acierto = await auth_routes.comprobar_contrasena(data.actual, user.get("hashed_password", ""))   # bcrypt fuera del loop (I-6)
+    except auth_estado.EstadoNoDisponible:   # bcrypt lleno o sin presupuesto (M-A): 503 y la reserva se cierra como fallo
+        await auth_routes.cerrar_reserva_tras_fallo_interno(email)
+        raise
     await auth_estado.login_resolver(email, acierto)
     if not acierto:
         raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")

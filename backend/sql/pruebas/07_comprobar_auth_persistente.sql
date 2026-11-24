@@ -377,7 +377,8 @@ begin
     raise exception 'con 500 001 filas de hace 3 días debía registrar (las vencidas no cuentan para el tope)';
   end if;
   select count(*) into n from public.auth_limites_eventos where ocurrido_en < b - interval '2 days';
-  if n <> 500001 then raise exception 'lejos del tope no debía purgar (quedan % vencidas)', n; end if;
+  -- I-A: aun lejos del tope cada llamada libera un lote PEQUEÑO (200) de vencidas
+  if n <> 500001 - 200 then raise exception 'lejos del tope debía liberar solo 200 vencidas (quedan %)', n; end if;
   -- 499 999 vigentes en total (nueva0 + 499 998): aún cabe; en el tope exacto (500 000) todavía registra; por encima, 'lleno'.
   -- Cerca del tope (450 000 o más vigentes) cada llamada libera un lote de 5 000 filas vencidas sin bloquear
   insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
@@ -387,7 +388,7 @@ begin
   if public.auth_limite_registrar('nueva3', 'ip_intento', 30, 600, b) <> 'lleno' then raise exception 'con 500 001 vigentes debía responder lleno'; end if;
   if public.auth_limite_registrar('nueva1', 'ip_intento', 1, 600, b) <> 'limitado' then raise exception 'una clave ya en el límite sigue limitada'; end if;
   select count(*) into n from public.auth_limites_eventos where ocurrido_en < b - interval '2 days';
-  if n <> 500001 - 3 * 5000 then raise exception 'cerca del tope cada llamada debía liberar 5 000 vencidas (quedan %)', n; end if;
+  if n <> 500001 - 200 - 3 * 5000 then raise exception 'cerca del tope cada llamada debía liberar 5 000 vencidas (quedan %)', n; end if;
   select count(*) into n from public.auth_limites_eventos where ocurrido_en >= b - interval '2 days';
   if n <> 500001 then raise exception 'la purga por lotes no debe tocar filas vigentes (hay %)', n; end if;
   -- Recuperación: al vencer las filas vigentes (pasan más de 2 días) la tabla vuelve a aceptar eventos sin esperar a una purga
@@ -399,6 +400,60 @@ begin
   -- El límite por clave sigue usando solo su propia ventana
   delete from public.auth_limites_eventos;
   raise notice 'OK: límites por IP: ventana deslizante, números de INV-010 y tope de 500 000 filas vigentes';
+end $$;
+
+-- 4b. I-A: la limpieza de vencidas NO depende de que alguien pida códigos ni de estar cerca del tope; y tope duro TOTAL
+do $$
+declare b timestamptz := now(); n integer; v integer; i integer; r text; marca timestamptz;
+begin
+  delete from public.auth_limites_eventos;
+  -- Muchas vencidas y pocas vigentes: cada llamada libera 200 vencidas y no toca ninguna vigente
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
+    select 'viejo' || g, 'ip_intento', b - interval '3 days' from generate_series(1, 5000) g;
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
+    select 'vigente' || g, 'ip_intento', b - interval '1 hour' from generate_series(1, 10) g;
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) values ('purga', 'purga', b - interval '10 days');   -- marca
+  for i in 1..10 loop
+    if public.auth_limite_registrar('nueva' || i, 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'llamada % debía registrar', i; end if;
+  end loop;
+  select count(*) into n from public.auth_limites_eventos where clave like 'viejo%';
+  if n <> 5000 - 10 * 200 then raise exception 'con 10 llamadas debían quedar 3000 vencidas (quedan %)', n; end if;
+  select count(*) into v from public.auth_limites_eventos where clave like 'vigente%' or clave like 'nueva%';
+  if v <> 20 then raise exception 'la limpieza no debe tocar filas vigentes (hay %)', v; end if;
+  select count(*) into n from public.auth_limites_eventos where clave = 'purga';
+  if n <> 1 then raise exception 'la limpieza no debe tocar la marca de purga'; end if;
+
+  -- Sin códigos pedidos: un flujo de eventos de solo login (IP falsificadas, cada una nueva) que envejece 3 días no deja
+  -- crecer la tabla; al ritmo de las llamadas siguientes las vencidas bajan hasta cero
+  delete from public.auth_limites_eventos;
+  for i in 1..1000 loop
+    perform public.auth_limite_registrar('ipfalsa' || i, 'ip_intento', 30, 600, b - interval '3 days');
+  end loop;
+  select count(*) into n from public.auth_limites_eventos;
+  if n <> 1000 then raise exception 'debía haber 1000 eventos (hay %)', n; end if;
+  for i in 1..5 loop
+    perform public.auth_limite_registrar('hoy' || i, 'ip_intento', 30, 600, b);
+  end loop;
+  select count(*) into n from public.auth_limites_eventos where ocurrido_en < b - interval '2 days';
+  if n <> 0 then raise exception 'con 5 llamadas (200 por llamada) debían liberarse las 1000 vencidas (quedan %)', n; end if;
+  select count(*) into n from public.auth_limites_eventos;
+  if n <> 5 then raise exception 'solo debían quedar las 5 vigentes (hay %)', n; end if;
+
+  -- Tope duro de 1 500 000 filas EN TOTAL (vencidas incluidas): con 1 500 001 vencidas y ninguna vigente responde 'lleno'
+  -- y libera un lote grande (5 000); con 1 500 000 en total todavía registra
+  delete from public.auth_limites_eventos;
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
+    select 'v' || g, 'ip_intento', b - interval '3 days' from generate_series(1, 1500001) g;
+  r := public.auth_limite_registrar('tope1', 'ip_intento', 30, 600, b);
+  if r <> 'lleno' then raise exception 'con 1 500 001 filas en total debía responder lleno (dio %)', r; end if;
+  select count(*) into n from public.auth_limites_eventos;
+  if n <> 1500001 - 5000 then raise exception 'el tope duro debía liberar un lote de 5 000 (quedan %)', n; end if;
+  r := public.auth_limite_registrar('tope2', 'ip_intento', 30, 600, b);
+  if r <> 'ok' then raise exception 'ya bajo el tope duro debía registrar (dio %)', r; end if;
+  select count(*) into n from public.auth_limites_eventos where ocurrido_en >= b - interval '2 days';
+  if n <> 1 then raise exception 'solo la fila nueva es vigente (hay %)', n; end if;
+  delete from public.auth_limites_eventos;
+  raise notice 'OK: limpieza siempre activa de vencidas (200 por llamada, 5 000 cerca de los topes) y tope duro de 1 500 000 filas en total';
 end $$;
 
 -- 5. Baja de cuenta y purga

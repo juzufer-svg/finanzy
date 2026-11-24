@@ -6,7 +6,6 @@ Fail-closed (INV-039): si la BD de estado o la lectura de usuarios falla, 503; n
 """
 from datetime import timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from starlette.concurrency import run_in_threadpool
 from app.schemas.auth import (
     UserRegistration, UserLogin, Token,
     VerifyEmailRequest, ResendCodeRequest, PendingVerification,
@@ -26,6 +25,7 @@ from app.utils.email import generate_code, send_verification_email
 _TOO_MANY = "Demasiadas solicitudes. Espera unos minutos e intenta de nuevo."
 _LIMITED_MSG = "Ya enviamos varios códigos a este correo hoy. Revisa tu bandeja (y spam) o intenta mañana."
 _BLOQUEADO_MSG = "Demasiados intentos fallidos. Intenta de nuevo en 15 minutos."
+PRESUPUESTO_REINICIO_SEG = 4.0
 
 
 async def iniciar_presupuesto_peticion() -> None:
@@ -66,7 +66,9 @@ async def reservar_intento_de_login(email: str) -> None:
 async def reiniciar_login_sin_fallar(email: str, origen: str) -> None:
     """Desbloquea el login DESPUÉS de haber cambiado la contraseña (best-effort, I-2): si la BD de estado falla, el
     cambio ya está hecho y gastado el código, así que NO se responde 503 (INV-027); solo un aviso sin datos. El bloqueo
-    vence solo a los 15 min como mucho."""
+    vence solo a los 15 min como mucho. Usa un presupuesto PROPIO y fresco de 4 s (M-B): lo que ya gastó la petición (BD de
+    usuarios, bcrypt) no debe dejarlo sin tiempo para desbloquear."""
+    auth_estado.iniciar_presupuesto(PRESUPUESTO_REINICIO_SEG)
     try:
         await auth_estado.login_reiniciar(email)
     except EstadoNoDisponible:
@@ -74,13 +76,14 @@ async def reiniciar_login_sin_fallar(email: str, origen: str) -> None:
 
 
 async def comprobar_contrasena(contrasena: str, hashed: str) -> bool:
-    """bcrypt (~0,3 s) FUERA del event loop (I-6): otras peticiones siguen avanzando mientras tanto."""
-    return await run_in_threadpool(verify_password, contrasena, hashed)
+    """bcrypt (~0,3 s) FUERA del event loop (I-6) y en el ejecutor PROPIO y acotado de bcrypt (M-A): con 8 comprobaciones
+    en curso la siguiente recibe 503 sin encolarse (`EstadoNoDisponible`)."""
+    return await auth_estado.ejecutar_bcrypt("verificar_contrasena", lambda: verify_password(contrasena, hashed))
 
 
 async def comprobar_contrasena_senuelo(contrasena: str) -> bool:
     """Mismo costo bcrypt y mismo hilo que una comprobación real (INV-009, M-5), también fuera del event loop."""
-    return await run_in_threadpool(verify_password_senuelo, contrasena)
+    return await auth_estado.ejecutar_bcrypt("verificar_contrasena", lambda: verify_password_senuelo(contrasena))
 
 
 async def cerrar_reserva_tras_fallo_interno(email: str) -> None:
@@ -109,8 +112,7 @@ async def _issue_code(
     if resultado == "enviado":
         if enviar:
             background_tasks.add_task(send_verification_email, email, codigo, purpose)
-        # La purga NO corre dentro de la emisión (I-4): va aparte, tras responder, y nunca hace fallar la petición
-        background_tasks.add_task(auth_estado.purgar_en_segundo_plano)
+        # La purga NO corre aquí (I-4, I-A): la programa la dependencia de las rutas, tras responder
         return "sent"
     return "recent" if resultado == "reciente" else "limited"
 
@@ -207,11 +209,15 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
         await cerrar_reserva_tras_fallo_interno(email)
         raise
 
-    if user:
-        acierto = await comprobar_contrasena(user_data.password, user.get("hashed_password", ""))
-    else:
-        await comprobar_contrasena_senuelo(user_data.password)   # mismo costo bcrypt que con una cuenta real (INV-009, M-5)
-        acierto = False
+    try:
+        if user:
+            acierto = await comprobar_contrasena(user_data.password, user.get("hashed_password", ""))
+        else:
+            await comprobar_contrasena_senuelo(user_data.password)   # mismo costo bcrypt que con una cuenta real (INV-009, M-5)
+            acierto = False
+    except EstadoNoDisponible:   # bcrypt lleno o sin presupuesto (M-A): 503 y la reserva se cierra como fallo (ya estaba contada)
+        await cerrar_reserva_tras_fallo_interno(email)
+        raise
 
     await auth_estado.login_resolver(email, acierto)
     if not acierto:

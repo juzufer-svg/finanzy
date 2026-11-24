@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor
+from app.core.purga_fondo import PurgaEnSegundoPlano
 from app.models.auth_estado import EstadoNoDisponible, MENSAJE_503
 
 
@@ -97,6 +98,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+
+# Purga del estado de autenticación tras responder (I-A): también con 401/429/503, no solo con 2xx
+app.add_middleware(PurgaEnSegundoPlano)
+
 
 @app.exception_handler(EstadoNoDisponible)
 async def estado_no_disponible_handler(_request: Request, _exc: EstadoNoDisponible):

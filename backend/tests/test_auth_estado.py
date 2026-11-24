@@ -370,7 +370,8 @@ def test_inv040_purga_30_dias_intentos_y_codigos_y_2_dias_eventos_una_vez_al_dia
     reloj.avanzar(days=1)
     assert run(ae.purgar()) >= 0 and ae._Memoria.intentos       # primera purga: nada vence aún salvo eventos de 1 día no
     reloj.avanzar(days=2)
-    run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600))   # evento reciente: debe sobrevivir
+    # evento reciente (sembrado: limite_registrar ya libera por su cuenta las vencidas, I-A): debe sobrevivir
+    ae._Memoria.eventos[("reciente", "ip_intentos_auth")] = [reloj.t]
     reloj.avanzar(hours=1)
     assert run(ae.purgar()) > 0
     assert ae._Memoria.total_eventos() == 1                     # los eventos de más de 2 días se fueron
@@ -770,18 +771,21 @@ def test_b1_en_el_tope_exacto_registra_y_por_encima_responde_lleno(reloj, monkey
     assert run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600)) == "lleno"
 
 
-def test_b1_cerca_del_tope_libera_un_lote_de_filas_vencidas_sin_tocar_las_vigentes(reloj, monkeypatch):
+def test_b1_cerca_del_tope_libera_un_lote_grande_de_vencidas_sin_tocar_las_vigentes(reloj, monkeypatch):
     monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 10)
-    monkeypatch.setattr(ae, "LOTE_PURGA_LIMITE", 2)
-    _poner_eventos("vigente", "ip_intentos_auth", 8, timedelta(hours=1), reloj.t)      # 8 < 9 (90 % de 10): lejos del tope
-    _poner_eventos("viejo", "ip_intentos_auth", 5, timedelta(days=3), reloj.t)
-    run(ae.limite_registrar("10.0.0.1", "ip_intentos_auth", 30, 600))                  # 8 vigentes → no purga
-    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 5
-    run(ae.limite_registrar("10.0.0.2", "ip_intentos_auth", 30, 600))                  # 9 vigentes → cerca del tope: lote de 2
+    monkeypatch.setattr(ae, "LOTE_PURGA_LIMITE", 3)
+    monkeypatch.setattr(ae, "LOTE_PURGA_PEQUENO", 1)
+    _poner_eventos("vigente", "ip_intentos_auth", 7, timedelta(hours=1), reloj.t)      # 7 < 9 (90 % de 10): lejos del tope
+    _poner_eventos("viejo", "ip_intentos_auth", 8, timedelta(days=3), reloj.t)
+    run(ae.limite_registrar("10.0.0.1", "ip_intentos_auth", 30, 600))                  # lejos del tope: lote PEQUEÑO (1)
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 7
+    run(ae.limite_registrar("10.0.0.2", "ip_intentos_auth", 30, 600))                  # 8 vigentes: aún lejos
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 6
+    run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600))                  # 9 vigentes → cerca del tope: lote de 3
     assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 3
-    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("vigente")) == 8      # las vigentes siguen
-    run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600))
-    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 1
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("vigente")) == 7      # las vigentes siguen
+    run(ae.limite_registrar("10.0.0.4", "ip_intentos_auth", 30, 600))
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 0
 
 
 def test_b1_la_baja_de_cuenta_sigue_sin_borrar_eventos_de_limites(reloj):
@@ -863,3 +867,232 @@ def test_i4_purga_en_segundo_plano_nunca_lanza_ni_imprime_datos(bd, capsys):
     salida = capsys.readouterr()
     todo = salida.out + salida.err
     assert "Aviso" in todo and CORREO not in todo and IP not in todo and "detalle" not in todo
+
+
+# ───────────────────────── Ciclo 3 de CHG-020: I-A (limpieza siempre activa), I-B/M-A (bcrypt acotado), M-C ─────────────────────────
+
+def _vencidas(): return sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo"))
+def _vigentes(): return sum(1 for k in ae._Memoria.eventos if not k[0].startswith("viejo"))
+
+
+def test_ia_los_numeros_de_la_limpieza_siempre_activa_y_del_tope_duro():
+    assert ae.LOTE_PURGA_PEQUENO == 200 and ae.LOTE_PURGA_LIMITE == 5_000
+    assert ae.TOPE_FILAS_EVENTOS == 500_000 and ae.TOPE_FILAS_TOTAL == 1_500_000
+
+
+def test_ia_muchas_vencidas_y_pocas_vigentes_las_llamadas_repetidas_reducen_las_vencidas(reloj, monkeypatch):
+    """Lejos de cualquier tope, cada llamada libera el lote pequeño de vencidas y nunca toca una vigente."""
+    monkeypatch.setattr(ae, "LOTE_PURGA_PEQUENO", 20)
+    _poner_eventos("viejo", "ip_intentos_auth", 100, timedelta(days=3), reloj.t)
+    _poner_eventos("vigente", "ip_intentos_auth", 5, timedelta(hours=1), reloj.t)
+    esperadas = 100
+    for i in range(4):
+        assert run(ae.limite_registrar(f"10.0.0.{i}", "ip_intentos_auth", 30, 600)) == "ok"
+        esperadas -= 20
+        assert _vencidas() == esperadas
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("vigente")) == 5      # las vigentes siguen
+    assert ae._Memoria.total_eventos() == esperadas + 5 + 4                              # + las 4 registradas
+
+
+def test_ia_sin_codigos_pedidos_la_tabla_no_crece_sin_limite(reloj, monkeypatch):
+    """Solo login (IP falsificadas, una nueva por llamada) durante 30 días: sin pedir un solo código ni purgar, las filas que
+    vencen se liberan al mismo ritmo y la tabla se queda en unos días de filas, no en 30 días."""
+    monkeypatch.setattr(ae, "LOTE_PURGA_PEQUENO", 30)
+    por_dia = 50
+    maximo = 0
+    for dia in range(30):
+        for i in range(por_dia):
+            assert run(ae.limite_registrar(f"ip-{dia}-{i}", "ip_intentos_auth", 30, 600)) == "ok"
+        reloj.avanzar(days=1)
+        maximo = max(maximo, ae._Memoria.total_eventos())
+    assert maximo <= 4 * por_dia and 30 * por_dia == 1500       # sin liberar habría 1 500 filas; con ello, como mucho ~3 días
+
+
+def test_ia_tope_duro_total_responde_lleno_aunque_todas_esten_vencidas_y_libera_un_lote_grande(reloj, monkeypatch):
+    monkeypatch.setattr(ae, "TOPE_FILAS_TOTAL", 10)
+    monkeypatch.setattr(ae, "LOTE_PURGA_LIMITE", 4)
+    monkeypatch.setattr(ae, "LOTE_PURGA_PEQUENO", 1)
+    _poner_eventos("viejo", "ip_intentos_auth", 10, timedelta(days=3), reloj.t)        # 10 en total: en el tope exacto
+    assert run(ae.limite_registrar("10.0.0.1", "ip_intentos_auth", 30, 600)) == "ok"   # 10 no supera el tope (lote grande: 4)
+    assert _vencidas() == 6
+    _poner_eventos("viejo2", "ip_intentos_auth", 5, timedelta(days=3), reloj.t)         # 6 + 5 + 1 nueva = 12 > 10
+    assert run(ae.limite_registrar("10.0.0.2", "ip_intentos_auth", 30, 600)) == "lleno"
+    assert ae._Memoria.total_eventos() == 12 - 4                                         # liberó el lote grande y NO insertó
+    assert run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600)) == "ok"   # ya por debajo del tope: se recupera
+
+
+def test_ia_el_tope_de_vigentes_sigue_igual_con_el_tope_total_alto(reloj, monkeypatch):
+    monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 5)
+    _poner_eventos("vigente", "ip_intentos_auth", 6, timedelta(hours=1), reloj.t)
+    assert run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600)) == "lleno"
+
+
+@pytest.fixture
+def purga_en_segundo_plano(monkeypatch, reloj):
+    """`purgar` sustituida: cuenta llamadas y falla mientras `estado['falla']` sea True."""
+    estado = {"llamadas": 0, "falla": False}
+
+    async def purgar():
+        estado["llamadas"] += 1
+        if estado["falla"]:
+            raise ae.EstadoNoDisponible("x")
+        return 0
+    monkeypatch.setattr(ae, "purgar", purgar)
+    return estado
+
+
+def test_mc_la_marca_de_la_purga_solo_se_fija_si_funcionó(purga_en_segundo_plano, reloj, capsys):
+    purga_en_segundo_plano["falla"] = True
+    run(ae.purgar_en_segundo_plano())
+    assert ae._intento_purga["ultimo"] is None and ae._intento_purga["fallo"] == reloj.t     # sin marca de «hecha»
+    assert "no se pudo purgar" in capsys.readouterr().out
+    reloj.avanzar(seconds=60)
+    run(ae.purgar_en_segundo_plano())
+    assert purga_en_segundo_plano["llamadas"] == 1                                            # aún no toca reintentar
+    reloj.avanzar(seconds=ae.REINTENTO_PURGA_SEG)
+    purga_en_segundo_plano["falla"] = False
+    run(ae.purgar_en_segundo_plano())
+    assert purga_en_segundo_plano["llamadas"] == 2 and ae._intento_purga["ultimo"] == reloj.t and ae._intento_purga["fallo"] is None
+    reloj.avanzar(minutes=59)
+    run(ae.purgar_en_segundo_plano())
+    assert purga_en_segundo_plano["llamadas"] == 2                                            # tras un éxito, una hora
+    reloj.avanzar(minutes=2)
+    run(ae.purgar_en_segundo_plano())
+    assert purga_en_segundo_plano["llamadas"] == 3
+
+
+def test_mc_el_reintento_tras_un_fallo_es_antes_que_la_hora():
+    assert ae.REINTENTO_PURGA_SEG < ae.INTERVALO_INTENTO_PURGA_SEG
+
+
+def test_ia_no_corren_dos_purgas_en_segundo_plano_a_la_vez(monkeypatch, reloj):
+    llamadas = []
+
+    async def purgar():
+        llamadas.append(1)
+        await asyncio.sleep(0.05)
+        return 0
+    monkeypatch.setattr(ae, "purgar", purgar)
+
+    async def principal():
+        await asyncio.gather(*[ae.purgar_en_segundo_plano() for _ in range(5)])
+    run(principal())
+    assert len(llamadas) == 1 and ae._intento_purga["en_curso"] is False
+
+
+def test_ma_bcrypt_lleno_responde_503_sin_encolar_y_la_ranura_se_libera(monkeypatch):
+    """Con las ranuras de bcrypt ocupadas, la siguiente comprobación falla al instante (no espera ni se encola)."""
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(ae, "_ranuras_bcrypt", threading.BoundedSemaphore(2))
+    pool = ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(ae, "_ejecutor_bcrypt", pool)
+    hilos = []
+
+    def lenta():
+        hilos.append(threading.current_thread().name)
+        time.sleep(0.5)
+        return "listo"
+
+    async def principal():
+        a = asyncio.ensure_future(ae.ejecutar_bcrypt("t", lenta))
+        b = asyncio.ensure_future(ae.ejecutar_bcrypt("t", lenta))
+        await asyncio.sleep(0.1)
+        t = time.monotonic()
+        with pytest.raises(ae.EstadoNoDisponible):
+            await ae.ejecutar_bcrypt("t", lenta)                  # la 3.ª: sin ranura
+        espera = time.monotonic() - t
+        assert await a == "listo" and await b == "listo"
+        assert await ae.ejecutar_bcrypt("t", lambda: "otra") == "otra"   # liberadas
+        return espera
+    try:
+        assert run(principal()) < 0.1
+    finally:
+        pool.shutdown(wait=True)
+    assert len(hilos) == 2 and threading.current_thread().name not in hilos
+
+
+def test_ma_bcrypt_sin_presupuesto_responde_503_antes_de_empezar():
+    llamadas = []
+
+    async def principal():
+        ae.iniciar_presupuesto(-1)                                # dentro de la corrutina: el contexto no se filtra a otras pruebas
+        await ae.ejecutar_bcrypt("t", lambda: llamadas.append(1))
+    with pytest.raises(ae.EstadoNoDisponible):
+        run(principal())
+    assert llamadas == []
+
+
+def test_ma_el_aviso_de_bcrypt_lleno_no_lleva_datos(monkeypatch, capsys):
+    monkeypatch.setattr(ae, "_ranuras_bcrypt", threading.BoundedSemaphore(1))
+    ae._ranuras_bcrypt.acquire()
+    with pytest.raises(ae.EstadoNoDisponible):
+        run(ae.ejecutar_bcrypt("hash_contrasena", lambda: None))
+    assert "bcrypt lleno" in capsys.readouterr().out
+
+
+class _TablaUsuarios:
+    """Cliente simulado de la tabla de usuarios para `UserDB.create` y `UserDB.update_password`."""
+
+    def __init__(self):
+        self.filas = {"ana@example.com": {"id": "u1", "email": "ana@example.com", "session_version": 3}}
+
+    def table(self, _):
+        return self
+
+    def __getattr__(self, nombre):
+        return lambda *a, **k: self
+
+    def execute(self):
+        return type("R", (), {"data": [{"id": "u1", "email": "ana@example.com", "session_version": 3, "hashed_password": "h"}]})()
+
+
+def _hash_lento(monkeypatch, segundos):
+    """Hash REAL de bcrypt más un sleep (como un bcrypt lento bajo carga): si corriera en el event loop, lo bloquearía."""
+    hilos = []
+    real = security.get_password_hash
+
+    def lento(p):
+        hilos.append(threading.current_thread().name)
+        time.sleep(segundos)
+        return real(p)
+    monkeypatch.setattr(security, "get_password_hash", lento)
+    return hilos
+
+
+@pytest.mark.parametrize("operacion", ["create", "update_password"])
+def test_ib_el_hash_de_registro_y_de_cambio_de_contrasena_no_bloquea_el_event_loop(monkeypatch, operacion):
+    monkeypatch.setattr(UserDB, "_is_supabase_available", staticmethod(lambda: True))
+    from app.models import user as user_mod
+    monkeypatch.setattr(user_mod.SupabaseDB, "get_client", staticmethod(lambda: _TablaUsuarios()))
+    hilos = _hash_lento(monkeypatch, 0.6)
+
+    async def principal():
+        latidos = []
+
+        async def latido():
+            for _ in range(8):
+                t = time.monotonic()
+                await asyncio.sleep(0.05)
+                latidos.append(time.monotonic() - t)
+        if operacion == "create":
+            tarea = UserDB.create("ana@example.com", "Clave12345", "Ana")
+        else:
+            tarea = UserDB.update_password("ana@example.com", "NuevaClave1")
+        await asyncio.gather(tarea, latido())
+        return latidos
+    latidos = run(principal())
+    assert hilos and hilos[0].startswith("auth-bcrypt")          # en el ejecutor propio de bcrypt, no en el loop
+    assert max(latidos) < 0.3                                     # el loop siguió atendiendo durante los 0,6 s del hash
+
+
+def test_ib_si_bcrypt_esta_lleno_el_registro_y_el_cambio_responden_503_sin_hashear(monkeypatch):
+    monkeypatch.setattr(UserDB, "_is_supabase_available", staticmethod(lambda: True))
+    from app.models import user as user_mod
+    monkeypatch.setattr(user_mod.SupabaseDB, "get_client", staticmethod(lambda: _TablaUsuarios()))
+    hilos = _hash_lento(monkeypatch, 0.0)
+    monkeypatch.setattr(ae, "_ranuras_bcrypt", threading.BoundedSemaphore(1))
+    ae._ranuras_bcrypt.acquire()
+    for coro in (UserDB.create("ana@example.com", "Clave12345", "Ana"), UserDB.update_password("ana@example.com", "NuevaClave1")):
+        with pytest.raises(ae.EstadoNoDisponible):
+            run(coro)
+    assert hilos == []

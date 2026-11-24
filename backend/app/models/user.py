@@ -4,7 +4,7 @@ Tabla: users(id, email, hashed_password, full_name, currency, is_active, session
 """
 from typing import Optional
 import uuid
-from app.core.security import get_password_hash
+from app.core import security
 from app.core.supabase import SupabaseDB
 from app.models import auth_estado
 
@@ -19,6 +19,12 @@ def _map_user(row: dict) -> dict:
         "is_active": row.get("is_active", False),
         "session_version": int(row.get("session_version") or 0),
     }
+
+
+async def _hash_fuera_del_loop(password: str) -> str:
+    """bcrypt (~0,3 s) en el ejecutor PROPIO y acotado de bcrypt (I-B, M-A): no bloquea el event loop; con los 8 hilos
+    ocupados o sin presupuesto lanza `EstadoNoDisponible` (503) sin encolar. Busca `get_password_hash` al llamar."""
+    return await auth_estado.ejecutar_bcrypt("hash_contrasena", lambda: security.get_password_hash(password))
 
 
 class UserDB:
@@ -94,7 +100,7 @@ class UserDB:
             "id": str(uuid.uuid4()),
             "email": email.lower(),
             "full_name": full_name,
-            "hashed_password": get_password_hash(password),
+            "hashed_password": await _hash_fuera_del_loop(password),
             "currency": currency,
             "is_active": is_active,
         }
@@ -127,7 +133,7 @@ class UserDB:
         if not UserDB._is_supabase_available():
             return 0
         client = SupabaseDB.get_client()
-        nuevo_hash = get_password_hash(new_password)
+        nuevo_hash = await _hash_fuera_del_loop(new_password)
         # Actualización condicional (compare-and-set): solo escribe si la versión sigue
         # siendo la que se leyó. Si otro cambio se adelantó, se vuelve a leer y reintenta;
         # así cada restablecimiento sube la versión al menos una vez.

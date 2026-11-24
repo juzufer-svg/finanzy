@@ -776,14 +776,15 @@ def test_inv040_purga_30_dias_intentos_y_codigos_y_2_dias_eventos_una_vez_al_dia
     assert ("e3", "correo") not in al.eventos and ("e1", "correo") in al.eventos
     assert al.ultima_purga == t
     # no se vuelve a purgar el mismo día, ni siquiera desde otra «instancia» (la marca está en la BD)
-    al.eventos[("e3b", "correo")] = [t - timedelta(days=3)]
+    # (se usa un intento de 31 días: los eventos vencidos ya los libera auth_limite_registrar por su cuenta, I-A)
+    al.intentos["i31b"] = intento(timedelta(days=31))
     bd.reiniciar()
     reloj.avanzar(hours=5)
     _post(client, "resend-code", {"email": "pend@example.com"}, 2)
-    assert ("e3b", "correo") in al.eventos
+    assert "i31b" in al.intentos
     reloj.avanzar(hours=20)                                        # pasó un día desde la última purga
     _post(client, "resend-code", {"email": "pend@example.com"}, 3)
-    assert ("e3b", "correo") not in al.eventos
+    assert "i31b" not in al.intentos
 
 
 def test_inv040_tope_de_filas_de_eventos_con_ip_falsificada_responde_429(client, users, bd, reloj, monkeypatch, capsys):
@@ -1045,3 +1046,148 @@ def test_m4_si_get_by_id_falla_la_baja_sigue_y_deja_un_aviso_sin_datos(client, u
     salida = capsys.readouterr()
     todo = salida.out + salida.err
     assert "se omite la limpieza del estado de autenticación" in todo and ANA not in todo
+
+
+# ───────────────────────── Ciclo 3 de CHG-020: I-A (purga desde el login), M-A (bcrypt acotado), M-B, M-C ─────────────────────────
+
+def test_ia_el_login_dispara_la_purga_en_segundo_plano_sin_pedir_ningun_codigo(client, users, bd, reloj):
+    """Con IP falsificadas solo en /login nadie pide códigos: la purga igual se programa (tras responder), 1 vez por hora."""
+    _alta(users)
+    ae._intento_purga["ultimo"] = None
+    assert _login(client, n=1).status_code == 200
+    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver", "auth_purgar"]   # DESPUÉS
+    assert not any(n == "auth_codigo_emitir" for n in bd.nombres)
+    assert _login(client, clave="mala", n=2).status_code == 401                      # también con un 401
+    assert bd.nombres.count("auth_purgar") == 1                                      # una vez por hora y proceso
+    reloj.avanzar(hours=1, seconds=1)
+    assert _login(client, clave="mala", n=3).status_code == 401
+    assert bd.nombres.count("auth_purgar") == 2
+
+
+def test_ia_la_purga_solo_se_programa_en_las_rutas_de_autenticacion(client, users, bd):
+    from app.core.purga_fondo import es_ruta_de_auth
+    assert es_ruta_de_auth("/api/v1/auth/login") and es_ruta_de_auth("/api/v1/users/me/password")
+    assert not es_ruta_de_auth("/health") and not es_ruta_de_auth("/api/v1/categorias") and not es_ruta_de_auth("/api/v1/authx")
+    ae._intento_purga["ultimo"] = None
+    assert client.get("/health").status_code == 200
+    assert "auth_purgar" not in bd.nombres
+
+
+def test_ia_la_purga_tambien_se_programa_con_429_y_503_y_no_cambia_la_respuesta(client, users, bd, reloj):
+    _alta(users)
+    ae._intento_purga["ultimo"] = None
+    bd.falla_en["auth_login_reservar"] = RuntimeError("caída")
+    r = _login(client, n=1)
+    assert r.status_code == 503 and r.json() == {"detail": ae.MENSAJE_503}
+    assert "auth_purgar" in bd.nombres                                               # tras responder, aun con 503
+
+
+def test_ia_la_purga_tambien_se_programa_con_un_429_por_ip(client, users, bd):
+    _alta(users)
+    for _ in range(30):                                                              # 30 intentos por IP/10 min
+        _login(client, correo="otro@example.com", n=5)
+    ae._intento_purga.update(ultimo=None, fallo=None)
+    antes = bd.nombres.count("auth_purgar")
+    r = _login(client, correo="otro@example.com", n=5)
+    assert r.status_code == 429 and r.json()["detail"] == MSG_IP
+    assert bd.nombres.count("auth_purgar") == antes + 1
+
+
+def test_ia_el_cambio_de_contrasena_y_otras_rutas_de_auth_tambien_la_programan(client, users, bd):
+    _alta(users)
+    ae._intento_purga["ultimo"] = None
+    r = client.post("/api/v1/users/me/password", json={"actual": CLAVE, "nueva": "NuevaClave1"},
+                    headers={**_sesion(f"id-{ANA}"), **ip(1)})
+    assert r.status_code == 200 and bd.nombres.count("auth_purgar") == 1
+
+
+def test_mc_si_la_purga_falla_se_reintenta_a_los_5_minutos_y_no_a_la_hora(client, users, bd, reloj):
+    _alta(users)
+    ae._intento_purga["ultimo"] = None
+    bd.falla_en["auth_purgar"] = RuntimeError(f"purga lenta con {ANA}")
+    assert _login(client, n=1).status_code == 200                                    # la respuesta no cambia
+    assert bd.nombres.count("auth_purgar") == 1 and ae._intento_purga["ultimo"] is None   # sin marca de «hecha»
+    reloj.avanzar(seconds=60)
+    assert _login(client, n=2).status_code == 200
+    assert bd.nombres.count("auth_purgar") == 1                                      # aún no
+    reloj.avanzar(seconds=ae.REINTENTO_PURGA_SEG)
+    del bd.falla_en["auth_purgar"]
+    assert _login(client, n=3).status_code == 200
+    assert bd.nombres.count("auth_purgar") == 2 and ae._intento_purga["ultimo"] == reloj.t   # ahora sí funcionó
+    reloj.avanzar(minutes=30)
+    assert _login(client, n=4).status_code == 200
+    assert bd.nombres.count("auth_purgar") == 2                                      # tras un éxito, una hora
+
+
+def _llenar_bcrypt(monkeypatch):
+    sem = threading.BoundedSemaphore(2)
+    monkeypatch.setattr(ae, "_ranuras_bcrypt", sem)
+    sem.acquire(), sem.acquire()                                                     # los 2 hilos «ocupados»
+
+
+def test_ma_con_bcrypt_lleno_el_login_responde_503_sin_encolar_y_cierra_la_reserva(client, users, bd, monkeypatch, bcrypt_contado):
+    _alta(users)
+    _llenar_bcrypt(monkeypatch)
+    t = time.monotonic()
+    r = _login(client, n=1)
+    assert r.status_code == 503 and r.json() == {"detail": ae.MENSAJE_503} and "access_token" not in r.text
+    assert time.monotonic() - t < 1.0                                                # no se encoló: respuesta inmediata
+    assert bcrypt_contado == []                                                      # no se comprobó nada
+    assert _huella_en_bd(bd)["en_vuelo"] == 0 and _huella_en_bd(bd)["fallos"] == 1   # reserva cerrada (el intento ya contaba)
+    assert "auth_login_resolver" in bd.nombres
+
+
+def test_ma_con_bcrypt_lleno_el_login_de_cuenta_inexistente_tambien_503(client, users, bd, monkeypatch):
+    _llenar_bcrypt(monkeypatch)
+    r = _login(client, correo="nadie@example.com", n=1)
+    assert r.status_code == 503 and r.json() == {"detail": ae.MENSAJE_503}
+
+
+def test_ma_con_bcrypt_lleno_el_cambio_de_contrasena_responde_503_y_no_cambia_nada(client, users, bd, monkeypatch):
+    _alta(users)
+    _llenar_bcrypt(monkeypatch)
+    r = client.post("/api/v1/users/me/password", json={"actual": CLAVE, "nueva": "NuevaClave1"},
+                    headers={**_sesion(f"id-{ANA}"), **ip(1)})
+    assert r.status_code == 503 and users[ANA]["hashed_password"] == "hash:" + CLAVE and users[ANA]["session_version"] == 0
+    assert _huella_en_bd(bd)["en_vuelo"] == 0
+
+
+def test_ma_el_login_usa_el_ejecutor_propio_de_bcrypt(users, bd, monkeypatch):
+    _alta(users)
+    hilos = _bcrypt_lento(monkeypatch, 0.05)
+    assert _en_paralelo([("/api/v1/auth/login", {"email": ANA, "password": CLAVE}, ip(1))])[0].status_code == 200
+    assert hilos and all(h.startswith("auth-bcrypt") for h in hilos)
+
+
+def test_mb_reset_password_reinicia_el_login_con_presupuesto_propio_aunque_la_peticion_lo_haya_gastado(
+        client, users, bd, sent_emails, monkeypatch):
+    """M-B: si la petición ya agotó su presupuesto (p. ej. bcrypt lento al cambiar la contraseña), el desbloqueo igual se hace."""
+    _alta(users)
+    assert [_login(client, clave="mala", n=i).status_code for i in range(1, 6)] == [401] * 5     # correo bloqueado
+    assert _post(client, "forgot-password", {"email": ANA}, 7).status_code == 200
+    codigo = sent_emails[-1][1]
+    original = UserDB.update_password
+
+    async def gasta_el_presupuesto(email, nueva):
+        resultado = await original(email, nueva)
+        ae._fin_peticion.set(time.monotonic() - 1)                                   # la petición ya no tiene presupuesto
+        return resultado
+    monkeypatch.setattr(UserDB, "update_password", staticmethod(gasta_el_presupuesto))
+    r = _post(client, "reset-password", {"email": ANA, "code": codigo, "new_password": "NuevaClave1"}, 8)
+    assert r.status_code == 200
+    assert "auth_login_reiniciar" in bd.nombres and _huella_en_bd(bd) is None       # desbloqueado de verdad
+    assert _login(client, clave="NuevaClave1", n=9).status_code == 200
+
+
+def test_mb_change_password_tambien_reinicia_con_presupuesto_propio(client, users, bd, monkeypatch):
+    _alta(users)
+    original = UserDB.update_password
+
+    async def gasta_el_presupuesto(email, nueva):
+        resultado = await original(email, nueva)
+        ae._fin_peticion.set(time.monotonic() - 1)
+        return resultado
+    monkeypatch.setattr(UserDB, "update_password", staticmethod(gasta_el_presupuesto))
+    r = client.post("/api/v1/users/me/password", json={"actual": CLAVE, "nueva": "NuevaClave1"},
+                    headers={**_sesion(f"id-{ANA}"), **ip(1)})
+    assert r.status_code == 200 and "auth_login_reiniciar" in bd.nombres and _huella_en_bd(bd) is None

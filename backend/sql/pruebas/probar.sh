@@ -132,6 +132,20 @@ MS=$(( ($(date +%s%N) - T0) / 1000000 ))
 if [ "$MS" -gt 1200 ]; then echo "ERROR: la purga bloqueó la emisión ($MS ms)"; exit 1; fi
 echo "OK: ni la purga ni la emisión esperaron al bloqueo de purga ($MS ms)"
 wait
+# (a2) I-A: auth_limite_registrar libera vencidas con bloqueo «try»: con otra sesión purgando NO espera y no libera nada;
+# sin esa sesión libera un lote pequeño (200) en cada llamada
+sql "delete from public.auth_limites_eventos" > /dev/null
+sql "insert into public.auth_limites_eventos(clave, tipo, ocurrido_en) select 'vencido' || g, 'ip_intento', now() - interval '3 days' from generate_series(1, 1000) g" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select pg_advisory_xact_lock(hashtextextended('auth_purgar', 0)); select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+T0=$(date +%s%N)
+esperar "límite por IP mientras otra sesión purga" "$(sql "select public.auth_limite_registrar('conc_lim', 'ip_intento', 30, 600)")" ok
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: el límite por IP esperó a la purga ($MS ms)"; exit 1; fi
+esperar "vencidas con otra sesión purgando (no se liberan)" "$(sql "select count(*) from public.auth_limites_eventos where clave like 'vencido%'")" 1000
+wait
+esperar "límite por IP sin otra purga" "$(sql "select public.auth_limite_registrar('conc_lim2', 'ip_intento', 30, 600)")" ok
+esperar "vencidas tras una llamada sin bloqueo (lote pequeño de 200)" "$(sql "select count(*) from public.auth_limites_eventos where clave like 'vencido%'")" 800
 # (b) una purga grande (600 000 eventos vencidos) a la vez que 10 emisiones al mismo correo y 5 a otros: sin errores ni interbloqueos
 sql "delete from public.auth_limites_eventos" > /dev/null
 sql "insert into public.auth_limites_eventos(clave, tipo, ocurrido_en) select 'vencido' || g, 'correo', now() - interval '3 days' from generate_series(1, 600000) g" > /dev/null

@@ -12,7 +12,10 @@ Reglas que este módulo hace cumplir:
 - Fail-closed (INV-039): cualquier fallo, plazo vencido, respuesta inesperada o ejecutor lleno lanza
   `EstadoNoDisponible`, que las rutas convierten en 503. Nunca se «deja pasar» ni se cae a memoria con Supabase.
 - Plazo real (I-10): cliente de Supabase DEDICADO con plazo de 4 s en el cliente HTTP (`postgrest_client_timeout`, sin
-  reintentos), presupuesto de 5 s por petición y ejecutor propio de 8 hilos (503 sin encolar si no hay hilo libre).
+  reintentos), presupuesto de 5 s por petición para las llamadas a la BD y ejecutor propio de 8 hilos (503 sin encolar si
+  no hay hilo libre).
+- bcrypt (I-B, M-A): login, registro, restablecimiento y cambio de contraseña corren bcrypt en un ejecutor PROPIO de 8
+  hilos (`ejecutar_bcrypt`), fuera del event loop; con los 8 hilos ocupados o sin presupuesto, 503 SIN encolar.
 - Modo demo (INV-041): sin Supabase y fuera de producción se usa un almacén en memoria con la MISMA semántica que las
   funciones SQL; en producción sin Supabase, `EstadoNoDisponible`.
 """
@@ -42,10 +45,16 @@ LIMITE_GLOBAL = 250                # correos/día en total
 VENTANA_ENVIO_SEG = 86400
 TOPE_FILAS_EVENTOS = 500_000       # filas VIGENTES (dentro de la retención de 2 días); las vencidas no cuentan (B-1).
                                    # Con el 90 % (450 000) auth_limite_registrar libera un lote de 5 000 vencidas
+TOPE_FILAS_TOTAL = 1_500_000       # tope DURO sobre TODAS las filas (vencidas + vigentes, I-A): por encima, «lleno».
+                                   # Con el 90 % (1 350 000) también libera el lote grande de 5 000
+LOTE_PURGA_PEQUENO = 200           # lote que auth_limite_registrar libera SIEMPRE (con bloqueo «try»), pida códigos o no (I-A)
 LOTE_PURGA_LIMITE = 5_000
 LOTE_PURGA = 10_000                # filas por tabla y por llamada a auth_purgar (por lotes, I-4)
-RESERVA_CADUCA_SEG = 10            # una reserva sin resolver tras 10 s ya no está «en vuelo» (I-1; la petición dura ≤ 5 s)
-INTERVALO_INTENTO_PURGA_SEG = 3600 # cada proceso intenta la purga en segundo plano como mucho una vez por hora
+RESERVA_CADUCA_SEG = 10            # una reserva sin resolver tras 10 s ya no está «en vuelo» (I-1). Es un margen, no un tope
+                                   # duro: el presupuesto de 5 s cubre las llamadas a la BD, no todo el tiempo de la petición
+                                   # (bcrypt, otras escrituras); una resolución que llega pasados 10 s se trata como tardía
+INTERVALO_INTENTO_PURGA_SEG = 3600 # tras una purga que funcionó, el proceso espera una hora para la siguiente
+REINTENTO_PURGA_SEG = 300          # tras una purga que FALLÓ, reintenta a los 5 minutos (M-C)
 RETENCION_EVENTOS_SEG = 2 * 86400
 RETENCION_ESTADO_SEG = 30 * 86400
 INTERVALO_PURGA_SEG = 86400
@@ -56,6 +65,7 @@ PROPOSITOS = ("verify", "reset")
 PLAZO_LLAMADA_SEG = 4.0            # por llamada, impuesto en el cliente HTTP
 PRESUPUESTO_PETICION_SEG = 5.0     # total por petición
 MAX_HILOS = 8
+MAX_HILOS_BCRYPT = 8               # hilos propios para bcrypt (M-A): el 9.º simultáneo recibe 503, no se encola
 
 
 class EstadoNoDisponible(Exception):
@@ -192,6 +202,31 @@ async def ejecutar(operacion: str, fn: Callable[[], Any]) -> Any:
     return await _ejecutar(operacion, fn)
 
 
+_ranuras_bcrypt = threading.BoundedSemaphore(MAX_HILOS_BCRYPT)
+_ejecutor_bcrypt = ThreadPoolExecutor(max_workers=MAX_HILOS_BCRYPT, thread_name_prefix="auth-bcrypt")
+
+
+async def ejecutar_bcrypt(operacion: str, fn: Callable[..., Any], *args: Any) -> Any:
+    """bcrypt (~0,3 s, CPU) FUERA del event loop y en un ejecutor PROPIO y acotado (I-B, M-A, INV-039).
+
+    Sin presupuesto restante o con los `MAX_HILOS_BCRYPT` hilos ocupados responde `EstadoNoDisponible` (503) SIN encolar:
+    un aluvión de logins no puede acumular trabajo bcrypt ni agotar el grupo de hilos compartido del servidor. La ranura
+    se libera cuando el HILO termina (aunque la petición se cancele). No hay plazo propio: bcrypt está acotado por su
+    costo y el presupuesto se comprueba antes de empezar."""
+    if _restante() <= 0:
+        raise EstadoNoDisponible("presupuesto agotado")
+    if not _ranuras_bcrypt.acquire(blocking=False):
+        print(f"[auth_estado] Aviso: ejecutor de bcrypt lleno ({operacion})")
+        raise EstadoNoDisponible("bcrypt lleno")
+    try:
+        futuro = _ejecutor_bcrypt.submit(fn, *args)
+    except Exception:
+        _ranuras_bcrypt.release()
+        raise EstadoNoDisponible("no se pudo ejecutar")
+    futuro.add_done_callback(lambda _f: _ranuras_bcrypt.release())
+    return await asyncio.wrap_future(futuro)
+
+
 def cliente_estado():
     """Cliente DEDICADO (plazo real de 4 s, sin reintentos) para usar dentro de `ejecutar`."""
     return _cliente()
@@ -225,7 +260,8 @@ def _fecha(valor: Any) -> Optional[datetime]:
 
 # ── Almacén del modo demo (misma semántica que las funciones SQL) ─────────────
 
-_intento_purga: dict[str, Optional[datetime]] = {"ultimo": None}   # último intento de purga en segundo plano (este proceso)
+# Purga en segundo plano de este proceso: "ultimo" = última purga que FUNCIONÓ; "fallo" = último intento fallido (M-C)
+_intento_purga: dict[str, Any] = {"ultimo": None, "fallo": None, "en_curso": False}
 
 
 class _Memoria:
@@ -243,7 +279,7 @@ class _Memoria:
             cls.codigos.clear()
             cls.eventos.clear()
             cls.ultima_purga = None
-        _intento_purga["ultimo"] = None
+        _intento_purga.update(ultimo=None, fallo=None, en_curso=False)
 
     @classmethod
     def total_eventos(cls) -> int:
@@ -380,18 +416,21 @@ def _mem_verificar(clave: str, proposito: str, codigo_hmac: str) -> str:
 
 
 def _mem_limite(clave: str, tipo: str, limite: int, ventana_seg: int) -> str:
-    """Igual que `auth_limite_registrar`: el tope cuenta solo filas VIGENTES (dentro de 2 días, B-1) y cerca del tope
-    se libera un lote de las vencidas."""
+    """Igual que `auth_limite_registrar`: «lleno» con más de TOPE_FILAS_EVENTOS filas VIGENTES (dentro de 2 días, B-1) o más
+    de TOPE_FILAS_TOTAL en total (tope duro, I-A). SIEMPRE libera un lote pequeño de vencidas; cerca de un tope (90 %), el
+    lote grande."""
     m, ahora = _Memoria, _ahora()
     with m.lock:
         eventos = m.eventos.get((clave, tipo), [])
         if sum(1 for t in eventos if t > ahora - timedelta(seconds=ventana_seg)) >= limite:
             return "limitado"
         corte = ahora - timedelta(seconds=RETENCION_EVENTOS_SEG)
-        vigentes = sum(1 for lista in m.eventos.values() for t in lista if t >= corte)
-        if vigentes >= int(TOPE_FILAS_EVENTOS * 0.9):
-            _mem_borrar_eventos_vencidos(corte, LOTE_PURGA_LIMITE)
-        if vigentes > TOPE_FILAS_EVENTOS:
+        todos = [t for lista in m.eventos.values() for t in lista]
+        vigentes = sum(1 for t in todos if t >= corte)
+        total = min(len(todos), TOPE_FILAS_TOTAL + 1)
+        cerca = vigentes >= int(TOPE_FILAS_EVENTOS * 0.9) or total >= int(TOPE_FILAS_TOTAL * 0.9)
+        _mem_borrar_eventos_vencidos(corte, LOTE_PURGA_LIMITE if cerca else LOTE_PURGA_PEQUENO)
+        if vigentes > TOPE_FILAS_EVENTOS or total > TOPE_FILAS_TOTAL:
             return "lleno"
         m.eventos.setdefault((clave, tipo), []).append(ahora)
         return "ok"
@@ -505,18 +544,29 @@ async def purgar() -> int:
 
 
 async def purgar_en_segundo_plano() -> None:
-    """Purga oportunista FUERA de la emisión de códigos (I-4). Se programa como tarea de fondo tras responder: tiene su
-    propio presupuesto, nunca lanza (un fallo solo deja un aviso sin datos) y cada proceso lo intenta como mucho una vez
-    por hora (la BD además la limita a una vez al día entre todas las instancias)."""
+    """Purga oportunista FUERA de las rutas (I-4, I-A). Las rutas de autenticación la programan como tarea de fondo tras
+    responder (también el login: no hace falta que alguien pida códigos). Tiene su propio presupuesto, nunca lanza (un
+    fallo solo deja un aviso sin datos) y cada proceso la intenta como mucho una vez por hora tras una purga que funcionó
+    (la BD además la limita a una vez al día entre todas las instancias); tras un FALLO reintenta a los 5 minutos (M-C).
+    Nunca corren dos a la vez en el mismo proceso."""
     ahora = _ahora()
-    ultimo = _intento_purga["ultimo"]
+    if _intento_purga["en_curso"]:
+        return
+    ultimo, fallo = _intento_purga["ultimo"], _intento_purga["fallo"]
     if ultimo is not None and ultimo > ahora - timedelta(seconds=INTERVALO_INTENTO_PURGA_SEG):
         return
-    _intento_purga["ultimo"] = ahora
+    if fallo is not None and fallo > ahora - timedelta(seconds=REINTENTO_PURGA_SEG):
+        return
+    _intento_purga["en_curso"] = True
     iniciar_presupuesto()
     try:
         await purgar()
+        _intento_purga["ultimo"], _intento_purga["fallo"] = ahora, None
     except EstadoNoDisponible:
+        _intento_purga["fallo"] = ahora
         print("[auth_estado] Aviso: no se pudo purgar el estado de autenticación (se reintentará)")
     except Exception as e:
+        _intento_purga["fallo"] = ahora
         print(f"[auth_estado] Aviso: falló la purga ({type(e).__name__})")
+    finally:
+        _intento_purga["en_curso"] = False

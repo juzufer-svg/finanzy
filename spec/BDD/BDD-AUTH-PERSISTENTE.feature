@@ -351,3 +351,43 @@ Característica: Bloqueos, códigos y límites de login persistentes
     Cuando falla el envío de un correo por Brevo o la baja de cuenta no encuentra el correo
     Entonces los registros llevan solo propósito, código de estado y tipo de excepción, sin correo, cuerpo de Brevo ni texto de la excepción
 
+  @BDD-AUTH-PERSISTENTE @borde @INV-040
+  # Prueba: tests/test_auth_estado.py::test_ia_muchas_vencidas_y_pocas_vigentes_las_llamadas_repetidas_reducen_las_vencidas y ::test_ia_sin_codigos_pedidos_la_tabla_no_crece_sin_limite; tests/test_auth_persistente.py::test_ia_el_login_dispara_la_purga_en_segundo_plano_sin_pedir_ningun_codigo; 07_comprobar_auth_persistente.sql (bloque 4b); probar.sh (a2)
+  Escenario: Sin que nadie pida códigos, lo vencido se libera y la tabla no crece sin límite
+    Dado muchos eventos de límites vencidos (más de 2 días) y pocos vigentes, y solo intentos de login con IP distintas (nadie pide códigos)
+    Cuando se registran intentos de login uno tras otro
+    Entonces cada llamada libera 200 eventos vencidos sin tocar ningún evento vigente ni la marca de purga
+    Y la tabla no crece sin límite
+    Y si otra sesión está purgando, el límite por IP no la espera y no libera nada en esa llamada
+    Y tras responder un login (con 200, 401, 429 o 503) el backend intenta la purga en segundo plano, como mucho una vez por hora y proceso
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-040
+  # Prueba: tests/test_auth_estado.py::test_ia_tope_duro_total_responde_lleno_aunque_todas_esten_vencidas_y_libera_un_lote_grande; 07_comprobar_auth_persistente.sql (bloque 4b)
+  Escenario: Tope duro sobre el total de filas
+    Dado 1 500 001 eventos de límites en total, todos vencidos
+    Cuando una persona hace un intento de login
+    Entonces el límite por IP responde "lleno" (429), libera un lote de 5 000 y no inserta
+    Y con 1 500 000 filas o menos vuelve a registrar
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-040
+  # Prueba: tests/test_auth_estado.py::test_mc_la_marca_de_la_purga_solo_se_fija_si_funcionó; tests/test_auth_persistente.py::test_mc_si_la_purga_falla_se_reintenta_a_los_5_minutos_y_no_a_la_hora
+  Escenario: Si la purga en segundo plano falla se reintenta a los 5 minutos
+    Dado que la purga en segundo plano falló
+    Cuando pasan 60 segundos y llega otra petición de autenticación
+    Entonces no se reintenta todavía
+    Pero a los 5 minutos se reintenta, y tras una purga que funcionó la siguiente espera una hora
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-039
+  # Prueba: tests/test_auth_estado.py::test_ib_el_hash_de_registro_y_de_cambio_de_contrasena_no_bloquea_el_event_loop (hash real más lento) y tests/test_auth_persistente.py::test_ma_*
+  Escenario: bcrypt nunca corre en el event loop y tiene su propio límite de 8, sin cola
+    Dado un hash de contraseña lento (registro, restablecimiento o cambio de contraseña) o una comprobación de login lenta
+    Cuando otra persona consulta /health mientras tanto
+    Entonces /health responde de inmediato y todo bcrypt corre en el ejecutor propio de 8 hilos
+    Pero si los 8 hilos de bcrypt están ocupados, la petición siguiente responde 503 en seguida, sin encolarse, y en el login la reserva ya contada se cierra como fallo
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-027 @INV-039
+  # Prueba: tests/test_auth_persistente.py::test_mb_reset_password_reinicia_el_login_con_presupuesto_propio_aunque_la_peticion_lo_haya_gastado y ::test_mb_change_password_tambien_reinicia_con_presupuesto_propio
+  Escenario: El desbloqueo tras cambiar la contraseña tiene su propio presupuesto
+    Dado una petición de restablecimiento o de cambio de contraseña que ya gastó su presupuesto de 5 s
+    Cuando la contraseña ya cambió y se desbloquea el login
+    Entonces el reinicio usa un presupuesto propio y fresco de 4 s y el correo queda desbloqueado de verdad
