@@ -310,25 +310,27 @@ async def _meta(client: httpx.AsyncClient) -> dict:
     hoy = _hoy()
     inicio = datetime(hoy.year, hoy.month, 1, tzinfo=timezone.utc)
     fin = datetime.now(timezone.utc)
-    campos = (f"conversation_analytics.start({int(inicio.timestamp())}).end({int(fin.timestamp())})"
-              ".granularity(MONTHLY).dimensions([])")
+    # `conversation_analytics` ya no existe en la API de Meta; se usa `pricing_analytics` (sin `.dimensions`).
+    campos = (f"pricing_analytics.start({int(inicio.timestamp())}).end({int(fin.timestamp())})"
+              ".granularity(DAILY)")
     datos = await _pedir(
         client, "GET", URL_META.format(version=version, waba=waba),
         headers={"Authorization": f"Bearer {token}"}, params={"fields": campos},
     )
-    analitica = datos.get("conversation_analytics") if isinstance(datos, dict) else None
-    bloques = analitica.get("data") if isinstance(analitica, dict) else None
-    if not isinstance(bloques, list):
+    if not isinstance(datos, dict):
         raise _NoDisponible()
-    total, visto = 0, False
-    for bloque in bloques:
-        for punto in (bloque.get("data_points") if isinstance(bloque, dict) else None) or []:
-            valor = _num(punto.get("conversation")) if isinstance(punto, dict) else None
-            if valor is not None:
-                total += valor
-                visto = True
-    if not visto:
-        return {}
+    analitica = datos.get("pricing_analytics")
+    total = 0
+    if analitica is not None:
+        # Con datos: pricing_analytics.data[].data_points[].volume. Sin `pricing_analytics`: 0 facturables.
+        bloques = analitica.get("data") if isinstance(analitica, dict) else None
+        if not isinstance(bloques, list):
+            raise _NoDisponible()
+        for bloque in bloques:
+            for punto in (bloque.get("data_points") if isinstance(bloque, dict) else None) or []:
+                valor = _num(punto.get("volume")) if isinstance(punto, dict) else None
+                if valor is not None:
+                    total += valor
     return {"conversaciones_periodo": total, "periodo_desde": inicio.date().isoformat(), "periodo_hasta": hoy.isoformat()}
 
 

@@ -79,7 +79,7 @@ def _respuesta_json(url: httpx.URL, request: httpx.Request):
     if host == "api.anthropic.com" and ruta.endswith("cost_report"):
         return {"data": [{"results": [{"amount": "250.5", "currency": "USD"}]}]}
     if host == "graph.facebook.com":
-        return {"conversation_analytics": {"data": [{"data_points": [{"conversation": 7}, {"conversation": 3}]}]}}
+        return {"pricing_analytics": {"data": [{"data_points": [{"volume": 7, "cost": 1.5}, {"volume": 3}]}]}}
     if host == "api.vercel.com":
         return {"billing": {"plan": "hobby"}}
     if host == "api.brevo.com" and ruta.endswith("/account"):
@@ -582,6 +582,36 @@ def test_inv034_id_invalido_deja_la_plataforma_no_disponible_sin_consultar(
     assert _datos(r, plataforma)["estado"] == "no_disponible"
     assert host not in externas.hosts()
     assert _datos(r, "brevo")["estado"] == "ok"   # las demás con normalidad
+
+
+def test_meta_usa_pricing_analytics_diario_sin_dimensions(client, sesiones, externas):
+    client.get(RUTA, headers=sesiones["dueno"])
+    campos = externas.a("graph.facebook.com")[0].url.params["fields"]
+    assert campos.startswith("pricing_analytics.start(") and ".granularity(DAILY)" in campos
+    assert "conversation_analytics" not in campos and "dimensions" not in campos
+
+
+def test_meta_200_sin_pricing_analytics_es_cero_facturables(client, sesiones, externas):
+    externas.por_host["graph.facebook.com"] = lambda r: httpx.Response(200, json={"id": "123"})
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "meta")["estado"] == "ok"
+    assert _datos(r, "meta")["datos"]["conversaciones_periodo"] == 0
+
+
+def test_meta_suma_volume_ignorando_valores_invalidos(client, sesiones, externas):
+    cuerpo = {"pricing_analytics": {"data": [{"data_points": [
+        {"volume": 4}, {"volume": -2}, {"volume": True}, {"volume": "9"}, {"cost": 3}]},
+        {"data_points": [{"volume": 6}]}]}}
+    externas.por_host["graph.facebook.com"] = lambda r: httpx.Response(200, json=cuerpo)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "meta")["datos"]["conversaciones_periodo"] == 10
+
+
+def test_meta_400_es_no_disponible(client, sesiones, externas):
+    externas.por_host["graph.facebook.com"] = lambda r: httpx.Response(400, json={"error": {"message": "x"}})
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "meta")["estado"] == "no_disponible"
+    assert _datos(r, "brevo")["estado"] == "ok"
 
 
 def test_inv034_version_de_graph_invalida_no_llega_a_la_url(client, sesiones, externas, monkeypatch):

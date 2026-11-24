@@ -24,6 +24,9 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   Un no-Dueño con cualquier método recibe el mismo 404; el Dueño con un método distinto de GET, 405 (INV-033).
   Estas reglas las fijó el coordinador por defecto seguro y el Dueño puede cambiarlas (CHG-017 §4, preguntas 11 y 12).
 - INV-012 y REQ-N-003 se acotan: el Monitor no es un endpoint de diagnóstico y tampoco expone secretos (INV-032).
+- Meta/WhatsApp: `conversation_analytics` ya no existe en la API de Meta (verificado con el token del dueño). Se usa
+  `pricing_analytics.start().end().granularity(DAILY)` (sin `.dimensions`, que con forma errónea da 400) sobre la
+  cuenta WABA: se muestran los **mensajes facturables del mes**; un 200 sin `pricing_analytics` equivale a 0.
 - Solo lectura (GET). Sin acciones sobre las plataformas (INV-033).
 - Contadores propios en Supabase, agregados por día, sin datos personales, desde la activación y con retención de
   90 días (purga oportunista al escribir, como mucho una vez al día, sin tarea programada); la respuesta muestra los

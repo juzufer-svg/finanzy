@@ -60,7 +60,7 @@ const CAMPOS: Record<NombrePlataforma, CampoDef[]> = {
     { clave: 'tokens_salida_mes', etiqueta: 'Tokens de salida del mes', tipo: 'numero' },
   ],
   meta: [
-    { clave: 'conversaciones_periodo', etiqueta: 'Conversaciones del período', tipo: 'numero' },
+    { clave: 'conversaciones_periodo', etiqueta: 'Mensajes facturables del mes', tipo: 'numero' },
     { clave: 'periodo_desde', etiqueta: 'Período desde', tipo: 'fecha' },
     { clave: 'periodo_hasta', etiqueta: 'Período hasta', tipo: 'fecha' },
   ],
