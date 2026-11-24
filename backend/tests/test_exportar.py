@@ -740,6 +740,136 @@ def test_h2_el_xlsx_comprueba_detener_cada_500_filas_al_escribir():
     assert ev.consultas == 9        # 6 de la lectura + comprobaciones en las filas 0, 500 y 1000 de la escritura
 
 
+# ── Ciclo 3: una exportación por usuario, desconexión y limpieza ──────────────
+
+def test_c3_una_sola_exportacion_en_curso_por_usuario_y_otro_usuario_no_se_ve_afectado(client, monkeypatch):
+    llegaron = threading.Semaphore(0)
+    soltar = threading.Event()
+
+    def bloqueada(usuario_id, desde, hasta, inicio, cantidad):
+        llegaron.release()
+        soltar.wait(10)
+        return []
+
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(bloqueada))
+    monkeypatch.setattr(generador, "PLAZO_SEGUNDOS", 10.0)
+
+    async def escenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://prueba") as c:
+            primera = asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=A))
+            while not llegaron.acquire(blocking=False):
+                await asyncio.sleep(0.01)
+            t0 = time.monotonic()
+            segunda = await c.get(URL, params={"desde": "2026-11"}, headers=A)
+            rapido = time.monotonic() - t0 < 0.5
+            de_otro = asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=B))
+            while not llegaron.acquire(blocking=False):
+                await asyncio.sleep(0.01)
+            soltar.set()
+            return segunda, rapido, await primera, await de_otro
+
+    segunda, rapido, primera, de_otro = asyncio.run(escenario())
+    assert segunda.status_code == 429 and rapido
+    assert segunda.json()["detail"] == "Ya tienes una exportación en curso. Espera a que termine."
+    assert segunda.headers["cache-control"] == "no-store" and "content-disposition" not in segunda.headers
+    assert primera.status_code == 200 and de_otro.status_code == 200
+    time.sleep(0.2)
+    assert exportar_routes._en_curso == set()
+    assert exportar_routes._ranuras._value == exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS
+
+
+def test_c3_el_usuario_se_libera_tras_terminar_o_fallar_y_si_el_ejecutor_esta_lleno(client, monkeypatch):
+    assert pedir(client, A, desde="2026-11").status_code == 200
+    assert exportar_routes._en_curso == set()
+
+    def falla(*a):
+        raise RuntimeError("BD caída")
+
+    original = TransaccionDB.pagina_para_exportar
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(falla))
+    assert pedir(client, A, desde="2026-11").status_code == 503
+    time.sleep(0.2)
+    assert exportar_routes._en_curso == set()
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", original)
+    assert pedir(client, A, desde="2026-11").status_code == 200
+    # ejecutor lleno: el 503 tampoco deja al usuario bloqueado
+    for _ in range(exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS):
+        assert exportar_routes._ranuras.acquire(blocking=False)
+    try:
+        assert pedir(client, A, desde="2026-11").status_code == 503
+        assert exportar_routes._en_curso == set()
+    finally:
+        for _ in range(exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS):
+            exportar_routes._ranuras.release()
+    assert pedir(client, A, desde="2026-11").status_code == 200
+
+
+def test_c3_la_desconexion_del_cliente_detiene_el_hilo_y_libera_ranura_y_usuario(monkeypatch):
+    llegaron, soltar = threading.Event(), threading.Event()
+    leidas = []
+
+    def bloqueada(usuario_id, desde, hasta, inicio, cantidad):
+        leidas.append(inicio)
+        llegaron.set()
+        soltar.wait(5)
+        return [_fila_bd(n) | {"whatsapp": False} for n in range(cantidad)]    # página llena: pediría otra
+
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(bloqueada))
+    monkeypatch.setattr(generador, "PLAZO_SEGUNDOS", 10.0)
+
+    async def escenario():
+        tarea = asyncio.create_task(exportar_routes.exportar_transacciones("2026-11", None, None, A["Authorization"]))
+        while not llegaron.is_set():
+            await asyncio.sleep(0.01)
+        tarea.cancel()                      # el cliente se desconecta
+        with pytest.raises(asyncio.CancelledError):
+            await tarea
+        soltar.set()
+        await asyncio.sleep(0.5)
+
+    asyncio.run(escenario())
+    assert leidas == [0]                    # el hilo vio `detener` y no pidió la 2.ª página
+    assert exportar_routes._ranuras._value == exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS
+    assert exportar_routes._en_curso == set()
+
+
+def test_c3_un_fallo_al_borrar_tras_guardar_no_convierte_el_archivo_en_error(monkeypatch, tmp_path):
+    import tempfile
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    filas = [_fila_bd(n) | {"whatsapp": False} for n in range(5)]
+    leer = lambda inicio, cantidad: filas[inicio:inicio + cantidad]
+    borrados = []
+
+    def unlink_falla(ruta):
+        borrados.append(ruta)
+        raise OSError("no se pudo borrar")
+
+    monkeypatch.setattr(generador.os, "unlink", unlink_falla)
+    assert generador.generar_archivo("xlsx", leer, {}, None, 60).startswith(b"PK")
+    assert len(borrados) == 1
+
+
+def test_c3_limpiar_libro_tras_guardar_no_toca_las_hojas_y_un_oserror_no_propaga(monkeypatch):
+    class Hoja:
+        _writer = type("E", (), {"out": "/tmp/no-debe-tocarse"})()
+
+    class Libro:
+        _sheets = [Hoja()]
+        cerrado = False
+
+        def close(self):
+            self.cerrado = True
+
+    quitados = []
+    monkeypatch.setattr(generador.os, "remove", lambda ruta: quitados.append(ruta))
+    libro = Libro()
+    generador._limpiar_libro(libro, guardado=True)
+    assert libro.cerrado and quitados == []
+    # sin guardar sí se limpian las hojas, y un OSError al borrar no se propaga
+    monkeypatch.setattr(generador.os, "remove", lambda ruta: (_ for _ in ()).throw(PermissionError("denegado")))
+    generador._limpiar_libro(Libro(), guardado=False)
+
+
 # ── Ciclo 2: H3 sin temporales ────────────────────────────────────────────────
 
 def test_h3_el_corte_por_plazo_en_el_xlsx_no_deja_temporales(tmp_path, monkeypatch):
@@ -771,7 +901,9 @@ def test_h3_el_corte_por_plazo_en_el_xlsx_no_deja_temporales(tmp_path, monkeypat
 
 # ── Ciclo 2: H4 CSV con todo el texto entre comillas ──────────────────────────
 
-DESCRIPCIONES_CSV = ["x,=1+1", "x;=1+1", 'dijo "hola", =1+1', "línea 1\nlínea 2,=2+2", "=1+1,=2+2", "a\r\nb;c", ",=1", "normal"]
+DESCRIPCIONES_CSV = ["x,=1+1", "x;=1+1", 'dijo "hola", =1+1', "línea 1\nlínea 2,=2+2", "=1+1,=2+2", "a\r\nb;c", ",=1", "normal",
+                     'x,"=2+3', 'x,"=HYPERLINK(""http://e"";""a"")', 'x\n"=1', 'x,"-1', "a\n=1+1", "a\r\n=1+1",
+                     "a\r\n-1", 'a,",",=1', "a\n\n=1"]
 
 
 def test_h4_csv_todo_el_texto_va_entre_comillas_y_el_monto_no(client):
@@ -789,8 +921,9 @@ def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_
     for i, d in enumerate(DESCRIPCIONES_CSV):
         sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}")
     texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
-    esperadas = ["x,'=1+1", "x;'=1+1", 'dijo "hola",\' =1+1', "línea 1\nlínea 2,'=2+2", "'=1+1,'=2+2", "a\r\nb;c",
-                 ",'=1", "normal"]
+    esperadas = [generador.neutralizar_csv(d) for d in DESCRIPCIONES_CSV]
+    assert esperadas[:8] == ["x,'=1+1", "x;'=1+1", 'dijo "hola",\' =1+1', "línea 1\nlínea 2,'=2+2", "'=1+1,'=2+2",
+                             "a\r\nb;c", ",'=1", "normal"]
     # con «;» (el separador del archivo) la lectura es exacta
     filas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=";"))[1:]
     assert [f[3] for f in filas] == esperadas and all(len(f) == 7 and f[5] == "1234,50" for f in filas)
@@ -806,13 +939,39 @@ def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_
 
 @pytest.mark.parametrize("texto, esperado", [
     ("x,=1+1", "x,'=1+1"), ("x;=1+1", "x;'=1+1"), ("a, =cmd", "a,' =cmd"), ("a,@SUM(1)", "a,'@SUM(1)"),
-    ("a,-1", "a,'-1"), ("a,+1", "a,'+1"), ("a,\t=1", "a,'\t=1"), ("a,\r=1", "a,'\r=1"),
+    ("a,-1", "a,'-1"), ("a,+1", "a,'+1"), ("a,\t=1", "a,'\t=1"), ("a,\r=1", "a,'\r'=1"),
     ("a,=1,-2; +3,@x", "a,'=1,'-2;' +3,'@x"), ("=1,=2", "'=1,'=2"), ("a,,=1", "a,,'=1"), ("a,   =1", "a,'   =1"),
     ("pan, leche, huevos", "pan, leche, huevos"), ("ida-vuelta, 3-4", "ida-vuelta, 3-4"), ("a=b, c+d", "a=b, c+d"),
     ("normal", "normal"), ("", ""), ("a,", "a,"), ("a, ", "a, "),
+    # ciclo 3 (I-1): comillas y saltos de línea entre el separador y el carácter peligroso
+    ('x,"=2+3', 'x,\'"=2+3'), ('x,"=HYPERLINK(""http://e"";""a"")', 'x,\'"=HYPERLINK(""http://e"";\'""a"")'),
+    ('x\n"=1', 'x\n\'"=1'), ('x,"-1', 'x,\'"-1'), ("a\n=1+1", "a\n'=1+1"), ("a\r\n=1+1", "a\r\n'=1+1"),
+    ("a\r\n-1", "a\r\n'-1"), ('x,"=1', 'x,\'"=1'), ("a\n\n\n=1", "a\n\n\n'=1"), ('a,",",=1', 'a,",",\'=1'),
+    ('a,"" "=1', 'a,\'"" "=1'), ('a,"",""=1', 'a,"",\'""=1'), ("a\n=1;-2,\n@3", "a\n'=1;'-2,\n'@3"),
+    ("a\nb", "a\nb"), ("a\n b", "a\n b"), ('dijo "hola", ok', 'dijo "hola", ok'),
 ])
 def test_inv043_neutralizar_csv_fragmentos_tras_coma_o_punto_y_coma(texto, esperado):
     assert generador.neutralizar_csv(texto) == esperado
+
+
+def test_inv043_propiedad_ninguna_celda_empieza_por_caracter_peligroso_con_ambos_delimitadores():
+    """Cadenas aleatorias de caracteres de fórmula, separadores, comillas y letras: tras neutralizar y generar el CSV
+    completo, ni con «,» ni con «;» queda una celda que empiece por = + - @ tab o CR."""
+    rng = random.Random(43)
+    alfabeto = list("=+-@\t\r\n,;\"") + list("ab ") * 2
+    textos = [texto_aleatorio(rng, rng.randint(1, 14), alfabeto) for _ in range(3000)]
+    for i in range(0, len(textos), 100):
+        filas = [("2026-11-01", "Gasto", "Sin categoría", t, "Débito", generador._monto(1234.5), "App")
+                 for t in textos[i:i + 100]]
+        csv_bytes = generador._generar_csv(iter([filas]))
+        texto = csv_bytes.decode("utf-8-sig")
+        for delimitador in (",", ";"):
+            for linea in csv.reader(io.StringIO(texto, newline=""), delimiter=delimitador):
+                for celda in linea:
+                    assert not celda.startswith(("=", "+", "-", "@", "\t", "\r")), (delimitador, celda, textos[i:i + 100])
+        # con «;» (el del archivo) la lectura es exacta: fechas y montos intactos
+        leidas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=";"))[1:]
+        assert all(f[0] == "2026-11-01" and f[5] == "1234,50" for f in leidas)
 
 
 def test_inv043_csv_texto_normal_con_comas_no_cambia_y_montos_y_xlsx_no_se_tocan(client):

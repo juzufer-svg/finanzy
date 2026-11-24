@@ -5,7 +5,7 @@ Funciones SÍNCRONAS pensadas para correr en un hilo (REQ-N-026): la lectura pag
 bloquear el bucle de eventos.
 
 - CSV: UTF-8 con BOM, «;», `\\r\\n`, monto SIN comillas y con coma decimal. TODA celda de texto va entre comillas y,
-  si empieza por = + - @ tab o CR, lleva un apóstrofo delante, y lo mismo el fragmento que siga a un «,» o «;» interno
+  si empieza por = + - @ tab o CR, lleva un apóstrofo delante, y lo mismo el fragmento que siga a un «,» «;» o salto de línea interno
   (INV-043; única defensa posible en un CSV, que por eso altera mínimamente esos textos; la defensa fuerte es el xlsx).
 - xlsx (openpyxl, solo escritura): números y fechas reales; todo texto es una cadena explícita y, si podría leerse
   como fórmula, lleva el estilo `quotePrefix` SIN apóstrofo visible (INV-043).
@@ -63,13 +63,15 @@ def es_peligroso(texto: str) -> bool:
     return texto.startswith(_PELIGROSOS)
 
 
-# «,» o «;» interno seguido de espacios (opcionales) y un carácter peligroso: el apóstrofo va justo tras el separador
-_FRAGMENTO_PELIGROSO = re.compile(r"([,;])( *)(?=[=+\-@\t\r])")
+# Separador («,» «;» o salto de línea) seguido de espacios o comillas (opcionales) y un carácter peligroso: el apóstrofo va
+# justo tras el separador, de modo que la celda que un lector abra tras él empiece por «'» aunque lleve comillas delante.
+_FRAGMENTO_PELIGROSO = re.compile(r"([,;\r\n])([ \"]*)(?=[=+\-@\t\r])")
 
 
 def neutralizar_csv(texto: str) -> str:
-    """Apóstrofo delante de un texto peligroso y delante de todo fragmento peligroso que siga a un «,» o «;» interno
-    (`x,=1+1` -> `x,'=1+1`): un lector que parta la línea por «,» no deja ninguna celda que empiece como fórmula.
+    """Apóstrofo delante de un texto peligroso y delante de todo fragmento peligroso que siga a un «,» «;» o salto de
+    línea interno, con o sin espacios y comillas (`x,=1+1` -> `x,'=1+1`): leído con «,» o «;» no queda ninguna celda
+    que empiece como fórmula.
     Un texto normal (p. ej. «pan, leche») no se toca."""
     texto = _FRAGMENTO_PELIGROSO.sub(r"\1'\2", texto)
     return "'" + texto if es_peligroso(texto) else texto
@@ -155,11 +157,21 @@ def _texto_xlsx(hoja, texto: str) -> WriteOnlyCell:
     return celda
 
 
-def _limpiar_libro(libro) -> None:
+def _limpiar_libro(libro, guardado: bool = False) -> None:
     """Cierra el libro y borra los temporales de sus hojas. `Workbook.close()` NO borra el temporal de cada hoja de solo
-    escritura (openpyxl lo borra únicamente al guardar): si se corta antes de `save`, quedaría en /tmp hasta reiniciar."""
+    escritura (openpyxl lo borra únicamente al guardar): si se corta antes de `save`, quedaría en /tmp hasta reiniciar.
+    Si el libro ya se guardó no hay nada que limpiar, y ningún fallo de limpieza (OSError) debe tumbar un archivo ya
+    generado."""
+    if guardado:
+        try:
+            libro.close()
+        except Exception:
+            pass
+        return
     try:
         libro.close()
+    except Exception:
+        pass
     finally:
         for hoja in getattr(libro, "_sheets", []):
             escritor = getattr(hoja, "_writer", None)
@@ -175,8 +187,8 @@ def _limpiar_libro(libro) -> None:
                 pass
             try:
                 os.remove(ruta)
-            except FileNotFoundError:
-                pass                          # ya lo borró `save`
+            except OSError:
+                pass                          # ya no existe o no se puede borrar: no es motivo para fallar
             try:
                 from openpyxl.worksheet import _writer as _escritor_hoja
                 _escritor_hoja.ALL_TEMP_FILES.remove(ruta)
@@ -190,6 +202,7 @@ def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[thre
     paginas = list(paginas)
     libro = Workbook(write_only=True)   # crea archivos temporales: `close()` SIEMPRE, también si se corta por plazo
     ruta = None
+    guardado = False
     try:
         hoja = libro.create_sheet(NOMBRE_HOJA)
         hoja.append(list(ENCABEZADOS))
@@ -210,14 +223,18 @@ def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[thre
         descriptor, ruta = tempfile.mkstemp(suffix=".xlsx")
         os.close(descriptor)
         libro.save(ruta)
+        guardado = True
         if os.path.getsize(ruta) > MAX_BYTES:    # se mide el archivo REAL que se entregaría
             raise ExportacionDemasiadoGrande()
         with open(ruta, "rb") as f:
             return f.read()
     finally:
-        _limpiar_libro(libro)
+        _limpiar_libro(libro, guardado)
         if ruta is not None:
-            os.unlink(ruta)
+            try:
+                os.unlink(ruta)
+            except OSError:
+                pass
 
 
 def generar_archivo(formato: str, leer_pagina: Callable[[int, int], list], categorias: dict,

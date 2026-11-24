@@ -5,6 +5,11 @@ Exportar transacciones a CSV o Excel (CHG-018, CT-011, UC-015, ADR-011).
 - Solo lectura. La lectura paginada y la generación corren en un hilo (REQ-N-026) con plazo total de 8 s.
 - Como máximo `MAX_EXPORTACIONES_SIMULTANEAS` (2) exportaciones a la vez, en un ejecutor PROPIO (no el compartido del
   servidor): si está lleno, 503 inmediato SIN encolar (mismo patrón que `auth_estado.ejecutar_bcrypt`, INV-044).
+- Como máximo UNA exportación en curso por usuario (429 «Ya tienes una exportación en curso», antes de la ranura global);
+  se libera cuando el hilo termina (INV-044).
+- Una llamada colgada a Supabase mantiene la ranura hasta el timeout de postgrest (riesgo aceptado, ADR-011): solo afecta
+  a las exportaciones; el resto de la API usa su propio ejecutor.
+- Si el cliente se desconecta se avisa al hilo (`detener`) para que pare y libere la ranura.
 - Límite: 10 descargas por minuto por usuario (en memoria, como los demás límites de costo, INV-024).
 """
 import asyncio
@@ -31,8 +36,12 @@ MAX_EXPORTACIONES_SIMULTANEAS = 2
 _ranuras = threading.BoundedSemaphore(MAX_EXPORTACIONES_SIMULTANEAS)   # se libera cuando el HILO termina, no al vencer el plazo
 _ejecutor = ThreadPoolExecutor(max_workers=MAX_EXPORTACIONES_SIMULTANEAS, thread_name_prefix="exportar")
 
+_en_curso: set = set()                  # usuarios con una exportación en curso (hasta que su hilo termine)
+_candado_en_curso = threading.Lock()
+
 _CABECERAS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _MSG_429 = "Demasiadas descargas. Espera un momento e intenta de nuevo."
+_MSG_EN_CURSO = "Ya tienes una exportación en curso. Espera a que termine."
 _MSG_503 = "Servicio no disponible. Intenta de nuevo en unos minutos."
 _MSG_LENTA = "La exportación tardó demasiado. Elige menos meses."
 _MSG_FILAS = "Hay más de 10 000 transacciones en ese rango. Elige menos meses."
@@ -64,7 +73,17 @@ async def exportar_transacciones(
     if not _por_minuto.hit(usuario_id):
         return _error(429, _MSG_429)
 
+    with _candado_en_curso:
+        if usuario_id in _en_curso:
+            return _error(429, _MSG_EN_CURSO)
+        _en_curso.add(usuario_id)
+
+    def liberar_usuario() -> None:
+        with _candado_en_curso:
+            _en_curso.discard(usuario_id)
+
     if not _ranuras.acquire(blocking=False):   # lleno: se rechaza al instante, nunca se encola ni se acumula trabajo
+        liberar_usuario()
         print("[exportar] Aviso: ejecutor de exportaciones lleno")
         return _error(503, _MSG_503)
     detener = threading.Event()
@@ -78,10 +97,19 @@ async def exportar_transacciones(
         futuro = _ejecutor.submit(trabajo)
     except Exception:
         _ranuras.release()
+        liberar_usuario()
         return _error(503, _MSG_503)
-    futuro.add_done_callback(lambda _f: _ranuras.release())
+
+    def terminado(_f) -> None:
+        _ranuras.release()
+        liberar_usuario()
+
+    futuro.add_done_callback(terminado)
     try:
         archivo = await asyncio.wait_for(asyncio.wrap_future(futuro), timeout=generador.PLAZO_SEGUNDOS)
+    except asyncio.CancelledError:   # el cliente se desconectó: el hilo debe parar y liberar la ranura
+        detener.set()
+        raise
     except asyncio.TimeoutError:
         detener.set()   # el hilo termina en la siguiente comprobación; nunca se entrega un archivo parcial
         return _error(503, _MSG_LENTA)
