@@ -90,7 +90,7 @@ async def _procesar(mensaje: dict) -> None:
     if not await WhatsappDB.marcar_procesado(wamid, usuario_id):
         return
     if usuario_id:   # solo números enlazados (firma ya validada) y una vez por mensaje: no se infla con reenvíos ni desconocidos
-        contadores.incrementar("whatsapp_recibidos", "general", 1)
+        await contadores.incrementar_async("whatsapp_recibidos", "general", 1)
     mensaje["avisar_error"] = True
 
     # Código de enlace: lo único que acepta un número desconocido (nunca llega a la IA)

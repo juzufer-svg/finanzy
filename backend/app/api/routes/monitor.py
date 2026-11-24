@@ -14,10 +14,11 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.api.dueno import es_correo_dueno
+from app.core.config import settings
 from app.api.sesion import usuario_de_sesion
 from app.core.rate_limit import SlidingWindow
 from app.models import contadores
@@ -28,8 +29,8 @@ router = APIRouter()
 
 LIMITE_POR_MINUTO = 20
 _limite = SlidingWindow(LIMITE_POR_MINUTO, 60)   # por Dueño; cuentan 200, 405 y 429 (INV-035)
+PLAZO_CONTADORES = 5.0   # segundos: plazo total de la lectura de contadores (503 solo al Dueño)
 _SIN_CACHE = {"Cache-Control": "no-store"}
-_METODOS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]   # OPTIONS lo atiende el middleware CORS
 
 
 def _no_encontrado() -> HTTPException:
@@ -39,6 +40,8 @@ def _no_encontrado() -> HTTPException:
 
 async def _confirmar_dueno(authorization: Optional[str]) -> str:
     """Devuelve el id del Dueño o lanza el 404 estándar ante CUALQUIER fallo (fail-closed)."""
+    if not settings.OWNER_EMAIL:   # sin OWNER_EMAIL nadie es Dueño: ni se mira la sesión
+        raise _no_encontrado()
     try:
         user_id = await usuario_de_sesion(authorization)
         user = await UserDB.get_by_id(user_id)
@@ -87,9 +90,11 @@ def construir_contadores(filas: list[dict], desde: Optional[str]) -> dict:
     return {"desde": desde, "dias": [dias[f] for f in sorted(dias)]}
 
 
-@router.api_route("/resumen", methods=_METODOS, include_in_schema=False)
-async def resumen(request: Request, authorization: Optional[str] = Header(default=None)):
-    user_id = await _confirmar_dueno(authorization)
+async def resumen(request: Request):
+    # Se registra para CUALQUIER método (abajo): así TRACE, PROPFIND, OPTIONS sin preflight, etc. pasan primero
+    # por la autorización y el no-Dueño recibe el mismo 404 que una ruta inexistente (INV-031). El preflight CORS
+    # real (con Origin y Access-Control-Request-Method) lo atiende el middleware antes de llegar aquí.
+    user_id = await _confirmar_dueno(request.headers.get("authorization"))
 
     # Ya es el Dueño: ahora sí valen 429, 405 y 503 (todas con no-store)
     if not _limite.hit(user_id):
@@ -101,7 +106,8 @@ async def resumen(request: Request, authorization: Optional[str] = Header(defaul
 
     # Contadores y plataformas en paralelo (INV-034): el peor caso es el plazo de 5 s de una plataforma
     lectura, plataformas = await asyncio.gather(
-        asyncio.to_thread(_leer_contadores), monitor_plataformas.consultar_todas(), return_exceptions=True,
+        asyncio.wait_for(asyncio.to_thread(_leer_contadores), timeout=PLAZO_CONTADORES),
+        monitor_plataformas.consultar_todas(), return_exceptions=True,
     )
     if isinstance(lectura, BaseException):
         print(f"[monitor] No se pudieron leer los contadores ({type(lectura).__name__})")
@@ -119,3 +125,15 @@ async def resumen(request: Request, authorization: Optional[str] = Header(defaul
         },
         headers=_SIN_CACHE,
     )
+
+
+class _RutaCualquierMetodo:
+    """App ASGI: como NO es una función, Starlette no le impone «solo GET» y la ruta responde a cualquier método
+    (TRACE, PROPFIND, OPTIONS sin preflight, inventados...). `resumen` decide entre 404 y 405."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        respuesta = await resumen(Request(scope, receive, send))
+        await respuesta(scope, receive, send)
+
+
+router.add_route("/resumen", _RutaCualquierMetodo(), methods=None, include_in_schema=False)

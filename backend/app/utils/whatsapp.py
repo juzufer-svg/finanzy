@@ -488,5 +488,5 @@ async def enviar(telefono: str, texto: str) -> bool:
             detalle = ""
         print(f"[whatsapp] Meta respondió {resp.status_code} {detalle}")
         return False
-    contadores.incrementar("whatsapp_enviados", "general", 1)   # solo envíos aceptados por Meta (INV-036)
+    await contadores.incrementar_async("whatsapp_enviados", "general", 1)   # solo envíos aceptados por Meta (INV-036)
     return True

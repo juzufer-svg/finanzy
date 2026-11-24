@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import json
 import math
 import re
 import time
@@ -33,6 +34,7 @@ PLATAFORMAS = ("railway", "anthropic", "meta", "supabase", "vercel", "brevo")
 TIMEOUT_TOTAL = 5.0        # segundos, por plataforma, plazo TOTAL (INV-034)
 CACHE_OK = 60.0            # segundos (INV-035)
 CACHE_FALLO = 15.0         # segundos (INV-035)
+MAX_CUERPO = 1_000_000     # bytes: un cuerpo de plataforma mayor se descarta (no_disponible)
 
 # URLs FIJAS (INV-034). Los únicos fragmentos variables son ids de configuración ya validados.
 URL_RAILWAY = "https://backboard.railway.com/graphql/v2"
@@ -146,12 +148,21 @@ def _token(valor: str) -> str:
 
 
 async def _pedir(client: httpx.AsyncClient, metodo: str, url: str, **kwargs: Any) -> Any:
-    """Una petición; solo 200 con JSON vale. Redirecciones, errores y cuerpos raros → _NoDisponible."""
-    resp = await client.request(metodo, url, **kwargs)
-    if resp.status_code != 200:
-        raise _NoDisponible()
+    """Una petición; solo 200 con JSON de hasta 1 MB vale. Redirecciones, errores, cuerpos enormes o raros
+    → _NoDisponible. El cuerpo se lee por trozos y se corta al pasar el tope (también ya descomprimido)."""
+    async with client.stream(metodo, url, **kwargs) as resp:
+        if resp.status_code != 200:
+            raise _NoDisponible()
+        declarado = resp.headers.get("content-length", "")
+        if declarado.isdigit() and int(declarado) > MAX_CUERPO:
+            raise _NoDisponible()
+        cuerpo = bytearray()
+        async for trozo in resp.aiter_bytes():
+            cuerpo += trozo
+            if len(cuerpo) > MAX_CUERPO:
+                raise _NoDisponible()
     try:
-        return resp.json()
+        return json.loads(bytes(cuerpo))
     except ValueError:
         raise _NoDisponible()
 
@@ -243,27 +254,51 @@ async def _anthropic(client: httpx.AsyncClient) -> dict:
         return_exceptions=True,
     )
     crudo: dict[str, Any] = {}
+    # Cada informe se procesa por separado: que uno falle o venga raro no tumba al otro
     if not isinstance(uso, BaseException):
-        filas = _resultados(uso)
-        entrada = Decimal(0)
-        for campo in ("uncached_input_tokens", "cache_read_input_tokens"):
-            entrada += _suma_decimal(filas, campo) or Decimal(0)
-        for r in filas:   # la escritura de caché viene anidada
-            creacion = r.get("cache_creation") if isinstance(r, dict) else None
-            if isinstance(creacion, dict):
-                entrada += sum((_suma_decimal([creacion], k) or Decimal(0)) for k in creacion)
-        salida = _suma_decimal(filas, "output_tokens")
-        crudo["tokens_entrada_mes"] = int(entrada)
-        if salida is not None:
-            crudo["tokens_salida_mes"] = int(salida)
+        try:
+            crudo.update(_tokens_anthropic(_resultados(uso)))
+        except Exception:
+            pass
     if not isinstance(costo, BaseException):
-        filas = _resultados(costo)
-        centavos = _suma_decimal(filas, "amount")   # «amount»: centavos como cadena decimal
-        monedas = {r.get("currency") for r in filas if isinstance(r, dict)}
-        if centavos is not None and monedas <= {"USD"}:
-            crudo["costo_mes"] = float(centavos / 100)
-            crudo["moneda"] = "USD"
+        try:
+            crudo.update(_costo_anthropic(_resultados(costo)))
+        except Exception:
+            pass
     return crudo
+
+
+def _tokens_anthropic(filas: list) -> dict:
+    """Tokens del mes; un campo sin ninguna fila válida se OMITE (nunca un 0 que parezca dato real)."""
+    entrada, visto = Decimal(0), False
+    for campo in ("uncached_input_tokens", "cache_read_input_tokens"):
+        parcial = _suma_decimal(filas, campo)
+        if parcial is not None:
+            entrada += parcial
+            visto = True
+    for r in filas:   # la escritura de caché viene anidada
+        creacion = r.get("cache_creation") if isinstance(r, dict) else None
+        if isinstance(creacion, dict):
+            for k in creacion:
+                parcial = _suma_decimal([creacion], k)
+                if parcial is not None:
+                    entrada += parcial
+                    visto = True
+    salida = _suma_decimal(filas, "output_tokens")
+    crudo: dict[str, Any] = {}
+    if visto:
+        crudo["tokens_entrada_mes"] = int(entrada)
+    if salida is not None:
+        crudo["tokens_salida_mes"] = int(salida)
+    return crudo
+
+
+def _costo_anthropic(filas: list) -> dict:
+    centavos = _suma_decimal(filas, "amount")   # «amount»: centavos como cadena decimal
+    monedas = {r.get("currency") for r in filas if isinstance(r, dict)}
+    if centavos is not None and monedas <= {"USD"}:
+        return {"costo_mes": float(centavos / 100), "moneda": "USD"}
+    return {}
 
 
 async def _meta(client: httpx.AsyncClient) -> dict:

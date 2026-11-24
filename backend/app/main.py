@@ -45,6 +45,9 @@ app = FastAPI(
     description="API con autenticación JWT y Base de Datos Supabase",
     version="1.0.0",
     lifespan=lifespan,
+    # Sin redirecciones por barra final: «/monitor/resumen/» debe ser un 404 como cualquier ruta inexistente
+    # (INV-031). Ni el proxy del frontend ni las rutas dependen de ellas (CHG-017, revisión I-1).
+    redirect_slashes=False,
     # No exponer la documentación interactiva en producción
     debug=bool(settings.DEBUG and not _is_production),
     docs_url=None if _is_production else "/docs",

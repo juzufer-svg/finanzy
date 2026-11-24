@@ -9,6 +9,7 @@ memoria (INV-013): sin Supabase simplemente no se cuenta.
 Un fallo al contar jamás interrumpe el flujo principal: `incrementar` captura todo error y deja un aviso
 sin datos sensibles (solo el nombre de la métrica y el tipo de error).
 """
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -37,10 +38,14 @@ def _hoy() -> date:
 class _Memoria:
     """Almacén del modo demo (se vacía en las pruebas): (fecha, métrica, origen) → cantidad."""
     filas: dict[tuple[date, str, str], int] = {}
+    # Día del último intento de purga en Supabase hecho por ESTA instancia (la marca en la tabla sigue
+    # garantizando una sola purga por día entre instancias)
+    ultima_purga: Optional[date] = None
 
     @classmethod
     def limpiar(cls) -> None:
         cls.filas.clear()
+        cls.ultima_purga = None
 
 
 def _incrementar_o_falla(metrica: str, origen: str, cantidad: int) -> None:
@@ -62,6 +67,9 @@ def _incrementar_o_falla(metrica: str, origen: str, cantidad: int) -> None:
 def _purgar_si_toca(client, hoy: date) -> None:
     """Purga oportunista: la función SQL solo purga si logra insertar la marca del día (una por día, aun con
     varias instancias). Un fallo aquí no cuenta como fallo del contador."""
+    if _Memoria.ultima_purga == hoy:
+        return   # esta instancia ya lo intentó hoy: ahorra una llamada a la red por cada incremento
+    _Memoria.ultima_purga = hoy
     try:
         client.rpc("purgar_contadores", {"p_hoy": hoy.isoformat()}).execute()
     except Exception as e:
@@ -93,6 +101,18 @@ def incrementar(metrica: str, origen: str = "general", cantidad: int = 1) -> boo
         return True
     except Exception as e:
         # Solo la métrica y el tipo del error: nunca datos del usuario ni el mensaje del servidor
+        print(f"[contadores] Aviso: no se pudo contar {metrica} ({type(e).__name__})")
+        return False
+
+
+async def incrementar_async(metrica: str, origen: str = "general", cantidad: int = 1) -> bool:
+    """Igual que `incrementar` (NUNCA lanza), pero sin bloquear el event loop cuando hay que hablar con
+    Supabase: la llamada de red va a un hilo. Sin Supabase (memoria) no hay red y se ejecuta directo."""
+    if not _supabase_ok():
+        return incrementar(metrica, origen, cantidad)
+    try:
+        return await asyncio.to_thread(incrementar, metrica, origen, cantidad)
+    except Exception as e:   # to_thread no debería fallar; CancelledError sí se propaga
         print(f"[contadores] Aviso: no se pudo contar {metrica} ({type(e).__name__})")
         return False
 

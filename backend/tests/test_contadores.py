@@ -220,6 +220,15 @@ def test_inv036_recibidos_solo_de_numeros_enlazados(webhook):
     assert _total("whatsapp_recibidos") == 1
 
 
+def test_inv036_firma_invalida_no_incrementa_whatsapp_recibidos(webhook):
+    whatsapp_db._Memoria.enlaces["usuario-1"] = TEL
+    for wamid in ("wamid.f1", "wamid.f2"):
+        assert webhook(TEL, wamid=wamid, firma=False).status_code == 403
+    assert contadores._Memoria.filas == {}   # ni «whatsapp_recibidos» ni ninguna otra fila
+    assert webhook(TEL, wamid="wamid.f3").status_code == 200   # con firma válida, ese mismo número sí cuenta
+    assert _total("whatsapp_recibidos") == 1
+
+
 def test_inv036_recibidos_no_se_infla_con_reenvios_de_meta(webhook):
     whatsapp_db._Memoria.enlaces["usuario-1"] = TEL
     for _ in range(3):
@@ -320,6 +329,57 @@ def test_inv036_con_supabase_usa_rpc_atomico_y_purga_oportunista(monkeypatch):
         ("incrementar_contador", {"p_fecha": hoy, "p_metrica": "claude_tokens_entrada", "p_origen": "whatsapp", "p_cantidad": 42}),
         ("purgar_contadores", {"p_hoy": hoy}),
     ]
+
+
+def test_inv036_la_purga_se_intenta_una_sola_vez_al_dia_por_instancia(monkeypatch):
+    cliente = _Cliente()
+    _con_supabase(monkeypatch, cliente)
+    for _ in range(3):
+        assert contadores.incrementar("whatsapp_enviados", "general", 1) is True
+    nombres = [n for n, _a in cliente.llamadas]
+    assert nombres.count("incrementar_contador") == 3 and nombres.count("purgar_contadores") == 1
+    # al cambiar el día UTC vuelve a intentarlo (una vez)
+    manana = contadores._hoy() + timedelta(days=1)
+    monkeypatch.setattr(contadores, "_hoy", lambda: manana)
+    contadores.incrementar("whatsapp_enviados", "general", 1)
+    contadores.incrementar("whatsapp_enviados", "general", 1)
+    nombres = [n for n, _a in cliente.llamadas]
+    assert nombres.count("purgar_contadores") == 2
+    assert cliente.llamadas[-1][0] == "incrementar_contador"
+
+
+def test_inv036_el_intento_de_purga_fallido_tampoco_se_repite_el_mismo_dia(monkeypatch):
+    cliente = _Cliente(falla="purgar_contadores")
+    _con_supabase(monkeypatch, cliente)
+    for _ in range(3):
+        assert contadores.incrementar("whatsapp_enviados", "general", 1) is True
+    assert [n for n, _a in cliente.llamadas].count("purgar_contadores") == 1
+
+
+def test_inv036_incrementar_async_no_bloquea_el_event_loop_con_supabase(monkeypatch):
+    import threading
+    hilos = []
+
+    class ClienteLento(_Cliente):
+        def rpc(self, nombre, args):
+            hilos.append(threading.get_ident())
+            return super().rpc(nombre, args)
+
+    _con_supabase(monkeypatch, ClienteLento())
+
+    async def prueba():
+        principal = threading.get_ident()
+        assert await contadores.incrementar_async("claude_llamadas", "asistente", 1) is True
+        return principal
+
+    principal = asyncio.run(prueba())
+    assert hilos and all(h != principal for h in hilos)   # la red fue en un hilo aparte
+
+
+def test_inv036_incrementar_async_nunca_lanza(monkeypatch):
+    _con_supabase(monkeypatch, _Cliente(falla="incrementar_contador"))
+    assert asyncio.run(contadores.incrementar_async("claude_llamadas", "asistente", 1)) is False
+    assert asyncio.run(contadores.incrementar_async("no_existe", "asistente", 1)) is False
 
 
 def test_inv036_fallo_de_la_purga_no_invalida_el_conteo(monkeypatch):

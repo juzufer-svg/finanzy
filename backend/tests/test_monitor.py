@@ -6,6 +6,7 @@ todas las peticiones salientes. Las pruebas de INV-036 (contadores) están en `t
 """
 import asyncio
 import hmac
+import threading
 import time
 
 import httpx
@@ -201,6 +202,19 @@ def test_inv031_owner_email_ausente_en_el_entorno(monkeypatch):
     assert "mayus@ejemplo.com" not in repr(config) and "mayus@ejemplo.com" not in str(config)
 
 
+def test_inv031_sin_owner_email_ni_se_mira_la_sesion(client, sesiones, externas, monkeypatch):
+    vistos = []
+
+    async def espia(user_id):
+        vistos.append(user_id)
+        return {"email": DUENO}
+
+    monkeypatch.setattr(settings, "OWNER_EMAIL", "")
+    monkeypatch.setattr(UserDB, "get_by_id", staticmethod(espia))
+    assert client.get(RUTA, headers=sesiones["dueno"]).status_code == 404
+    assert vistos == []
+
+
 def test_inv031_bd_caida_al_autorizar_responde_404(client, sesiones, externas, monkeypatch):
     async def falla(_user_id):
         raise RuntimeError("Supabase caído")
@@ -244,17 +258,18 @@ def test_inv031_bd_caida_al_leer_contadores_responde_503_solo_al_dueno(client, s
 
 
 def test_inv031_usa_compare_digest(client, sesiones, externas, monkeypatch):
+    """Se inyecta un `hmac` PROPIO solo en `app.api.dueno` (el módulo global `hmac` no se toca: PyJWT lo usa)."""
     llamadas = []
-    real = hmac.compare_digest
 
-    def espia(a, b):
-        if b"@" in bytes(a) + bytes(b):   # hmac es global: el JWT también lo usa; solo interesan los correos
+    class HmacEspia:
+        @staticmethod
+        def compare_digest(a, b):
             llamadas.append((a, b))
-        return real(a, b)
+            return hmac.compare_digest(a, b)
 
-    monkeypatch.setattr(dueno_mod.hmac, "compare_digest", espia)
+    monkeypatch.setattr(dueno_mod, "hmac", HmacEspia)
     assert client.get(RUTA, headers=sesiones["dueno"]).status_code == 200
-    assert llamadas and llamadas[0] == (b"dueno@ejemplo.com", b"dueno@ejemplo.com")
+    assert llamadas == [(b"dueno@ejemplo.com", b"dueno@ejemplo.com")]
     llamadas.clear()
     assert client.get(RUTA, headers=sesiones["otro"]).status_code == 404
     assert llamadas == [(b"otra@ejemplo.com", b"dueno@ejemplo.com")]
@@ -351,6 +366,35 @@ def test_inv033_options_responde_igual_en_cualquier_ruta(client, sesiones):
     assert "monitor" not in a.text.lower()
 
 
+@pytest.mark.parametrize("metodo", ["TRACE", "FOO", "PROPFIND", "OPTIONS", "CONNECT"])
+def test_inv033_metodos_raros_no_dueno_recibe_404_identico_byte_a_byte(client, sesiones, externas, metodo):
+    """Sin Origin ni cabeceras de preflight, OPTIONS no lo atiende el middleware CORS: llega a la ruta."""
+    for cabeceras in ({}, sesiones["otro"]):
+        r = client.request(metodo, RUTA, headers=cabeceras)
+        esperado = client.request(metodo, "/api/v1/no-existe", headers=cabeceras)
+        assert r.status_code == 404
+        assert r.content == esperado.content and _sin_date(r) == _sin_date(esperado)
+        assert "cache-control" not in r.headers and "allow" not in r.headers
+    assert externas.peticiones == []
+
+
+@pytest.mark.parametrize("metodo", ["TRACE", "FOO", "PROPFIND", "OPTIONS"])
+def test_inv033_metodos_raros_dueno_recibe_405_con_no_store(client, sesiones, externas, metodo):
+    r = client.request(metodo, RUTA, headers=sesiones["dueno"])
+    assert r.status_code == 405
+    assert r.headers["cache-control"] == "no-store" and r.headers["allow"] == "GET"
+    assert externas.peticiones == []
+
+
+def test_inv031_barra_final_es_404_como_cualquier_ruta_inexistente(client, sesiones, externas):
+    for cabeceras in ({}, sesiones["otro"], sesiones["dueno"]):
+        r = client.get(RUTA + "/", headers=cabeceras, follow_redirects=False)
+        esperado = client.get("/api/v1/no-existe/", headers=cabeceras, follow_redirects=False)
+        assert r.status_code == 404 and "location" not in r.headers   # ni 307 ni redirección alguna
+        assert r.content == esperado.content and _sin_date(r) == _sin_date(esperado)
+    assert externas.peticiones == []
+
+
 # ==================== plataformas ====================
 
 def test_plataforma_caida_no_rompe_las_demas(client, sesiones, externas, monkeypatch):
@@ -363,6 +407,51 @@ def test_plataforma_caida_no_rompe_las_demas(client, sesiones, externas, monkeyp
     for viva in ("meta", "vercel", "brevo"):
         assert _datos(r, viva)["estado"] == "ok" and _datos(r, viva)["datos"]
     assert "boom" not in r.text and "TOKEN-INTERNO" not in r.text and "500" not in r.text
+
+
+def test_anthropic_sin_filas_omite_los_tokens_en_vez_de_devolver_cero(client, sesiones, externas):
+    externas.por_host["api.anthropic.com"] = lambda r: httpx.Response(
+        200, json={"data": [{"results": [{"amount": "100", "currency": "USD"}]}]} if r.url.path.endswith("cost_report")
+        else {"data": []})
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic")["datos"] == {"costo_mes": 1.0, "moneda": "USD"}   # sin tokens_*_mes
+
+
+def test_anthropic_cada_informe_se_envuelve_por_separado(client, sesiones, externas):
+    # el informe de uso viene con forma rara (lanza al aplanarlo): el de costo debe sobrevivir, y al revés
+    def respuesta(r):
+        if r.url.path.endswith("usage_report/messages"):
+            return httpx.Response(200, json={"forma": "rara"})
+        return httpx.Response(200, json={"data": [{"results": [{"amount": "250", "currency": "USD"}]}]})
+
+    externas.por_host["api.anthropic.com"] = respuesta
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic")["datos"] == {"costo_mes": 2.5, "moneda": "USD"}
+    mp.limpiar_cache()
+    externas.por_host["api.anthropic.com"] = lambda r: (
+        httpx.Response(200, json={"data": [{"results": [{"output_tokens": 7}]}]})
+        if r.url.path.endswith("usage_report/messages") else httpx.Response(200, json=[1, 2]))
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic")["datos"] == {"tokens_salida_mes": 7}
+
+
+def test_inv034_cuerpo_de_plataforma_mayor_de_1mb_es_no_disponible(client, sesiones, externas):
+    assert mp.MAX_CUERPO == 1_000_000
+    relleno = "x" * (mp.MAX_CUERPO + 10)
+    # sin Content-Length fiable (el cuerpo se corta al leerlo) y con él
+    externas.por_host["api.vercel.com"] = lambda r: httpx.Response(200, json={"billing": {"plan": "pro"}, "r": relleno})
+    externas.por_host["api.brevo.com"] = lambda r: httpx.Response(
+        200, content=b'{"requests": 1}', headers={"Content-Length": str(mp.MAX_CUERPO + 1)})
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "vercel")["estado"] == "no_disponible"
+    assert _datos(r, "brevo")["estado"] == "no_disponible"
+    assert _datos(r, "meta")["estado"] == "ok"
+    # justo en el límite sí vale
+    mp.limpiar_cache()
+    ajustado = '{"billing": {"plan": "pro"}, "r": "' + "x" * (mp.MAX_CUERPO - 40) + '"}'
+    assert len(ajustado) <= mp.MAX_CUERPO
+    externas.por_host["api.vercel.com"] = lambda r: httpx.Response(200, content=ajustado.encode())
+    assert _datos(client.get(RUTA, headers=sesiones["dueno"]), "vercel")["datos"] == {"plan": "pro"}
 
 
 def test_supabase_queda_no_disponible_sin_consultar(client, sesiones, externas):
@@ -558,6 +647,26 @@ def test_inv034_resumen_responde_en_menos_de_6s_en_el_peor_caso(client, sesiones
     assert total < 6, total
     assert all(p["estado"] == "no_disponible" for p in r.json()["plataformas"].values())
     assert inicio_lectura and inicio_lectura[0] - t0 < 1   # los contadores no esperaron a las plataformas
+
+
+def test_inv034_lectura_de_contadores_con_plazo_total_503_solo_al_dueno(client, sesiones, externas, monkeypatch):
+    assert monitor_routes.PLAZO_CONTADORES == 5.0   # el valor real; abajo se acorta solo para no esperar 5 s
+    monkeypatch.setattr(monitor_routes, "PLAZO_CONTADORES", 0.3)
+    soltar = threading.Event()
+
+    def colgada():
+        soltar.wait(1.5)   # la BD «no responde»; si el plazo no actuara, la respuesta sería 200 tras esperar
+        return [], None
+
+    monkeypatch.setattr(contadores, "leer_ventana", colgada)
+    try:
+        r = client.get(RUTA, headers=sesiones["dueno"])   # (el cierre del bucle de pruebas espera al hilo)
+        assert r.status_code == 503 and r.headers["cache-control"] == "no-store"
+        assert "Timeout" not in r.text and "plazo" not in r.text.lower()
+        o = client.get(RUTA, headers=sesiones["otro"])   # no-Dueño: sigue el 404 normal
+        assert o.status_code == 404 and _sin_date(o) == _sin_date(client.get("/api/v1/no-existe"))
+    finally:
+        soltar.set()
 
 
 def test_inv034_contadores_y_plataformas_en_paralelo(client, sesiones, externas, monkeypatch):

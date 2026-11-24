@@ -327,16 +327,16 @@ def _mensajes(historial: list[dict], pregunta: str) -> list[dict]:
     return mensajes
 
 
-def _contar_uso(origen: str, datos: Any) -> None:
+async def _contar_uso(origen: str, datos: Any) -> None:
     """Cuenta la llamada y sus tokens (CHG-017, INV-036). Nunca lanza ni rompe la respuesta."""
     try:
         uso = datos.get("usage") if isinstance(datos, dict) else None
         uso = uso if isinstance(uso, dict) else {}
-        contadores.incrementar("claude_llamadas", origen, 1)
+        await contadores.incrementar_async("claude_llamadas", origen, 1)
         for metrica, clave in (("claude_tokens_entrada", "input_tokens"), ("claude_tokens_salida", "output_tokens")):
             valor = uso.get(clave)
             if type(valor) is int and valor > 0:
-                contadores.incrementar(metrica, origen, valor)
+                await contadores.incrementar_async(metrica, origen, valor)
     except Exception as e:
         print(f"[asistente] Aviso: no se pudo contar el uso ({type(e).__name__})")
 
@@ -358,7 +358,7 @@ async def llamar_claude(payload: dict, origen: str = "asistente") -> dict:
         raise AsistenteError(503, "El asistente no está disponible en este momento. Intenta de nuevo.")
     if resp.status_code == 200:
         datos = resp.json()
-        _contar_uso(origen, datos)
+        await _contar_uso(origen, datos)
         return datos
     # Nunca se registra la clave ni el cuerpo enviado; solo el estado y el tipo de error
     try:
