@@ -45,6 +45,21 @@ class UserDB:
             return None
 
     @staticmethod
+    async def get_by_email_estricto(email: str) -> Optional[dict]:
+        """Como `get_by_email`, pero los errores de la BD se PROPAGAN (CHG-020, INV-039): un fallo de lectura no se
+        confunde con «la cuenta no existe». Devuelve None solo si de verdad no hay usuario (o no hay Supabase, modo
+        demo). Las rutas de autenticación lo usan para responder 503 en vez de 401/200 ante un fallo."""
+        if not UserDB._is_supabase_available():
+            return None
+        client = SupabaseDB.get_client()
+        result = client.table(UserDB.TABLE_NAME)\
+            .select("*")\
+            .eq("email", email.lower())\
+            .limit(1)\
+            .execute()
+        return _map_user(result.data[0]) if result.data else None
+
+    @staticmethod
     async def get_by_id(user_id: str) -> Optional[dict]:
         if not UserDB._is_supabase_available():
             return None

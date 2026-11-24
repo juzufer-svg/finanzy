@@ -4,6 +4,8 @@ Security utilities - JWT (PyJWT) and password hashing (bcrypt)
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import secrets
+
 import bcrypt
 import jwt
 
@@ -38,6 +40,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except ValueError:
         # hash con formato inválido
         return False
+
+
+# Hash señuelo (CHG-020, INV-009, M-5): se calcula una vez al arrancar con el MISMO costo que los hashes reales
+# (`get_password_hash`), para que el login con un correo inexistente ejecute la misma comprobación bcrypt y no se
+# distinga por tiempo. La contraseña de origen es aleatoria y se descarta: nadie puede acertarla.
+HASH_SENUELO = get_password_hash(secrets.token_urlsafe(32))
+
+
+def verify_password_senuelo(plain_password: str) -> bool:
+    """Comprueba bcrypt contra el hash señuelo (cuenta inexistente). Siempre False en la práctica; el resultado
+    se ignora. Pasa por `verify_password` para que las pruebas cuenten las llamadas."""
+    return verify_password(plain_password, HASH_SENUELO)
+
+
+def codigo_senuelo() -> str:
+    """Código señuelo para cuentas inexistentes o ya activas (INV-009, INV-039): 32 bytes aleatorios. Ningún código
+    de 6 dígitos puede producir el mismo HMAC, así que nunca puede verificarse (si no, adivinar 6 dígitos sobre una
+    cuenta activa daría una sesión). No se envía por correo."""
+    return "senuelo:" + secrets.token_hex(32)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
