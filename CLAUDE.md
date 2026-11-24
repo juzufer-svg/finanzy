@@ -27,9 +27,10 @@ Supabase (PostgreSQL) + Brevo (correo). Producción: https://finanzyapp.vercel.a
 Analizar → Especificar → Diseñar → Validar spec → Coordinar → Implementar → Validar → Revisar → Documentar → Aprobar
 
 - Para empezar un cambio: `/sdd-nuevo-cambio <pedido>`. Para revisar la spec: `/sdd-validar-spec`.
-- **Modo proporcional**: los cambios de riesgo bajo (textos, estilos, accesibilidad, docs) usan el modo `ligero`;
-  todo lo que toque datos, dinero, seguridad, contratos o infraestructura usa el modo `completo`.
-  Detalle: `docs/PROTOCOLO-AGENTES.md` y `docs/CICLO-SDD.md`.
+- **Modo proporcional (tres modos, CHG-021)**: `rapido` (riesgo bajo: textos, estilos, una tarjeta o campo en pantalla, docs;
+  sin clasificador ni revisor), `estandar` (riesgo medio: ficha de cambio + generador + validador) y `completo`
+  (riesgo alto: autenticación, dinero, datos personales, migraciones, seguridad: ficha/spec + validador y revisor en paralelo).
+  Ante la duda entre dos, el más estricto. Detalle: `docs/PROTOCOLO-AGENTES.md` y `docs/CICLO-SDD.md`.
 
 ## Los 5 agentes (`.claude/agents/`)
 
@@ -44,7 +45,7 @@ Analizar → Especificar → Diseñar → Validar spec → Coordinar → Impleme
 ## Parámetros del proyecto
 
 - Umbral de confianza para decidir sin humano: **85 %**.
-- Máximo de ciclos Generador→Validador/Revisor antes de escalar: **3**.
+- Máximo de ciclos Generador→Validador/Revisor antes de escalar: **2** (el primero corrige todo; el segundo solo verifica lo corregido).
 - Stack y decisiones: `spec/ADR/`.
 - **Pruebas backend** (desde `backend/`):
   `python -m pytest -q` (dependencias: `pip install -r requirements-dev.txt`)
