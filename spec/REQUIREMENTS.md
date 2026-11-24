@@ -22,9 +22,10 @@ si respeta los límites que se pone y cómo avanza hacia sus metas de ahorro, de
 |---|---|---|---|
 | Visitante | Persona sin sesión | Ver la página de inicio, registrarse, iniciar sesión, recuperar contraseña | Ver o modificar datos financieros |
 | Usuario | Persona con cuenta verificada y sesión activa | Gestionar **sus propios** datos (transacciones, categorías, presupuestos, metas, perfil) | Ver o modificar datos de otro usuario (INV-001) |
+| Dueño (CHG-017) | Usuario cuya sesión verificada tiene el correo configurado en la variable `OWNER_EMAIL` (no está escrito en el código) | Todo lo del Usuario, y además **ver el Monitor de consumos** (solo lectura, REQ-F-018) | Ver datos de otros usuarios (INV-001 sigue igual); ejecutar acciones desde el Monitor |
 | Sistema de correo (Brevo) | Servicio externo | Recibir pedidos de envío de códigos | — |
 
-No hay roles de administrador en la app.
+No hay roles de administrador en la app: el único privilegio del Dueño es ver el Monitor de consumos (REQ-F-018).
 
 ## 4. Alcance
 
@@ -57,6 +58,7 @@ No hay roles de administrador en la app.
 | REQ-F-014 | El usuario debe ver su perfil | Should | CA-1: muestra nombre y correo; permite cambiar moneda y tema. CA-2 (CHG-012): puede cambiar su nombre (2-100 caracteres). CA-3 (CHG-012): puede cambiar su contraseña escribiendo la actual y la nueva (8-128); se cierran sus sesiones en otros dispositivos y la actual sigue abierta (INV-027) | Implementado |
 | REQ-F-016 | El usuario debe poder registrar transacciones recurrentes (CHG-012) | Should | CA-1: una recurrente = tipo + monto > 0 + frecuencia (mensual, quincenal o semanal) + primera fecha, con categoría propia, descripción y medio de pago opcionales. CA-2: cuando llega su fecha aparece como pendiente en el Inicio y en Recurrentes; nunca se registra sola (INV-025). CA-3: al confirmarla se crea una transacción (monto y fecha ajustables) y avanza a la siguiente fecha; puede omitirla sin registrar nada. CA-4: cada fecha se registra una sola vez aunque se toque dos veces (INV-026). CA-5: puede editarla, pausarla, reactivarla y eliminarla (las transacciones ya registradas se conservan) | Verificado |
 | REQ-F-017 | El usuario debe poder registrar ingresos y gastos por WhatsApp en lenguaje libre con IA (CHG-014, ADR-007) | Could | CA-1: enlaza su número con un código de un solo uso generado en Perfil (10 min) y puede desconectarlo. CA-2: un mensaje libre («almorcé por 18 mil con débito») registra el o los movimientos sin pedir confirmación, en COP, con categoría propia elegida por la IA (o sin categoría), fecha (hoy por defecto) y medio de pago; responde con el detalle. CA-3: si falta el monto, pregunta y no registra. CA-4: «deshacer» y correcciones afectan solo lo último registrado por WhatsApp. CA-5: solo el número enlazado puede usarlo y lo propuesto por la IA se valida (INV-029). CA-6: tope de 50 mensajes por día (INV-030). CA-7: cambiar o restablecer la contraseña desconecta WhatsApp (INV-016) | En revisión (verificado con Meta y Claude simulados; falta la prueba real del dueño) |
+| REQ-F-018 | El dueño debe poder ver un Monitor de consumos de las plataformas que usa la app (CHG-017, ADR-008) | Could | CA-1: solo el dueño (correo de la variable `OWNER_EMAIL`, comparado en minúsculas y sin espacios, contra el correo de la sesión verificada) ve el Monitor; cualquier otro usuario, o sin sesión, recibe 404 y no se revela que el Monitor existe ni cuál es el correo del dueño; sin `OWNER_EMAIL` configurado se niega a todos (INV-031). CA-2: es de solo lectura (únicamente GET), sin acciones (INV-033). CA-3: contadores propios en Supabase, agregados por día y sin correos, teléfonos, textos ni ids de usuario: llamadas y tokens de entrada/salida de Claude (origen `asistente` o `whatsapp`), correos de Brevo enviados con éxito, mensajes de WhatsApp enviados y recibidos; cuentan desde su activación (sin histórico) y se conservan 90 días (INV-036). CA-4: lectura de Railway, Anthropic, Meta, Supabase, Vercel y Brevo con tokens propios del Monitor (variables `MONITOR_*_TOKEN`), distintos de los de envío o escritura y con el menor permiso disponible; cada plataforma se muestra «no disponible» si no hay token o la consulta falla, sin romper las demás; nunca se muestran tokens (INV-032, INV-034). CA-5: basta la sesión normal del dueño, sin reautenticar | Especificado (CHG-017, en implementación) |
 | REQ-F-015 | El usuario debe poder preguntar en lenguaje natural por sus finanzas (asistente con Claude, CHG-010) | Could | CA-1: responde preguntas sobre totales del mes, movimientos más altos, categorías y presupuestos, medios de pago, búsquedas por texto y metas, usando solo sus datos. CA-2: el asistente no puede crear, editar ni borrar nada (INV-023). CA-3: entiende preguntas de seguimiento dentro de la misma conversación. CA-4: hay topes de uso para controlar el costo (INV-024) | Verificado |
 
 ## 6. Requerimientos no funcionales
@@ -67,7 +69,7 @@ Detalle medible en `NFR/NFR.md`.
 |---|---|---|
 | REQ-N-001 | Seguridad | Aislamiento total de datos entre usuarios (INV-001, INV-002) |
 | REQ-N-002 | Seguridad | Protección contra fuerza bruta y abuso de envío de correos (INV-010) |
-| REQ-N-003 | Seguridad | Sin secretos en código, logs ni frontend; sin endpoints de diagnóstico (INV-012) |
+| REQ-N-003 | Seguridad | Sin secretos en código, logs ni frontend; sin endpoints de diagnóstico (INV-012); el Monitor del dueño (REQ-F-018) no es un endpoint de diagnóstico: exige sesión del dueño, responde 404 a los demás y tampoco expone secretos (INV-031, INV-032) |
 | REQ-N-004 | Seguridad | Dependencias sin vulnerabilidades conocidas |
 | REQ-N-005 | Accesibilidad | Formularios etiquetados, uso con teclado, mensajes anunciados a lectores de pantalla |
 | REQ-N-006 | Costo | Operar con US$5/mes (solo Railway Hobby) |
@@ -92,6 +94,7 @@ Detalle medible en `NFR/NFR.md`.
 | Vercel | Navegador → Vercel → Railway | Proxy `/api/v1/*` | Rewrite en `next.config.js` |
 | WhatsApp Cloud API (Meta) | Meta → Railway (webhook) y Railway → Meta | Mensajes de texto del número enlazado y respuestas | CT-009, ADR-007 |
 | API de Claude (Anthropic) | Railway → Anthropic | Pregunta o mensaje, categorías del usuario (sin correo, teléfono ni ids) | CT-007, CT-009 |
+| APIs de consumo de Railway, Anthropic, Meta, Supabase, Vercel y Brevo (CHG-017) | Railway → cada plataforma, solo lectura | Cifras de uso y consumo agregadas; tokens propios del Monitor | CT-010, ADR-008 |
 
 ## 9. Preguntas abiertas y ambigüedades
 

@@ -27,9 +27,14 @@ Requiere cambio de spec: nuevo actor «Dueño» (REQUIREMENTS §3 dice que no ha
 | 3 | Contadores: ¿desde la puesta en marcha (sin histórico) y retención 90 días? | Datos | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
 | 4 | ¿Basta la sesión normal del dueño o se pide reautenticar al entrar al panel? | Seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
 | 5 | Si se elimina la cuenta del dueño o otra persona registra ese correo: el acceso se concede por correo verificado; ¿se acepta? | Seguridad | Aprobado tal como se propuso (2026-11-24) | Julián Zúñiga |
+| 6 | (T0) INV-035 pide «caché corta» y «límite de frecuencia» sin cifras. CT-010 propone por defecto caché de 60 s por plataforma y 20 peticiones/min por dueño, como configuración. ¿Se confirman? | Seguridad/cuotas | Abierta (propuesta en CT-010) | Julián Zúñiga |
+| 7 | (T0) La forma exacta de `datos` por plataforma y los ids de configuración (proyecto, servicio, organización) dependen de lo que permita cada API con el token de menor permiso; no se puede fijar sin probarlas. ¿Se define en la implementación (T1+) y se informa antes de cerrar? Si una plataforma exige plan de pago o permisos de escritura, queda «no disponible» y se avisa (REQ-N-006). | Alcance | Abierta | Julián Zúñiga / coordinador |
+| 8 | (T0) Ventana de los contadores en la respuesta: CT-010 devuelve todos los días retenidos (hasta 90) sin parámetros. ¿Basta, o se quiere un rango fijo más corto en pantalla? | Interfaz | Abierta | Julián Zúñiga |
+| 9 | (T0) «Mensajes de WhatsApp recibidos»: ¿cuentan solo los de números enlazados procesados, o también los ignorados (número desconocido)? CT-010 deja «mensajes procesados de Meta» sin contar los descartados por firma inválida. | Datos | Abierta | Julián Zúñiga |
+| 10 | (T0) Purga de 90 días: ¿al escribir un contador (sin tarea programada) o con una tarea aparte? No se fija en la spec; propuesta: purga oportunista al escribir, sin infraestructura nueva. | Diseño | Abierta | coordinador |
 
 ## 5. Spec afectada
-_(pendiente)_ · **Aprobación de la spec:** Julián Zúñiga, 2026-11-24 («Si apruebo todo del 1 al 5 implementa todo»). Alcance aprobado = lo descrito en §3 y las propuestas de §4.
+REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, INV-031..036), CT-010, ADR-008, UC-014, BDD-MONITOR, TRACEABILITY, BL-035 (T0, 2026-11-24) · **Aprobación de la spec:** Julián Zúñiga, 2026-11-24 («Si apruebo todo del 1 al 5 implementa todo»). Alcance aprobado = lo descrito en §3 y las propuestas de §4.
 
 ## 6. Plan de tareas
 | Tarea | Alcance | Depende de | Estado | Ciclos |

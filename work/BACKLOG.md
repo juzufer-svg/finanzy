@@ -39,3 +39,4 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-032 | Que el Asistente IA responda en la moneda elegida (hoy en COP; el backend no tiene tasas de cambio) | mejora | bajo | Pendiente | CHG-013 |
 | BL-034 | La moneda elegida no se aplicaba al entrar (siempre dólares hasta pasar por Perfil y volver a tocarla) | defecto | medio | Hecho (CHG-016) | Reporte de un usuario 2026-11-24 |
 | BL-033 | Registrar ingresos y gastos por WhatsApp con IA (Cloud API de Meta, número de prueba) | nueva-funcionalidad | medio | En revisión (CHG-014; SQL + configuración en Meta y Railway) | Pedido del dueño 2026-11-23 |
+| BL-035 | Monitor de consumos solo para el dueño (Railway, Claude, Meta/WhatsApp, Supabase, Vercel, Brevo; contadores propios + lectura de APIs) | nueva-funcionalidad | alto | En implementación (CHG-017; spec aprobada 2026-11-24; falta SQL, tokens y `OWNER_EMAIL` en Railway) | Pedido del dueño 2026-11-24 |
