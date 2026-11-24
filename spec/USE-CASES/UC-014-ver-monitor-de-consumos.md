@@ -16,6 +16,10 @@
    de 5 s por plataforma, fallos en caché 15 s; el resumen responde en < 6 s en el peor caso).
 5. Responde con los contadores y el estado de cada plataforma; la pantalla muestra las cifras y marca «no disponible»
    las que no se pudieron leer. No hay botones de acción.
+6. Cada tarjeta disponible muestra Plan, Límite, Uso actual y % del límite usado (con barra y aviso escrito «Atención: cerca del
+   límite» desde el 80 % y «Límite superado» desde el 100 %). Los límites son constantes de referencia del frontend
+   (`LIMITES_PLAN`, al 24 nov 2026) y el uso de WhatsApp es el del mes en curso de Colombia según los contadores propios.
+   Las plataformas «no disponible» no muestran estas filas.
 
 ## Flujos alternos
 - Cualquier otro usuario, sin sesión, sesión inválida, **BD caída al verificar la sesión** o `OWNER_EMAIL` sin

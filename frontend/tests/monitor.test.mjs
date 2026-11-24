@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   TEXTO_NO_DISPONIBLE, PLATAFORMAS, formatBytes, formatNumero, formatUsd, formatFechaDia, formatInstante,
   camposVisibles, notaPlataforma, NOTA_ESTIMADO_CONTADORES, estadoPlataforma, porcentajeUso, normalizarResumen, sumarDias, serieDias, diaDeInstante,
-  total, alturasApiladas,
+  total, alturasApiladas, resumenPlan, formatPorcentaje, LIMITES_PLAN,
 } from '../lib/monitor.ts'
 
 test('texto de no disponible, sin motivo', () => {
@@ -177,4 +177,142 @@ test('la serie de 30 días termina en el hoy de Colombia, no en el día UTC', ()
   const serie = serieDias([], hoy, 30)
   assert.equal(serie[29].fecha, '2026-11-24')
   assert.equal(serie[0].fecha, '2026-10-26')
+})
+
+// ---- Plan, límite y uso (REQ-F-018 CA-6) ----
+const diaWa = (fecha, enviados) => ({
+  fecha, claude: { asistente: { llamadas: 0, tokens_entrada: 0, tokens_salida: 0 }, whatsapp: { llamadas: 0, tokens_entrada: 0, tokens_salida: 0 } },
+  brevo_correos_enviados: 0, whatsapp_mensajes: { enviados, recibidos: 99 },
+})
+
+test('porcentaje en texto: un decimal si es menor de 10 %, truncado', () => {
+  assert.equal(formatPorcentaje(0), '0 %')
+  assert.equal(formatPorcentaje(5.26), '5,2 %')
+  assert.equal(formatPorcentaje(7.1), '7,1 %')
+  assert.equal(formatPorcentaje(10), '10 %')
+  assert.equal(formatPorcentaje(79.96), '79 %')
+  assert.equal(formatPorcentaje(100), '100 %')
+  assert.equal(formatPorcentaje(NaN), '—')
+})
+
+test('resumenPlan Railway: uso en US$ sobre US$5 y niveles 79,9 / 80 / 100 %', () => {
+  const r = resumenPlan('railway', { costo_estimado_mes: 1 }, [], '2026-11-24')
+  assert.equal(r.plan, 'Hobby (US$5 al mes)')
+  assert.equal(r.limiteTexto, 'US$5 de uso incluido al mes')
+  assert.equal(r.usoTexto, 'US$ 1,00')
+  assert.equal(r.porcentaje, 20)
+  assert.equal(r.nivel, 'normal')
+  assert.equal(resumenPlan('railway', { costo_estimado_mes: 3.995 }, [], null).nivel, 'normal') // 79,9 %
+  assert.equal(resumenPlan('railway', { costo_estimado_mes: 4 }, [], null).nivel, 'atencion')   // 80 %
+  assert.equal(resumenPlan('railway', { costo_estimado_mes: 4.5 }, [], null).nivel, 'atencion')
+  assert.equal(resumenPlan('railway', { costo_estimado_mes: 5 }, [], null).nivel, 'critico')    // 100 %
+  assert.equal(resumenPlan('railway', { costo_estimado_mes: 7.5 }, [], null).porcentaje, 150)
+})
+
+test('resumenPlan Railway sin dato: sin medida', () => {
+  for (const datos of [null, {}, { costo_estimado_mes: 'x' }, { costo_estimado_mes: -1 }]) {
+    const r = resumenPlan('railway', datos, [], null)
+    assert.equal(r.porcentaje, null)
+    assert.equal(r.nivel, 'sin_medida')
+    assert.equal(r.usoTexto, 'Sin medida')
+    assert.equal(r.plan, 'Hobby (US$5 al mes)')
+  }
+})
+
+test('resumenPlan Brevo: 300 correos al día', () => {
+  const r = resumenPlan('brevo', { enviados_hoy: 30, creditos_restantes: 270 }, [], null)
+  assert.equal(r.plan, 'Gratuito')
+  assert.equal(r.limiteTexto, '300 correos al día')
+  assert.equal(r.porcentaje, 10)
+  assert.equal(r.nivel, 'normal')
+  assert.equal(resumenPlan('brevo', { enviados_hoy: 239 }, [], null).nivel, 'normal')   // 79,67 %
+  assert.equal(resumenPlan('brevo', { enviados_hoy: 240 }, [], null).nivel, 'atencion') // 80 %
+  assert.equal(resumenPlan('brevo', { enviados_hoy: 300 }, [], null).nivel, 'critico')
+  assert.equal(resumenPlan('brevo', {}, [], null).nivel, 'sin_medida')
+})
+
+test('resumenPlan Supabase: tamaño sobre el límite de la BD y nota de pausa', () => {
+  const MB = 1024 * 1024
+  const r = resumenPlan('supabase', { tamano_bd_bytes: 50 * MB, limite_bd_bytes: 500 * MB }, [], null)
+  assert.equal(r.plan, 'Free (gratuito)')
+  assert.equal(r.limiteTexto, '500 MB')
+  assert.equal(r.usoTexto, '50 MB')
+  assert.equal(r.porcentaje, 10)
+  assert.match(r.nota, /se pausa tras 1 semana sin actividad/i)
+  assert.equal(resumenPlan('supabase', { tamano_bd_bytes: 399 * MB, limite_bd_bytes: 500 * MB }, [], null).nivel, 'normal')   // 79,8 %
+  assert.equal(resumenPlan('supabase', { tamano_bd_bytes: 400 * MB, limite_bd_bytes: 500 * MB }, [], null).nivel, 'atencion')
+  assert.equal(resumenPlan('supabase', { tamano_bd_bytes: 500 * MB, limite_bd_bytes: 500 * MB }, [], null).nivel, 'critico')
+  // sin límite en los datos se usa la constante de referencia de 500 MB
+  assert.equal(resumenPlan('supabase', { tamano_bd_bytes: 250 * MB }, [], null).porcentaje, 50)
+  assert.equal(resumenPlan('supabase', {}, [], null).nivel, 'sin_medida')
+})
+
+test('resumenPlan Vercel: plan desde los datos, sin barra', () => {
+  const g = resumenPlan('vercel', { plan: 'gratuito' }, [], null)
+  assert.equal(g.plan, 'Hobby (gratuito)')
+  assert.equal(g.limiteTexto, '100 GB de transferencia, 1 millón de solicitudes y 1 millón de invocaciones al mes')
+  assert.equal(g.usoTexto, 'No medido por el Monitor')
+  assert.equal(g.porcentaje, null)
+  assert.equal(g.nivel, 'sin_medida')
+  assert.equal(resumenPlan('vercel', { plan: 'pro' }, [], null).plan, 'Pro')
+  assert.equal(resumenPlan('vercel', { plan: 'inventado' }, [], null).plan, 'No informado')
+  assert.equal(resumenPlan('vercel', null, [], null).porcentaje, null)
+})
+
+test('resumenPlan Claude: plan de pago por uso, costo sin barra', () => {
+  const r = resumenPlan('anthropic', { costo_mes: 1.5 }, [], null)
+  assert.equal(r.plan, 'Pago por uso (sin cuota gratuita)')
+  assert.equal(r.limiteTexto, 'Frecuencia: 4.000 solicitudes por minuto en el nivel inicial; tope de gasto mensual US$500')
+  assert.equal(r.usoTexto, 'US$ 1,50 (costo del mes)')
+  assert.equal(r.porcentaje, null)
+  assert.equal(r.nivel, 'sin_medida')
+  assert.equal(resumenPlan('anthropic', {}, [], null).usoTexto, 'Sin medida')
+})
+
+test('resumenPlan WhatsApp: solo el mes en curso de Colombia, con días de dos meses', () => {
+  const dias = [diaWa('2026-10-30', 400), diaWa('2026-10-31', 400), diaWa('2026-11-01', 100), diaWa('2026-11-20', 50), diaWa('2026-11-24', 10)]
+  const r = resumenPlan('meta', { conversaciones_periodo: 9999 }, dias, '2026-11-24')
+  assert.equal(r.plan, 'Cuenta de prueba (gratis hasta 1.000 mensajes de servicio al mes)')
+  assert.equal(r.limiteTexto, '1.000 mensajes de servicio al mes por número')
+  assert.equal(r.etiquetaUso, 'Mensajes enviados este mes (contadores propios)')
+  assert.equal(r.usoTexto, '160') // 100 + 50 + 10; no suma los recibidos ni octubre
+  assert.equal(r.porcentaje, 16)
+  assert.equal(r.nivel, 'normal')
+  // el objeto { dias } de la respuesta también sirve
+  assert.equal(resumenPlan('meta', null, { dias }, '2026-11-24').porcentaje, 16)
+})
+
+test('resumenPlan WhatsApp: niveles y cruce de mes a medianoche de Colombia', () => {
+  assert.equal(resumenPlan('meta', null, [diaWa('2026-11-02', 799)], '2026-11-24').nivel, 'normal')
+  assert.equal(resumenPlan('meta', null, [diaWa('2026-11-02', 800)], '2026-11-24').nivel, 'atencion')
+  assert.equal(resumenPlan('meta', null, [diaWa('2026-11-02', 1000)], '2026-11-24').nivel, 'critico')
+  // 2026-12-01T04:59Z todavía es 30 nov en Colombia; 05:00Z ya es 1 dic y el mes en curso se reinicia
+  const dias = [diaWa('2026-11-30', 900), diaWa('2026-12-01', 5)]
+  const antes = resumenPlan('meta', null, dias, diaDeInstante('2026-12-01T04:59:00Z'))
+  assert.equal(antes.usoTexto, '900')
+  assert.equal(antes.nivel, 'atencion')
+  const despues = resumenPlan('meta', null, dias, diaDeInstante('2026-12-01T05:00:00Z'))
+  assert.equal(despues.usoTexto, '5')
+  assert.equal(despues.porcentaje, 0.5)
+  assert.equal(despues.nivel, 'normal')
+})
+
+test('resumenPlan WhatsApp: sin días en el mes es 0 %; sin «hoy» válido, sin medida', () => {
+  const vacio = resumenPlan('meta', null, [], '2026-11-24')
+  assert.equal(vacio.usoTexto, '0')
+  assert.equal(vacio.porcentaje, 0)
+  assert.equal(vacio.nivel, 'normal')
+  for (const hoy of [null, undefined, '', 'ayer']) {
+    const r = resumenPlan('meta', null, [diaWa('2026-11-02', 5)], hoy)
+    assert.equal(r.porcentaje, null)
+    assert.equal(r.nivel, 'sin_medida')
+  }
+  assert.equal(resumenPlan('meta', null, undefined, '2026-11-24').porcentaje, 0)
+})
+
+test('los límites de referencia están declarados', () => {
+  assert.equal(LIMITES_PLAN.brevo.limiteCorreosDia, 300)
+  assert.equal(LIMITES_PLAN.supabase.limiteBytes, 500 * 1024 * 1024)
+  assert.equal(LIMITES_PLAN.meta.limiteMensajes, 1000)
+  assert.equal(LIMITES_PLAN.railway.limiteUsd, 5)
 })

@@ -307,3 +307,152 @@ export function alturasApiladas(partes: number[], maximo: number): number[] {
   if (!(maximo > 0)) return partes.map(() => 0)
   return partes.map(p => (p > 0 ? Math.max(1, (p / maximo) * 100) : 0))
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Plan, límite y uso de cada plataforma (CHG-017, REQ-F-018 CA-6)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Límites de referencia al 24 nov 2026 según la documentación de cada proveedor; si cambian los planes, actualizar aquí.
+ * Son constantes del frontend: el backend no los envía y el Monitor no los verifica contra la plataforma.
+ */
+export const LIMITES_PLAN = {
+  railway: { plan: 'Hobby (US$5 al mes)', limiteTexto: 'US$5 de uso incluido al mes', limiteUsd: 5 },
+  vercel: {
+    planes: { gratuito: 'Hobby (gratuito)', pro: 'Pro' } as Record<string, string>,
+    limiteTexto: '100 GB de transferencia, 1 millón de solicitudes y 1 millón de invocaciones al mes',
+    limiteOtroPlan: 'Según el plan contratado (ver el panel de Vercel)',
+  },
+  supabase: {
+    plan: 'Free (gratuito)', limiteBytes: 500 * 1024 * 1024,
+    nota: 'El proyecto se pausa tras 1 semana sin actividad',
+  },
+  brevo: { plan: 'Gratuito', limiteTexto: '300 correos al día', limiteCorreosDia: 300 },
+  meta: {
+    plan: 'Cuenta de prueba (gratis hasta 1.000 mensajes de servicio al mes)',
+    limiteTexto: '1.000 mensajes de servicio al mes por número', limiteMensajes: 1000,
+  },
+  anthropic: {
+    plan: 'Pago por uso (sin cuota gratuita)',
+    limiteTexto: 'Frecuencia: 4.000 solicitudes por minuto en el nivel inicial; tope de gasto mensual US$500',
+  },
+} as const
+
+export const TEXTO_ATENCION = 'Atención: cerca del límite'
+export const TEXTO_CRITICO = 'Límite superado'
+export const TEXTO_SIN_MEDIDA = 'Sin medida'
+export const UMBRAL_ATENCION = 80
+export const UMBRAL_CRITICO = 100
+
+export type NivelUso = 'normal' | 'atencion' | 'critico' | 'sin_medida'
+
+export interface ResumenPlan {
+  plan: string
+  limiteTexto: string
+  usoTexto: string
+  /** Porcentaje del límite usado, sin redondear ni topar (puede pasar de 100); `null` si no se puede medir. */
+  porcentaje: number | null
+  nivel: NivelUso
+  /** Etiqueta de la fila de uso («Uso actual» salvo en WhatsApp). */
+  etiquetaUso: string
+  /** Nota extra de la tarjeta (p. ej. la pausa de Supabase); `null` si no hay. */
+  nota: string | null
+}
+
+/** Texto de un porcentaje: un decimal si es < 10 % («5,3 %»), entero si no; se trunca para no aparentar 80 % antes de tiempo. */
+export function formatPorcentaje(p: number): string {
+  if (!Number.isFinite(p) || p < 0) return '—'
+  if (p < 10) return `${(Math.floor(p * 10 + 1e-9) / 10).toFixed(1).replace('.', ',').replace(/,0$/, '')} %`
+  return `${formatNumero(Math.floor(p + 1e-9))} %`
+}
+
+/** Nivel según el porcentaje: atención desde 80 %, crítico desde 100 %. */
+export function nivelDePorcentaje(p: number | null): NivelUso {
+  if (p === null) return 'sin_medida'
+  if (p >= UMBRAL_CRITICO) return 'critico'
+  if (p >= UMBRAL_ATENCION) return 'atencion'
+  return 'normal'
+}
+
+/** Texto del nivel (además del color): vacío si es normal o no hay medida. */
+export function textoNivel(n: NivelUso): string {
+  return n === 'critico' ? TEXTO_CRITICO : n === 'atencion' ? TEXTO_ATENCION : ''
+}
+
+/** Mes de Colombia (`YYYY-MM`) de un día `YYYY-MM-DD`; `null` si no es válido. */
+const mesDe = (dia: unknown): string | null => (typeof dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia.slice(0, 7) : null)
+
+/** Mensajes de WhatsApp enviados en el mes en curso de Colombia (días de los contadores propios hasta `hoy`). */
+function enviadosWhatsappMes(dias: DiaContador[], hoy: string): number {
+  const mes = mesDe(hoy)
+  if (!mes) return 0
+  return total(dias.filter(d => mesDe(d.fecha) === mes && d.fecha <= hoy).map(d => d.whatsapp_mensajes.enviados))
+}
+
+/** Arma el resumen cuando hay un valor usado y un límite numérico. */
+function conBarra(base: Omit<ResumenPlan, 'usoTexto' | 'porcentaje' | 'nivel'>, usoTexto: string, usado: number, limite: number): ResumenPlan {
+  const porcentaje = (usado * 100) / limite
+  return { ...base, usoTexto, porcentaje, nivel: nivelDePorcentaje(porcentaje) }
+}
+
+/**
+ * Plan, límite, uso y porcentaje de una plataforma. Función pura: el uso sale de lo que ya devuelve `/monitor/resumen`
+ * (`datos`, `contadores`) y los límites de `LIMITES_PLAN`. `hoyColombia` es el día de Colombia (`YYYY-MM-DD`, ver
+ * `diaDeInstante`); solo se usa para el mes en curso de WhatsApp. `contadores` admite la lista de días o el objeto
+ * `{ dias }` de la respuesta.
+ */
+export function resumenPlan(
+  plataforma: NombrePlataforma,
+  datos: Plataforma['datos'] | undefined,
+  contadores: DiaContador[] | { dias: DiaContador[] } | null | undefined,
+  hoyColombia: string | null | undefined,
+): ResumenPlan {
+  const d: Record<string, unknown> = esObjeto(datos) ? datos : {}
+  const dias = Array.isArray(contadores) ? contadores : Array.isArray(contadores?.dias) ? contadores.dias : []
+  const sinMedida = (base: Omit<ResumenPlan, 'usoTexto' | 'porcentaje' | 'nivel'>, usoTexto = TEXTO_SIN_MEDIDA): ResumenPlan =>
+    ({ ...base, usoTexto, porcentaje: null, nivel: 'sin_medida' })
+
+  switch (plataforma) {
+    case 'railway': {
+      const L = LIMITES_PLAN.railway
+      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Uso actual', nota: null }
+      const costo = d.costo_estimado_mes
+      return esNumero(costo) ? conBarra(base, formatUsd(costo), costo, L.limiteUsd) : sinMedida(base)
+    }
+    case 'vercel': {
+      const L = LIMITES_PLAN.vercel
+      const plan = typeof d.plan === 'string' ? L.planes[d.plan] : undefined
+      const base = {
+        plan: plan ?? 'No informado',
+        limiteTexto: d.plan === 'gratuito' ? L.limiteTexto : L.limiteOtroPlan,
+        etiquetaUso: 'Uso actual', nota: null,
+      }
+      return sinMedida(base, 'No medido por el Monitor')
+    }
+    case 'supabase': {
+      const L = LIMITES_PLAN.supabase
+      const limite = esNumero(d.limite_bd_bytes) && d.limite_bd_bytes > 0 ? d.limite_bd_bytes : L.limiteBytes
+      const base = { plan: L.plan, limiteTexto: formatBytes(limite), etiquetaUso: 'Uso actual', nota: L.nota }
+      const usado = d.tamano_bd_bytes
+      return esNumero(usado) ? conBarra(base, formatBytes(usado), usado, limite) : sinMedida(base)
+    }
+    case 'brevo': {
+      const L = LIMITES_PLAN.brevo
+      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Uso actual', nota: null }
+      const usado = d.enviados_hoy
+      return esNumero(usado) ? conBarra(base, `${formatNumero(usado)} correos hoy`, usado, L.limiteCorreosDia) : sinMedida(base)
+    }
+    case 'meta': {
+      const L = LIMITES_PLAN.meta
+      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Mensajes enviados este mes (contadores propios)', nota: null }
+      if (!hoyColombia || mesDe(hoyColombia) === null) return sinMedida(base)
+      const enviados = enviadosWhatsappMes(dias, hoyColombia)
+      return conBarra(base, formatNumero(enviados), enviados, L.limiteMensajes)
+    }
+    case 'anthropic': {
+      const L = LIMITES_PLAN.anthropic
+      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Uso actual', nota: null }
+      return esNumero(d.costo_mes) ? sinMedida(base, `${formatUsd(d.costo_mes)} (costo del mes)`) : sinMedida(base)
+    }
+  }
+}

@@ -15,8 +15,8 @@ import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
 import {
   PLATAFORMAS, TEXTO_NO_DISPONIBLE, alturasApiladas, camposVisibles, diaDeInstante, estadoPlataforma,
-  formatFechaDia, formatInstante, formatNumero, normalizarResumen, notaPlataforma, porcentajeUso, serieDias, total,
-  type NombrePlataforma, type Plataforma, type PuntoDia, type ResumenMonitor,
+  formatFechaDia, formatInstante, formatNumero, formatPorcentaje, normalizarResumen, notaPlataforma, resumenPlan, serieDias, textoNivel, total,
+  type NivelUso, type NombrePlataforma, type Plataforma, type PuntoDia, type ResumenMonitor,
 } from '@/lib/monitor'
 
 const COLOR_A = '#2563eb' // azul primario
@@ -97,13 +97,37 @@ function GraficoBarras({ def, serie }: { def: GraficoDef; serie: PuntoDia[] }) {
   )
 }
 
-function TarjetaPlataforma({ clave, nombre, plataforma }: { clave: NombrePlataforma; nombre: string; plataforma: Plataforma }) {
+const COLOR_NIVEL: Record<NivelUso, string> = {
+  normal: 'bg-teal-500', atencion: 'bg-amber-500', critico: 'bg-red-500', sin_medida: 'bg-slate-400',
+}
+const TEXTO_COLOR_NIVEL: Record<NivelUso, string> = {
+  normal: 'text-slate-900', atencion: 'text-amber-700', critico: 'text-red-700', sin_medida: 'text-slate-900',
+}
+
+/** Barra de progreso accesible: el nivel no depende solo del color (hay texto «Atención…» / «Límite superado»). */
+function BarraUso({ porcentaje, nivel, etiqueta }: { porcentaje: number; nivel: NivelUso; etiqueta: string }) {
+  const ancho = Math.min(100, Math.max(0, porcentaje))
+  const entero = Math.floor(ancho + 1e-9)
+  return (
+    <div
+      role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={entero}
+      aria-valuetext={`${formatPorcentaje(porcentaje)}${textoNivel(nivel) ? `. ${textoNivel(nivel)}` : ''}`}
+      aria-label={etiqueta} className="h-2 rounded-full bg-slate-200 overflow-hidden"
+    >
+      <div className={`h-full rounded-full ${COLOR_NIVEL[nivel]}`} style={{ width: `${ancho}%` }} />
+    </div>
+  )
+}
+
+function TarjetaPlataforma({ clave, nombre, plataforma, dias, hoy }: {
+  clave: NombrePlataforma; nombre: string; plataforma: Plataforma; dias: ResumenMonitor['contadores']['dias']; hoy: string | null
+}) {
   const ok = estadoPlataforma(clave, plataforma) === 'ok'
-  const campos = ok ? camposVisibles(clave, plataforma.datos) : []
-  const usoBd = clave === 'supabase' ? porcentajeUso(plataforma.datos?.tamano_bd_bytes, plataforma.datos?.limite_bd_bytes) : null
-  const usoVercel = clave === 'vercel' ? porcentajeUso(plataforma.datos?.ancho_banda_bytes, plataforma.datos?.limite_ancho_banda_bytes) : null
-  const uso = usoBd ?? usoVercel
+  // El plan de Vercel ya sale en la fila «Plan»; no se repite entre los demás campos.
+  const campos = ok ? camposVisibles(clave, plataforma.datos).filter(c => !(clave === 'vercel' && c.clave === 'plan')) : []
+  const rp = ok ? resumenPlan(clave, plataforma.datos, dias, hoy) : null
   const idTitulo = `plat-${clave}`
+  const aviso = rp ? textoNivel(rp.nivel) : ''
   return (
     <section className="card p-4 sm:p-5" aria-labelledby={idTitulo}>
       <div className="flex items-start justify-between gap-2">
@@ -112,8 +136,37 @@ function TarjetaPlataforma({ clave, nombre, plataforma }: { clave: NombrePlatafo
           ? <span className="badge-green">Disponible</span>
           : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">{TEXTO_NO_DISPONIBLE}</span>}
       </div>
-      {ok ? (
+      {ok && rp ? (
         <>
+          <dl className="mt-3 space-y-2 pb-3 border-b border-slate-200">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <dt className="text-slate-500">Plan</dt>
+              <dd className="font-semibold text-slate-900 text-right">{rp.plan}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <dt className="text-slate-500">Límite</dt>
+              <dd className="font-semibold text-slate-900 text-right">{rp.limiteTexto}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <dt className="text-slate-500">{rp.etiquetaUso}</dt>
+              <dd className="font-semibold text-slate-900 text-right">{rp.usoTexto}</dd>
+            </div>
+            {rp.porcentaje !== null && (
+              <div className="text-sm">
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-slate-500">% del límite usado</dt>
+                  <dd className={`font-semibold text-right ${TEXTO_COLOR_NIVEL[rp.nivel]}`}>{formatPorcentaje(rp.porcentaje)}</dd>
+                </div>
+                <div className="mt-2">
+                  <BarraUso porcentaje={rp.porcentaje} nivel={rp.nivel} etiqueta={`% del límite usado en ${nombre}`} />
+                </div>
+                {aviso && (
+                  <p role={rp.nivel === 'critico' ? 'alert' : 'status'} className={`mt-1 text-xs font-semibold ${TEXTO_COLOR_NIVEL[rp.nivel]}`}>{aviso}</p>
+                )}
+              </div>
+            )}
+          </dl>
+          {rp.nota && <p className="mt-3 text-xs text-slate-500">{rp.nota}</p>}
           <dl className="mt-3 space-y-2">
             {campos.map(c => (
               <div key={c.clave} className="flex items-baseline justify-between gap-3 text-sm">
@@ -122,17 +175,6 @@ function TarjetaPlataforma({ clave, nombre, plataforma }: { clave: NombrePlatafo
               </div>
             ))}
           </dl>
-          {uso !== null && (
-            <div className="mt-3">
-              <div
-                role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uso}
-                aria-label={`Uso del límite en ${nombre}`} className="h-2 rounded-full bg-slate-200 overflow-hidden"
-              >
-                <div className={`h-full rounded-full ${uso >= 90 ? 'bg-red-500' : uso >= 75 ? 'bg-amber-500' : 'bg-teal-500'}`} style={{ width: `${uso}%` }} />
-              </div>
-              <p className="mt-1 text-xs text-slate-500">{uso} % del límite</p>
-            </div>
-          )}
           {notaPlataforma(clave, plataforma.datos) && (
             <p className="mt-3 text-xs text-slate-500">{notaPlataforma(clave, plataforma.datos)}</p>
           )}
@@ -290,7 +332,7 @@ export default function MonitorPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {PLATAFORMAS.map(({ clave, nombre }) => (
-                <TarjetaPlataforma key={clave} clave={clave} nombre={nombre} plataforma={resumen.plataformas[clave]} />
+                <TarjetaPlataforma key={clave} clave={clave} nombre={nombre} plataforma={resumen.plataformas[clave]} dias={resumen.contadores.dias} hoy={hoy} />
               ))}
             </div>
           </section>
