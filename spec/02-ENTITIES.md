@@ -83,11 +83,11 @@
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
 | fecha | Fecha (día UTC) | Sí | Día en que ocurrió el consumo |
-| métrica | Texto de lista fija | Sí | Llamadas, tokens de entrada y de salida de Claude; correos de Brevo enviados; mensajes de WhatsApp enviados y recibidos (CT-010) |
+| métrica | Texto de lista fija | Sí | Solo estos nombres (CT-010): `claude_llamadas`, `claude_tokens_entrada`, `claude_tokens_salida`, `brevo_correos_enviados`, `whatsapp_enviados`, `whatsapp_recibidos`, y `purga` (fila marcadora, no es consumo) |
 | origen | Texto de lista fija | Sí | `asistente` o `whatsapp` para Claude; `general` cuando no aplica |
 | cantidad | Entero | Sí | ≥ 0; se incrementa de forma atómica (varias escrituras simultáneas no pierden cuenta) |
 
-- **Reglas:** RLS activado (solo `service_role`); retención 90 días con purga oportunista al escribir (como mucho una vez al día); un fallo al escribirlo nunca rompe el flujo principal. **Estados:** ninguno (`04-STATES.md`). **Invariantes:** INV-036. **REQ:** F-018.
+- **Reglas:** RLS activado (solo `service_role`); retención 90 días (se borran filas con fecha < hoy − 90) con purga oportunista al escribir, como mucho una vez al día, con la marca de «última purga» en la propia tabla (fila `purga`/`general` del día) para soportar varias instancias; un fallo al escribirlo nunca rompe el flujo principal. **Estados:** ninguno (`04-STATES.md`). **Invariantes:** INV-036. **REQ:** F-018.
 
 ## Mapa de relaciones
 ```

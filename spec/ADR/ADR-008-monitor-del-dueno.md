@@ -42,6 +42,14 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   es byte a byte idéntico al 404 normal de una ruta inexistente de la API, para no delatar el prefijo `/monitor`
   (un 404 no se cachea de forma útil). Fijado por el coordinador por defecto seguro; el Dueño puede cambiarlo
   (CHG-017 §4, pregunta 15).
+- Preflight CORS (OPTIONS) fuera de INV-033: lo atiende el middleware CORS como en toda la API y responde igual en
+  cualquier ruta. HEAD cuenta como método no GET (no-Dueño 404, Dueño 405). La interfaz muestra el enlace «Monitor» con
+  el booleano `es_dueno` de `GET /users/me` (solo sobre el propio usuario; nunca el correo del dueño). Plazo total de
+  5 s por plataforma con `asyncio.wait_for`, consultas en paralelo (resumen < 6 s), fallos en caché 15 s; purga con
+  marca en la propia tabla (varias instancias); el 405 del Dueño cuenta para el límite. Provisional del coordinador;
+  el Dueño puede cambiarlo (CHG-017 §4, preguntas 16 a 20).
+- **Riesgo aceptado:** el camino 404 (no-Dueño, sin sesión) no tiene límite de frecuencia propio, para no crear
+  diferencias observables con el 404 normal; el límite de 20/min solo protege al Dueño confirmado y las cuotas externas.
 - Basta la sesión normal del dueño, sin reautenticar (aprobado, pregunta 4).
 - El acceso se concede por correo verificado: si se elimina la cuenta del dueño y otra persona registra ese correo y
   lo verifica, obtendría el acceso. Riesgo aceptado por el dueño (pregunta 5).

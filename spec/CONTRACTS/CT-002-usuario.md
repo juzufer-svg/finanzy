@@ -14,7 +14,8 @@ Estos errores comunes aplican a **todas** las rutas protegidas (CT-002 a CT-006)
 ante un 401 y no ante un 503.
 
 ## `GET /users/me` → 200
-Salida: `{ "id", "email", "full_name", "currency" }` (nunca incluye el hash de la contraseña).
+Salida: `{ "id", "email", "full_name", "currency", "es_dueno" }` (nunca incluye el hash de la contraseña).
+`es_dueno` (CHG-017, booleano): `true` solo si el correo de la sesión coincide con `OWNER_EMAIL` (misma comparación que INV-031: `strip().lower()` y `hmac.compare_digest`). Es `false` por defecto, si `OWNER_EMAIL` está vacío o ausente y si la comprobación falla por cualquier motivo (nunca provoca un error en `/users/me`). Solo informa a cada usuario sobre sí mismo; jamás devuelve el correo del dueño. La interfaz lo usa solo para mostrar u ocultar el enlace «Monitor»; la autorización real sigue en el backend (CT-010). Las salidas «igual que `GET /users/me`» de los `PUT` también lo incluyen.
 
 ## `PUT /users/me/currency` → 200
 Entrada: `{ "currency": "USD|EUR|MXN|ARS|COP|CLP" }` · Salida: igual que `GET /users/me`. Otro valor → 422.

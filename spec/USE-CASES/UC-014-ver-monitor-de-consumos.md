@@ -8,19 +8,22 @@
 `MONITOR_*_TOKEN` e ids de configuración.
 
 ## Flujo principal
-1. El Dueño abre la página «Monitor».
+1. El Dueño ve el enlace «Monitor» (la interfaz lo muestra solo si `es_dueno` es `true` en `GET /users/me`, CT-002) y abre la página `/dashboard/monitor`.
 2. La pantalla pide `GET /api/v1/monitor/resumen` con su sesión normal (sin reautenticar).
 3. El servidor comprueba que el correo de la sesión es el del Dueño (INV-031); hasta confirmarlo, cualquier fallo es 404.
 4. Ya confirmado, aplica el límite de frecuencia (20/min), lee los contadores propios (Claude, Brevo, WhatsApp, últimos
-   30 días) y consulta las seis plataformas con sus tokens (caché de 60 s por plataforma, timeout de 5 s).
+   30 días) y consulta las seis plataformas con sus tokens, todo en paralelo (caché de 60 s por plataforma, plazo total
+   de 5 s por plataforma, fallos en caché 15 s; el resumen responde en < 6 s en el peor caso).
 5. Responde con los contadores y el estado de cada plataforma; la pantalla muestra las cifras y marca «no disponible»
    las que no se pudieron leer. No hay botones de acción.
 
 ## Flujos alternos
 - Cualquier otro usuario, sin sesión, sesión inválida, **BD caída al verificar la sesión** o `OWNER_EMAIL` sin
-  configurar → 404 fail-closed (indistinguible, con cualquier método); la interfaz no muestra el enlace al Monitor a
-  quien no es Dueño y, si se entra por la dirección, muestra «no encontrada».
-- El Dueño usa un método distinto de GET → 405, sin efectos.
+  configurar → 404 fail-closed (indistinguible, con cualquier método salvo OPTIONS, que atiende el middleware CORS);
+  la interfaz no muestra el enlace al Monitor si `es_dueno` es `false` y, si se entra por la dirección, la página
+  `/dashboard/monitor` muestra «no encontrada» al recibir 404.
+- El Dueño usa un método distinto de GET (incluido HEAD) → 405 con `no-store`, sin efectos; cuenta para el límite.
+- Subruta inexistente bajo `/monitor/*` → 404 normal para cualquiera, con cualquier método.
 - Falta el token de una plataforma, o su API falla, tarda más de 5 s, redirige o devuelve datos no válidos → esa
   plataforma «no disponible»; las demás se muestran.
 - Sin contadores todavía → lista vacía («aún sin datos desde la activación»).

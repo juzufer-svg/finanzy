@@ -10,15 +10,21 @@
 | `GET /monitor/resumen` | Sesión (cookie → `Authorization`, igual que el resto de la API). Sin parámetros | 200 con el objeto de abajo, solo si el correo de la sesión es el de `OWNER_EMAIL` (INV-031) |
 
 No existen rutas de escritura ni de acciones. Regla por método sobre `/monitor/*` (INV-033):
-- **No-Dueño** (sin sesión, sesión inválida o cualquier usuario) con **cualquier** método (GET, POST, PUT, PATCH, DELETE, OPTIONS…) y sobre cualquier subruta de `/monitor/*` → **404 idéntico** al de una ruta inexistente (mismo cuerpo y mismas cabeceras).
-- **Dueño** con un método distinto de GET sobre una ruta del Monitor → **405**, sin ejecutar nada.
+- **No-Dueño** (sin sesión, sesión inválida o cualquier usuario) con **cualquier método distinto de OPTIONS** (GET, HEAD, POST, PUT, PATCH, DELETE…) sobre la ruta existente (`/monitor/resumen`) → **404 idéntico** al de una ruta inexistente (mismo cuerpo y mismas cabeceras). **HEAD cuenta como método distinto de GET.**
+- **Dueño** con un método distinto de GET (incluido HEAD) sobre la ruta existente → **405**, sin ejecutar nada, con `Cache-Control: no-store`.
+- **OPTIONS (preflight CORS)** queda **fuera** de INV-033: lo atiende el middleware CORS como en el resto de la API y responde igual en cualquier ruta, así que no revela nada. No se promete 404 idéntico para OPTIONS.
+- **Subrutas o rutas inexistentes** bajo `/monitor/*` (p. ej. `/monitor/no-existe`): **404 normal** de la API para cualquier usuario, incluido el Dueño, y con cualquier método (no 405). No se confirma al Dueño ni se aplica límite en ese camino. Prueba: la comparación del 404 se pide **sin sesión** y **con sesión de no-Dueño**.
+
+La interfaz decide si muestra el enlace «Monitor» con el campo booleano `es_dueno` de `GET /api/v1/users/me` (CT-002). La página `/dashboard/monitor` muestra «no encontrada» si el backend responde 404.
 
 ## Autorización (INV-031)
 En cada petición, en este orden, y **fail-closed**:
 1. `OWNER_EMAIL` vacío o ausente → 404.
 2. Sesión verificada (JWT válido, cuenta activa, versión de sesión) → cualquier fallo (sesión ausente o inválida, **BD caída al verificarla**) → 404.
 3. `correo_sesion.strip().lower()` y `OWNER_EMAIL.strip().lower()` se comparan con `hmac.compare_digest` sobre sus bytes; distintos → 404.
-4. Solo ahora se sabe que es el Dueño: se aplica el límite de frecuencia (429, INV-035) y se leen los contadores (503 si falla).
+4. Solo ahora se sabe que es el Dueño: se aplica el límite de frecuencia (429, INV-035; **cuentan también las peticiones que acaban en 405**), se comprueba el método (405 si no es GET) y se leen los contadores (503 si falla). Un no-Dueño que «supere» el límite recibe 404, nunca 429.
+
+El camino 404 (no-Dueño, sin sesión) **no tiene límite propio**: riesgo aceptado, anotado en ADR-008.
 
 El 404 tiene el mismo cuerpo que una ruta inexistente (`{"detail": "Not Found"}`); nunca 401/403/503 a quien no esté confirmado como Dueño, y el cuerpo no menciona el Monitor ni al Dueño. El 404 **no lleva `Cache-Control: no-store`** ni ninguna cabecera añadida por el Monitor (CHG-017 §4 pregunta 15). Prueba: se compara byte a byte (cuerpo y cabeceras, salvo `Date`) el 404 del no-Dueño con el de `GET /api/v1/no-existe` y con el de `GET /api/v1/monitor/no-existe`; ambos sin `no-store`.
 
@@ -49,19 +55,20 @@ El 404 tiene el mismo cuerpo que una ruta inexistente (`{"detail": "Not Found"}`
 }
 ```
 - Claves fijas de primer nivel: `generado_en`, `contadores` (`desde`, `dias`) y `plataformas`; las seis plataformas son `railway`, `anthropic`, `meta`, `supabase`, `vercel` y `brevo`.
-- `contadores.dias`: solo agregados por día UTC, **ventana fija de los últimos 30 días** (incluido hoy) aunque se retengan 90 (INV-036); orden ascendente; solo aparecen los días con al menos un contador (las métricas ausentes de un día presente valen 0). Sin datos aún → `dias: []`.
+- Todas las fechas-instante (`generado_en`, `actualizado_en`, instantes en `datos`) son UTC en ISO-8601 con sufijo `Z` (`YYYY-MM-DDTHH:MM:SSZ`); las fechas de día son `YYYY-MM-DD`.
+- `contadores.dias`: solo agregados por día UTC, **ventana fija de los últimos 30 días** (incluido hoy) aunque se retengan 90 (INV-036); orden ascendente; solo aparecen los días con al menos un contador. Dentro de un día presente, `claude.asistente` y `claude.whatsapp` están **siempre presentes** con `llamadas`, `tokens_entrada` y `tokens_salida` (ceros si no hubo), y `brevo_correos_enviados` y `whatsapp_mensajes.{enviados,recibidos}` valen 0 si no hubo. La fila marcadora de purga (métrica `purga`) nunca aparece. Sin datos aún → `dias: []`.
 - `contadores.desde`: fecha UTC (`YYYY-MM-DD`) del contador más antiguo **conservado** (no se limita a la ventana de 30 días); `null` si no hay ninguno. No hay histórico anterior a la activación.
 - `plataformas.<nombre>`: siempre las seis claves. `estado` ∈ `ok` | `no_disponible`. `datos` es un objeto plano que cumple el esquema de la tabla de abajo cuando `ok`, y `null` cuando `no_disponible`. `actualizado_en` = instante (UTC) de la consulta que originó el dato (puede ser de la caché), `null` si no disponible.
-- Una plataforma es `no_disponible` si falta su token `MONITOR_*_TOKEN` o su id de configuración, si la consulta falla, excede los 5 s, devuelve redirección, una respuesta no válida, o si tras filtrar no queda ningún campo válido. Nunca se devuelve el motivo detallado, un código de la plataforma, un mensaje de error de ella ni parte de una URL (INV-032). Un fallo no afecta a las demás.
+- Una plataforma es `no_disponible` si falta su token `MONITOR_*_TOKEN` o su id de configuración, si la consulta falla, excede el plazo **total** de 5 s (no solo el de una fase de la conexión), devuelve redirección, una respuesta no válida, o si tras filtrar no queda ningún campo válido. Nunca se devuelve el motivo detallado, un código de la plataforma, un mensaje de error de ella ni parte de una URL (INV-032). Un fallo no afecta a las demás.
 - Nunca aparecen: tokens, correo del Dueño, correos, teléfonos, textos, ids de usuario.
 
 ## Esquema de `datos` por plataforma (INV-032)
-Regla comprobable: `datos` es un objeto **plano** (sin anidar) cuyas **claves** están en la lista blanca de la plataforma y cuyos **valores** son solo (a) números finitos, (b) fechas ISO (`YYYY-MM-DD` o instante UTC) o (c) cadenas de la lista blanca del campo. Todo lo demás se descarta; si no queda ningún campo, la plataforma es `no_disponible`. Cada campo es opcional: lo que la API no entregue, se omite.
+Regla comprobable: `datos` es un objeto **plano** (sin anidar) cuyas **claves** están en la lista blanca de la plataforma y cuyos **valores** son solo (a) `int` o `float` finitos **no negativos** (nunca `bool`, que en Python es subclase de `int`; nunca negativos, NaN ni infinito), (b) fechas ISO (`YYYY-MM-DD` o instante UTC con `Z`) o (c) cadenas de la lista blanca del campo. Todo lo demás se descarta; si no queda ningún campo, la plataforma es `no_disponible`. Cada campo es opcional: lo que la API no entregue, se omite.
 
 | Plataforma | Campos permitidos (lista blanca) |
 |---|---|
 | `railway` | `costo_estimado_mes` (número), `uso_cpu_vcpu_horas` (número), `uso_memoria_gb_horas` (número), `moneda` (`USD`), `periodo_hasta` (fecha) |
-| `anthropic` | `no_disponible` salvo que `MONITOR_ANTHROPIC_TOKEN` sea una clave de administración (cuenta de organización): entonces `costo_mes` (número), `moneda` (`USD`), `tokens_entrada_mes` (número), `tokens_salida_mes` (número) |
+| `anthropic` | O bien `estado: no_disponible` (si `MONITOR_ANTHROPIC_TOKEN` no es una clave de administración de cuenta de organización, o la consulta falla), o bien `ok` con **solo** estos campos: `costo_mes` (número), `moneda` (`USD`), `tokens_entrada_mes` (número), `tokens_salida_mes` (número) |
 | `meta` | `conversaciones_periodo` (número), `periodo_desde` (fecha), `periodo_hasta` (fecha) |
 | `supabase` | `tamano_bd_bytes` (número), `limite_bd_bytes` (número) |
 | `vercel` | `plan` (`gratuito` \| `pro` \| `otro`), `ancho_banda_bytes` (número), `limite_ancho_banda_bytes` (número) |
@@ -72,14 +79,16 @@ Regla comprobable: `datos` es un objeto **plano** (sin anidar) cuyas **claves** 
 ## Errores
 | Código | Cuándo |
 |---|---|
-| 404 | No-Dueño con cualquier método; sin sesión o sesión inválida; BD caída al verificar la sesión; `OWNER_EMAIL` sin configurar (todos indistinguibles entre sí, INV-031/INV-033) |
-| 405 | **Solo el Dueño confirmado**, con un método distinto de GET (INV-033) |
-| 429 | **Solo el Dueño confirmado** excede el límite de frecuencia (INV-035) |
+| 404 | No-Dueño con cualquier método salvo OPTIONS; sin sesión o sesión inválida; BD caída al verificar la sesión; `OWNER_EMAIL` sin configurar (todos indistinguibles entre sí, INV-031/INV-033); además, cualquier usuario (Dueño incluido) y método sobre una ruta inexistente bajo `/monitor/*` |
+| 405 | **Solo el Dueño confirmado**, con un método distinto de GET (incluido HEAD) sobre la ruta existente (INV-033); cuenta para el límite |
+| 429 | **Solo el Dueño confirmado** excede el límite de frecuencia (INV-035); un no-Dueño nunca recibe 429 |
 | 503 | **Solo el Dueño confirmado**, y la BD de Supabase falla al leer los contadores (INV-013). Las plataformas externas **no** producen 503: se marcan `no_disponible` |
 
 ## Cabeceras
 - `Cache-Control: no-store` **solo** en las respuestas al Dueño confirmado: 200, 405, 429 y 503 (INV-035). El 404 (no-Dueño, sin sesión, BD caída al autorizar, `OWNER_EMAIL` sin configurar) **no** lleva `no-store`: es idéntico al 404 de una ruta inexistente de la API.
-- Valores fijos (configuración del servidor, no contrato con el cliente; el Dueño puede cambiarlos, CHG-017 §4 pregunta 6): caché en memoria de **60 s por plataforma**, **20 peticiones por minuto por Dueño**, timeout de **5 s por plataforma** (las plataformas se consultan en paralelo).
+- Valores fijos (configuración del servidor, no contrato con el cliente; el Dueño puede cambiarlos, CHG-017 §4 preguntas 6 y 16): caché en memoria de **60 s por plataforma**, **20 peticiones por minuto por Dueño** (cuentan 200, 405 y 429), plazo **total** de **5 s por plataforma** impuesto con `asyncio.wait_for` (no basta el timeout por fase de `httpx`).
+- Los **fallos** (`no_disponible`) se cachean **15 s** por plataforma (para no martillear una API caída ni gastar cuota).
+- Contadores y plataformas se consultan **en paralelo**. Tiempo máximo de `GET /monitor/resumen` en el peor caso (todas las plataformas lentas): **< 6 s**.
 
 ## Variables de entorno (nombres; sin valores)
 `OWNER_EMAIL`, `MONITOR_RAILWAY_TOKEN`, `MONITOR_ANTHROPIC_TOKEN`, `MONITOR_META_TOKEN`, `MONITOR_SUPABASE_TOKEN`,
@@ -90,12 +99,15 @@ configuración (INV-032, ADR-008). Los nombres exactos de los ids se fijan al im
 
 ## Contadores (escritos por el flujo normal, no por este endpoint)
 Entidad «Contador diario» (`02-ENTITIES.md`): fecha UTC, métrica, origen, cantidad; clave única (fecha, métrica, origen); incremento atómico.
-| Métrica | Origen | Se incrementa en |
+**Nombres de métrica fijos** (lista cerrada; cualquier otro se rechaza al escribir):
+| Métrica (nombre fijo) | Origen | Se incrementa en |
 |---|---|---|
-| Claude: llamadas, tokens de entrada y de salida | `asistente` / `whatsapp` | `utils/asistente.py::llamar_claude` |
-| Brevo: correos enviados con éxito | `general` | `utils/email.py::send_verification_email` (solo si Brevo aceptó el envío) |
-| WhatsApp: mensajes enviados | `general` | `utils/whatsapp.py::enviar` |
-| WhatsApp: mensajes recibidos | `general` | el webhook, **solo** mensajes de números enlazados con firma válida; los de números desconocidos y de firma inválida **no** se cuentan |
+| `claude_llamadas`, `claude_tokens_entrada`, `claude_tokens_salida` | `asistente` / `whatsapp` | `utils/asistente.py::llamar_claude` |
+| `brevo_correos_enviados` | `general` | `utils/email.py::send_verification_email` (solo si Brevo aceptó el envío) |
+| `whatsapp_enviados` | `general` | `utils/whatsapp.py::enviar` |
+| `whatsapp_recibidos` | `general` | el webhook, **solo** mensajes de números enlazados con firma válida; los de números desconocidos y de firma inválida **no** se cuentan |
+| `purga` (marcadora, no es consumo) | `general` | la purga oportunista (ver abajo); nunca se expone |
 
-Tabla con RLS, solo agregados por día, retención de 90 días con purga oportunista al escribir (como mucho una vez al
-día, sin tarea programada), y un fallo al contar nunca interrumpe el flujo (INV-036).
+Tabla con RLS, solo agregados por día, retención de 90 días y un fallo al contar nunca interrumpe el flujo (INV-036).
+
+**Purga (soporta varias instancias):** se borran las filas con `fecha < hoy − 90 días` (UTC). La marca de «última purga» vive en la propia tabla: la fila `(fecha = hoy, métrica = purga, origen = general)`. Al escribir un contador se intenta insertar esa fila; solo quien logra insertarla (la clave única impide que lo logren dos) ejecuta la purga ese día, sin tarea programada ni estado en memoria. Las marcas antiguas se purgan con el mismo criterio.
