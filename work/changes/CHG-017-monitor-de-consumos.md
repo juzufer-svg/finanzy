@@ -49,6 +49,10 @@ REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, I
 ## 6. Plan de tareas
 | Tarea | Alcance | Depende de | Estado | Ciclos |
 |---|---|---|---|---|
+| T1 | Migración SQL `contadores_diarios` (RLS, clave única) + `backend/sql/pruebas/06_comprobar_monitor.sql` + modelo/utilidad de contadores (nunca rompe el flujo) + ganchos en `llamar_claude`, `send_verification_email`, `enviar` y webhook | spec | pendiente | 0 |
+| T2 | Config (`OWNER_EMAIL`, `MONITOR_*`), clientes de plataformas (Railway, Anthropic, Meta, Supabase, Vercel, Brevo), ruta `GET /monitor/resumen`, `es_dueno` en `/users/me`, `tests/test_monitor.py` | T1 | pendiente | 0 |
+| T3 | Frontend: página `/dashboard/monitor`, enlace condicional por `es_dueno`, proxy, pruebas | T2 | pendiente | 0 |
+| T4 | Validación completa, revisión independiente, trazabilidad, docs de despliegue | T1-T3 | pendiente | 0 |
 
 ## 7. Registro de ejecución
 | Fecha | Agente | Acción | Resultado / evidencia |
