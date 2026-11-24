@@ -1,6 +1,6 @@
 # CT-003 — Transacciones `/api/v1/transacciones`
 
-- **Versión:** v1.1 (CHG-007: `medio_pago`, campo nuevo y opcional; compatible con clientes anteriores) · **UC:** UC-004, UC-008 · **REQ:** F-004, F-005, F-010
+- **Versión:** v1.2 (CHG-007: `medio_pago`; CHG-019 fase a: `cuenta_id`, campo nuevo y opcional; compatibles con clientes anteriores) · **UC:** UC-004, UC-008 · **REQ:** F-004, F-005, F-010
 - **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica al propietario del registro (INV-001).
 
 Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no existe o es de otro usuario) · 422 validación.
@@ -13,14 +13,21 @@ Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no e
   "descripcion": "texto ≤ 255 — opcional",
   "fecha": "YYYY-MM-DD (INV-005)",
   "tipo": "ingreso | gasto (INV-004)",
-  "medio_pago": "debito | credito | efectivo | transferencia | nequi_daviplata | null — opcional (INV-022)"
+  "medio_pago": "debito | credito | efectivo | transferencia | nequi_daviplata | null — opcional (INV-022)",
+  "cuenta_id": "uuid ≤ 64 — opcional (CHG-019, fase a): null/ausente = sin cuenta; debe ser una cuenta del usuario (INV-046) y no estar archivada; monto ≤ 9 999 999 999,99 con cuenta (INV-051)"
 }
 ```
-Salida: `{ "id", "usuario_id", "categoria_id", "monto", "descripcion", "fecha", "tipo", "medio_pago" }`
+Salida: `{ "id", "usuario_id", "categoria_id", "monto", "descripcion", "fecha", "tipo", "medio_pago", "cuenta_id" }`
 (`medio_pago` es `null` en transacciones sin medio: las anteriores a CHG-007 y los abonos a metas).
 
 `medio_pago` en `PUT`: si no se envía, se conserva el actual; `null` lo quita; otro valor lo reemplaza.
 Un valor fuera de la lista → 422.
+
+`cuenta_id` (CHG-019): las transacciones anteriores salen con `null` y **no mueven ningún saldo**. En `PUT`, igual que `medio_pago`:
+no enviar = conservar; `null` = quitar; otro valor = reemplazar. Errores propios: **404** «Cuenta no encontrada» (no es suya o no
+existe, INV-046); **409** «Saldo insuficiente…» si el movimiento dejaría una cuenta que no es tarjeta de crédito en negativo, o
+«La cuenta … está archivada…» (INV-048, INV-050); en ambos casos no se guarda nada. Ver CT-012. Las transferencias entre cuentas
+**no** son transacciones: no salen en `GET /transacciones` ni en `resumen/{mes}` (INV-049).
 
 | Endpoint | Respuesta | Errores propios |
 |---|---|---|

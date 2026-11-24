@@ -1,6 +1,6 @@
 # CT-009 — WhatsApp `/api/v1/whatsapp`
 
-- **Versión:** v1 (CHG-014) · **UC:** UC-013 · **REQ:** F-017 · **ADR:** ADR-007 · **INV:** INV-029, INV-030
+- **Versión:** v1.1 (CHG-014; CHG-019 fase c: cuenta nombrada por el usuario) · **UC:** UC-013 · **REQ:** F-017 · **ADR:** ADR-007 · **INV:** INV-029, INV-030
 
 ## Webhook de Meta (sin sesión; lo llama Meta directamente al backend)
 | Endpoint | Entrada | Respuesta |
@@ -43,3 +43,10 @@ hoy) · categoría: solo una propia del mismo tipo, por nombre sin tildes ni may
 medio de pago de la lista de INV-022 (si no, sin especificar) · descripción ≤ 255 · máximo 10 movimientos por
 mensaje; si uno es inválido no se guarda ninguno. Deshacer/corregir: solo el último mensaje que registró algo por
 WhatsApp, de las últimas 24 h, y solo transacciones del mismo usuario.
+
+## Cuentas de dinero en WhatsApp (CHG-019, fase c)
+La herramienta de la IA que crea movimientos admite un campo opcional `cuenta` (**nombre**) que la IA solo debe rellenar si la persona
+nombró la cuenta. El backend la busca entre las **cuentas activas del usuario del número enlazado** (sin distinguir mayúsculas ni tildes)
+y valida saldo y archivada con las mismas reglas de la app (INV-029, INV-048); si no se nombra, el movimiento queda **sin cuenta**; si
+se nombra y no existe, está archivada o no alcanza el saldo, **no se registra nada** y la respuesta lo explica. A Claude se le envían
+solo los nombres de las cuentas activas (sin ids ni saldos). WhatsApp **no** crea transferencias.

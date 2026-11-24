@@ -42,3 +42,5 @@ Efectos: guarda el nuevo hash bcrypt y sube `session_version` (el token nuevo us
 ## `DELETE /users/me` → 204
 Elimina la cuenta y, por cascada, todas sus categorías, transacciones, presupuestos y metas. Irreversible.
 La confirmación (escribir el correo) se exige en la interfaz.
+
+**Notas de CHG-019 y CHG-020 sobre `DELETE /users/me`:** el borrado en cascada incluye las cuentas de dinero y las transferencias del usuario (INV-021, INV-050; el disparador de saldo no bloquea la cascada) y, después del borrado, se limpian sus intentos de login y códigos pendientes por huella (INV-040; si la limpieza falla, la baja no se revierte). `POST /users/me/password` puede responder **503** si falla el estado de autenticación (CT-001, INV-039).

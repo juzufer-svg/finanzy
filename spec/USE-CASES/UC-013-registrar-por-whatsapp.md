@@ -19,3 +19,4 @@ WhatsApp configurado en el servidor (docs/WHATSAPP.md) y el número enlazado con
 - Número no enlazado → se ignora (sin costo).
 - Error del servidor a mitad del registro → no se guarda nada y se avisa (o, si no se pudo revertir, se avisa que revise en la app).
 - Cambiar o restablecer la contraseña → el número se desconecta; se vuelve a conectar desde Perfil.
+- Cuenta de dinero (CHG-019, fase c): se usa solo si el usuario la nombra y existe entre sus cuentas activas con saldo suficiente; si no la nombra, queda sin cuenta; si la nombra y no existe o no alcanza, no se registra nada y se explica (INV-029, INV-052). WhatsApp no crea transferencias.

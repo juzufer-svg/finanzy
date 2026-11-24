@@ -14,7 +14,7 @@
 | moneda | Código de moneda | Sí | USD, EUR, MXN, ARS, COP, CLP |
 | activa | Booleano | Sí | Ver estados |
 
-- **Relaciones:** Usuario 1—N Categoría, Transacción, Presupuesto, Meta (borrado en cascada).
+- **Relaciones:** Usuario 1—N Categoría, Transacción, Presupuesto, Meta, Cuenta de dinero, Transferencia (borrado en cascada).
 - **Estados:** `04-STATES.md` → Usuario. **Invariantes:** INV-006, INV-014, INV-015. **REQ:** F-001, F-002, F-003, F-013, F-014.
 
 ## Categoría
@@ -41,8 +41,10 @@
 | tipo | Tipo de transacción | Sí | INV-004 |
 | fecha | Fecha | Sí | INV-005 |
 | descripción | Texto | No | ≤ 255 caracteres |
+| cuenta de dinero (CHG-019) | Cuenta de dinero | No | `cuenta_id`; NULL = sin cuenta (las anteriores a CHG-019). Si se indica, es del usuario y no está archivada (INV-046, INV-050); mueve el saldo de esa cuenta (INV-047, INV-048); con cuenta, monto ≤ 9 999 999 999,99 (INV-051) |
 
-- **REQ:** F-004, F-005, F-010.
+- **Nota:** el medio de pago (CHG-007) y la cuenta de dinero son independientes: uno dice cómo se pagó, la otra dónde está el dinero.
+- **REQ:** F-004, F-005, F-010, F-020.
 
 ## Presupuesto
 - **Identidad:** `id` (UUID).
@@ -71,10 +73,48 @@
 - **Derivado:** porcentaje completado = ahorrado / objetivo × 100; completada si ahorrado ≥ objetivo.
 - **Estados:** `04-STATES.md` → Meta. **Invariantes:** INV-008. **REQ:** F-008, F-009.
 
-## Código de verificación (transitorio, en memoria)
-- **Identidad:** propósito + correo (`correo` para verificar cuenta, `reset:correo` para restablecer).
-- **Atributos:** valor (6 dígitos), vencimiento (10 min), intentos fallidos.
-- **Estados:** `04-STATES.md` → Código. **Invariantes:** INV-007, INV-010.
+## Código de verificación (persistido en PostgreSQL desde CHG-020)
+- **Identidad:** (huella del correo, propósito) — `verify` para verificar la cuenta, `reset` para restablecer la contraseña; uno vigente por correo y propósito.
+- **Atributos:** huella HMAC del código (nunca el valor en claro, INV-040), emisión y vencimiento (10 min), intentos fallidos (máx. 5).
+- **Reglas:** RLS sin políticas, solo `service_role`; verificación y consumo atómicos (INV-038); se purga a los 30 días y se borra con la cuenta (INV-040). Sin Supabase y fuera de producción, en memoria (INV-041).
+- **Estados:** `04-STATES.md` → Código. **Invariantes:** INV-007, INV-010, INV-037 a INV-041. **REQ:** F-001, F-003.
+
+## Intento de login (CHG-020)
+- **Identidad:** huella HMAC del correo. No pertenece a un Usuario por llave foránea (existe también para correos inexistentes, INV-009).
+- **Atributos:** fallos en la ventana (0-5), inicio de la ventana de 15 min, bloqueado hasta. **Estados:** `04-STATES.md` → Bloqueo de login.
+- **Reglas:** el intento se reserva antes de comprobar la contraseña (INV-038); RLS sin políticas; purga a 30 días; se borra al eliminar la cuenta. **Invariantes:** INV-010, INV-037 a INV-041. **REQ:** F-002, F-014 (CA-3).
+
+## Evento de límite (CHG-020)
+- **Identidad:** id; clave = huella HMAC de `tipo:valor` (IP, correo destinatario o `global`) y hora del evento.
+- **Descripción:** una fila por correo enviado, pedido de código o intento de credenciales/códigos, para las ventanas deslizantes de INV-010 (10/día por destinatario, 250/día total, 10/hora por IP, 30/10 min por IP). Sin correos ni IP en claro. Purga a 30 días; no se borra con la cuenta (INV-040). **REQ:** N-002.
+
+## Cuenta de dinero (CHG-019)
+- **Identidad:** `id` (UUID); nombre único por usuario (sin distinguir mayúsculas ni espacios).
+
+| Atributo | Tipo | Obligatorio | Regla |
+|---|---|---|---|
+| usuario | Usuario | Sí | Propietario del registro (INV-001, INV-046) |
+| nombre | Texto | Sí | 1-100 caracteres; único por usuario (INV-050) |
+| tipo | Enumeración | Sí | `efectivo`, `ahorros_corriente`, `billetera_digital`, `tarjeta_credito`; no editable |
+| saldo inicial | Monto | Sí | 2 decimales, ≤ 9 999 999 999,99; negativo solo en `tarjeta_credito` (INV-051) |
+| archivada | Booleano | Sí | Una archivada está congelada (INV-050) |
+
+- **Derivado (no persistido):** saldo = saldo inicial + ingresos − gastos + transferencias recibidas − enviadas, en COP, de todos los movimientos con esa cuenta (INV-047). Solo la tarjeta de crédito puede quedar en negativo (INV-048). Máximo 20 por usuario. Una cuenta con movimientos no se elimina, se archiva.
+- **Relaciones:** Cuenta 1—N Transacción (opcional, `cuenta_id`), 1—N Recurrente (opcional, fase c), 1—N Transferencia (como origen y como destino).
+- **Estados:** `04-STATES.md` → Cuenta de dinero. **Invariantes:** INV-046 a INV-052, INV-021. **REQ:** F-020. Es una cuenta **manual**: no hay conexión con bancos.
+
+## Transferencia entre cuentas (CHG-019)
+- **Identidad:** `id` (UUID).
+
+| Atributo | Tipo | Obligatorio | Regla |
+|---|---|---|---|
+| usuario | Usuario | Sí | Propietario del registro (INV-001) |
+| cuenta origen / cuenta destino | Cuenta de dinero | Sí | Del usuario, distintas y activas (INV-046, INV-049, INV-050) |
+| monto | Monto | Sí | > 0, ≤ 9 999 999 999,99, 2 decimales (INV-051) |
+| fecha | Fecha | Sí | INV-005 |
+| descripción | Texto | No | ≤ 255 caracteres |
+
+- **Reglas:** sin comisión; **no es ingreso ni gasto** (no está en `transacciones`: no cuenta en resumen, presupuestos, reportes, asistente ni exportación); mueve los dos saldos a la vez o ninguno; se crea y se elimina, no se edita (INV-049). **REQ:** F-020.
 
 ## Contador diario (CHG-017)
 - **Identidad:** (fecha, métrica, origen) — clave única. No pertenece a ningún Usuario.
@@ -95,5 +135,8 @@ Usuario 1—N Categoría 1—N Transacción
 Usuario 1—N Transacción
 Usuario 1—N Presupuesto N—1 Categoría
 Usuario 1—N Meta  (un Abono crea 1 Transacción de gasto en la Categoría "Ahorro")
+Usuario 1—N Cuenta de dinero 1—N Transacción (opcional)
+Usuario 1—N Transferencia N—1 Cuenta de dinero (origen) y N—1 Cuenta de dinero (destino)
+Intento de login, Código y Evento de límite: claves por huella HMAC, sin llave foránea a Usuario (INV-040)
 Contador diario: sin relación con Usuario (solo agregados)
 ```

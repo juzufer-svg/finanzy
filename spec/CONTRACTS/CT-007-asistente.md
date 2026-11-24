@@ -1,6 +1,6 @@
 # CT-007 — Asistente `/api/v1/asistente`
 
-- **Versión:** v1 · **UC:** UC-011 · **REQ:** F-015 · **ADR:** ADR-006
+- **Versión:** v1.1 (CHG-019 fase c: herramienta `cuentas_y_saldos`) · **UC:** UC-011 · **REQ:** F-015 · **ADR:** ADR-006
 - **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002).
 
 | Endpoint | Entrada | Respuesta | Errores propios |
@@ -12,7 +12,7 @@
 2. Aplica los límites (INV-024) y envía la pregunta + historial + herramientas a la API de Claude.
 3. Claude pide herramientas de **solo lectura**; el backend las ejecuta con el `usuario_id` del token (INV-023):
    `resumen_mes`, `movimientos_principales`, `totales_por_categoria`, `totales_por_medio_pago`,
-   `buscar_movimientos`, `metas_ahorro`. Una herramienta desconocida o con datos inválidos devuelve un error a Claude, no al usuario.
+   `buscar_movimientos`, `metas_ahorro` y, desde CHG-019 fase c, `cuentas_y_saldos` (nombre, tipo, saldo y si está archivada; sin ids hacia Claude; solo lectura, INV-023, INV-052). Las transferencias entre cuentas no cuentan como ingresos ni gastos en ninguna herramienta (INV-049). Una herramienta desconocida o con datos inválidos devuelve un error a Claude, no al usuario.
 4. Como mucho 5 llamadas a Claude por pregunta; la última se hace sin herramientas para obligar a responder.
 5. El historial se normaliza: se descartan mensajes del asistente al inicio y se unen dos seguidos del mismo rol.
 6. La conversación no se guarda en la base de datos.

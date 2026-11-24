@@ -1,6 +1,6 @@
 # CT-001 — Autenticación `/api/v1/auth/*`
 
-- **Versión:** v1 · **UC:** UC-001, UC-002, UC-003 · **REQ:** F-001, F-002, F-003
+- **Versión:** v1.1 (CHG-020: 503 por fallo del estado de autenticación; sin otros cambios de cuerpo ni de códigos) · **UC:** UC-001, UC-002, UC-003 · **REQ:** F-001, F-002, F-003 · **ADR:** ADR-010 · **INV:** INV-037 a INV-041
 - **Permiso requerido:** ninguno (visitante). Todos sujetos a límites por IP (INV-010).
 - Errores de validación de formato: **422** (FastAPI). Límite superado: **429** con `detail` legible.
 - **Navegador (ADR-005):** el navegador habla con el proxy de Next.js (`/api/v1/*`), nunca con el backend. Toda
@@ -12,6 +12,14 @@
   Un 401 de `auth/*` (p. ej. contraseña mala) no borra la cookie. El proxy solo reenvía `Content-Type` del backend
   y depende de Vercel para la IP real (`x-forwarded-for`).
   Sin cookie, toda ruta protegida responde **401** «Tu sesión ya no es válida. Inicia sesión de nuevo.»
+  (CHG-018: para las descargas de `exportaciones/*`, CT-011, el proxy reenvía además `Content-Disposition` y `Cache-Control`
+  y entrega el cuerpo binario sin convertirlo a texto; el resto de rutas sigue reenviando solo `Content-Type`.)
+- **Estado de autenticación persistente (CHG-020, ADR-010):** los bloqueos de login, los códigos y los límites de envío
+  y de intentos viven en PostgreSQL (INV-037) y sobreviven a despliegues. **Nuevo error común a `register`, `verify-email`,
+  `resend-code`, `login`, `forgot-password`, `reset-password` y `POST /users/me/password` (CT-002): 503**
+  «Servicio no disponible. Intenta de nuevo en unos minutos.» cuando la BD de estado falla o tarda más de 5 s (fail-closed,
+  INV-039; también para los límites por IP). Nunca devuelve 200/400/401 en ese caso y es idéntico exista o no la cuenta
+  (INV-009). Los números de los límites y los textos de 429/400/401 **no cambian**. En producción sin Supabase: 503.
 
 ## `POST /register` → 201
 Entrada: `{ "email": "Email", "full_name": "texto 2-100", "password": "texto 8-128" }` (INV-018)

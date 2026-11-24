@@ -1,6 +1,6 @@
 # CT-008 — Recurrentes `/api/v1/recurrentes`
 
-- **Versión:** v1 (CHG-012) · **UC:** UC-012 · **REQ:** F-016
+- **Versión:** v1.1 (CHG-012; CHG-019 fase c: `cuenta_id` opcional) · **UC:** UC-012 · **REQ:** F-016
 - **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica al propietario del registro (INV-001).
 - **Regla central (INV-025):** una recurrente nunca crea transacciones sola. Solo `confirmar` registra una transacción.
 
@@ -14,6 +14,7 @@ Salida (recurrente): `{ "id", "usuario_id", "categoria_id", "tipo", "monto", "de
   "monto": "número > 0 y ≤ 1e12 (INV-003)",
   "descripcion": "texto ≤ 255 — opcional",
   "medio_pago": "igual que en CT-003 — opcional (INV-022)",
+  "cuenta_id": "uuid — opcional (CHG-019 fase c); debe ser del usuario (404 «Cuenta no encontrada»; INV-046)",
   "frecuencia": "mensual | quincenal | semanal",
   "proxima_fecha": "YYYY-MM-DD exacta (primera fecha al crear; próxima al editar). Una fecha inexistente → 422 «Fecha inválida (YYYY-MM-DD)»",
   "activa": "booleano — opcional (por defecto true)"
@@ -38,3 +39,8 @@ la fecha son los enviados o, si no se envían, el monto de la plantilla y la fec
 - `semanal`: + 7 días.
 - `mensual`: el `dia_ancla` del mes siguiente; si el mes no lo tiene, su último día (31 → 28/29 feb → 31 mar).
 - `quincenal`: dos veces al mes, en el día `a = dia_ancla` (si ≤ 15) o `dia_ancla − 15`, y en `a + 15`, ajustados al último día del mes.
+
+## Cuenta en las recurrentes (CHG-019, fase c)
+La recurrente guarda `cuenta_id` opcional y la salida lo incluye. `POST /recurrentes/{id}/confirmar` acepta `cuenta_id` opcional que
+reemplaza al de la plantilla (`null` = sin cuenta). La transacción se crea con esa cuenta. Si la cuenta está archivada o no tiene saldo
+(409, INV-048), **no se crea la transacción y la próxima fecha no avanza** (INV-025, INV-026, INV-052). Omitir no toca ningún saldo.

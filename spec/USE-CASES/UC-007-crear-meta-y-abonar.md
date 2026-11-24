@@ -15,6 +15,7 @@
 ## Flujos alternativos / excepciones
 - 2a. Meta inexistente o ajena → 404 y no se registra ningún gasto.
 - 3a. Falla la actualización de la meta → se revierte el gasto (500).
+- 2b. (CHG-019, fase c) El abono puede indicar una cuenta de origen (UC-016): sin saldo suficiente → 409 y no se registra el gasto ni se suma a la meta (INV-008, INV-052).
 
 ## Reglas de negocio
 - La meta está completada cuando lo ahorrado ≥ objetivo.
