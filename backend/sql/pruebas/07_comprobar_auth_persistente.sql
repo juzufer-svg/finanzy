@@ -6,7 +6,7 @@
 do $$
 declare n bigint; t text; f text;
   cols_esperadas jsonb := jsonb_build_object(
-    'auth_login_intentos', 'actualizado_en,bloqueado_hasta,clave,en_vuelo,fallos,ventana_inicio',
+    'auth_login_intentos', 'actualizado_en,bloqueado_hasta,clave,en_vuelo,fallos,ultima_reserva,ventana_inicio',
     'auth_codigos', 'clave,codigo_hmac,emitido_en,expira_en,intentos,proposito',
     'auth_limites_eventos', 'clave,id,ocurrido_en,tipo');
   funciones text[] := array[
@@ -17,7 +17,7 @@ declare n bigint; t text; f text;
     'public.auth_codigo_verificar(text,text,text,integer,timestamptz)',
     'public.auth_limite_registrar(text,text,integer,integer,timestamptz)',
     'public.auth_borrar_de_cuenta(text)',
-    'public.auth_purgar(timestamptz)'];
+    'public.auth_purgar(timestamptz,integer)'];
 begin
   foreach t in array array['auth_login_intentos', 'auth_codigos', 'auth_limites_eventos'] loop
     select count(*) into n from pg_tables where schemaname = 'public' and tablename = t and rowsecurity;
@@ -157,6 +157,43 @@ begin
   if not r.permitido or r.bloqueado_hasta is not null then raise exception 'tras la 5.ª que acierta el correo debía quedar libre'; end if;
   delete from public.auth_login_intentos;
 
+  -- I-1: una reserva que nunca se resolvió (despliegue, plazo vencido, ejecutor lleno) no impide que un login correcto
+  -- reinicie la serie pasados 10 s: la serie se borra y hacen falta 5 fallos NUEVOS para bloquear
+  perform public.auth_login_reservar(k, 5, 86400, 900, b);                                  -- huérfana: nunca se resuelve
+  select * into f from public.auth_login_intentos where clave = k;
+  if f.en_vuelo <> 1 or f.ultima_reserva <> b then raise exception 'la reserva debía quedar en vuelo con su hora (%, %)', f.en_vuelo, f.ultima_reserva; end if;
+  perform public.auth_login_reservar(k, 5, 86400, 900, b + interval '30 seconds');          -- el login correcto
+  select * into f from public.auth_login_intentos where clave = k;
+  if f.fallos <> 2 or f.en_vuelo <> 1 then raise exception 'la huérfana de hace 30 s no debía contar en vuelo (fallos %, en_vuelo %)', f.fallos, f.en_vuelo; end if;
+  perform public.auth_login_resolver(k, true, 5, b + interval '31 seconds');
+  select count(*) into n from public.auth_login_intentos where clave = k;
+  if n <> 0 then raise exception 'con una huérfana de hace más de 10 s el login correcto debía borrar la serie'; end if;
+  for i in 1..4 loop
+    select * into r from public.auth_login_reservar(k, 5, 86400, 900, b + interval '40 seconds' + (i || ' seconds')::interval);
+    perform public.auth_login_resolver(k, false, 5, b + interval '40 seconds' + (i || ' seconds')::interval);
+    if r.bloqueado_hasta is not null then raise exception 'la serie nueva bloqueó antes del 5.º fallo (%)', i; end if;
+  end loop;
+  select * into r from public.auth_login_reservar(k, 5, 86400, 900, b + interval '45 seconds');
+  if r.bloqueado_hasta is null then raise exception 'cinco fallos nuevos debían bloquear'; end if;
+  delete from public.auth_login_intentos;
+  -- Antes de 10 s (y a los 10 s exactos) la reserva sigue en vuelo: el login correcto NO borra los fallos de otras peticiones
+  perform public.auth_login_reservar(k, 5, 86400, 900, b);
+  perform public.auth_login_reservar(k, 5, 86400, 900, b + interval '2 seconds');
+  perform public.auth_login_resolver(k, true, 5, b + interval '12 seconds');                -- 10 s exactos tras la última reserva
+  select * into f from public.auth_login_intentos where clave = k;
+  if f.fallos <> 1 or f.en_vuelo <> 1 then raise exception 'a los 10 s exactos seguía en vuelo (fallos %, en_vuelo %)', f.fallos, f.en_vuelo; end if;
+  -- Una reserva resuelta a destiempo (más de 10 s después de la última): la huérfana no cuenta y la serie se borra
+  perform public.auth_login_reservar(k, 5, 86400, 900, b + interval '13 seconds');
+  perform public.auth_login_resolver(k, true, 5, b + interval '24 seconds');
+  select count(*) into n from public.auth_login_intentos where clave = k;
+  if n <> 0 then raise exception 'resolver con reservas de hace más de 10 s debía borrar la serie'; end if;
+  -- Un fallo resuelto tarde solo baja en_vuelo a 0 y conserva el fallo contado
+  perform public.auth_login_reservar(k, 5, 86400, 900, b);
+  perform public.auth_login_resolver(k, false, 5, b + interval '60 seconds');
+  select * into f from public.auth_login_intentos where clave = k;
+  if f.fallos <> 1 or f.en_vuelo <> 0 then raise exception 'resolver(false) tardío: fallos %, en_vuelo %', f.fallos, f.en_vuelo; end if;
+  delete from public.auth_login_intentos;
+
   -- Resolver sin fila no falla; el contador de en_vuelo nunca baja de 0
   perform public.auth_login_resolver('k_inexistente', true, 5, b);
   perform public.auth_login_reservar(k, 5, 86400, 900, b);
@@ -289,14 +326,16 @@ begin
   begin perform public.auth_codigo_emitir('', 'verify', 'h'); raise exception 'clave vacía aceptada';
   exception when raise_exception then if sqlerrm <> 'parámetros inválidos' then raise; end if; end;
 
-  -- La emisión purga de forma oportunista (marca vencida + filas viejas)
+  -- I-4: la emisión NO purga (la purga es una llamada aparte): ni con la marca vencida ni con filas viejas
   delete from public.auth_codigos; delete from public.auth_limites_eventos;
   insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) values ('purga', 'purga', b - interval '2 days'), ('viejo', 'correo', b - interval '3 days');
   perform public.auth_codigo_emitir('p1', 'verify', 'a', 60, 10, 250, 86400, 600, b);
   select count(*) into n from public.auth_limites_eventos where clave = 'viejo';
-  if n <> 0 then raise exception 'la emisión no purgó el evento de 3 días'; end if;
+  if n <> 1 then raise exception 'la emisión no debe purgar (el evento de 3 días desapareció)'; end if;
+  select count(*) into n from public.auth_limites_eventos where clave = 'purga' and ocurrido_en = b - interval '2 days';
+  if n <> 1 then raise exception 'la emisión no debe tocar la marca de purga'; end if;
   delete from public.auth_codigos; delete from public.auth_limites_eventos;
-  raise notice 'OK: códigos: emitir (60 s, topes, reemplazo, purga) y verificar (un solo uso, 5 intentos, vigencia, propósito)';
+  raise notice 'OK: códigos: emitir (60 s, topes, reemplazo, sin purga) y verificar (un solo uso, 5 intentos, vigencia, propósito)';
 end $$;
 
 -- 4. Límites por IP (ventana deslizante) y tope de filas
@@ -330,18 +369,36 @@ begin
   begin perform public.auth_limite_registrar('purga', 'ip_intento', 3, 600, b); raise exception 'la clave purga fue aceptada';
   exception when raise_exception then if sqlerrm <> 'parámetros inválidos' then raise; end if; end;
 
-  -- Tope de 500 000 filas: por encima responde 'lleno'; en el tope exacto todavía registra
+  -- Tope de 500 000 filas VIGENTES (B-1): las filas vencidas (más de 2 días) no cuentan; las vigentes sí
   delete from public.auth_limites_eventos;
   insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
-    select 'relleno' || g, 'ip_intento', b from generate_series(1, 499999) g;
-  if public.auth_limite_registrar('nueva1', 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'con 499 999 filas debía registrar'; end if;   -- ahora 500 000
-  if public.auth_limite_registrar('nueva2', 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'con 500 000 filas aún debía registrar'; end if;   -- ahora 500 001
-  if public.auth_limite_registrar('nueva3', 'ip_intento', 30, 600, b) <> 'lleno' then raise exception 'por encima de 500 000 debía responder lleno'; end if;
+    select 'viejo' || g, 'ip_intento', b - interval '3 days' from generate_series(1, 500001) g;
+  if public.auth_limite_registrar('nueva0', 'ip_intento', 30, 600, b) <> 'ok' then
+    raise exception 'con 500 001 filas de hace 3 días debía registrar (las vencidas no cuentan para el tope)';
+  end if;
+  select count(*) into n from public.auth_limites_eventos where ocurrido_en < b - interval '2 days';
+  if n <> 500001 then raise exception 'lejos del tope no debía purgar (quedan % vencidas)', n; end if;
+  -- 499 999 vigentes en total (nueva0 + 499 998): aún cabe; en el tope exacto (500 000) todavía registra; por encima, 'lleno'.
+  -- Cerca del tope (450 000 o más vigentes) cada llamada libera un lote de 5 000 filas vencidas sin bloquear
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en)
+    select 'relleno' || g, 'ip_intento', b from generate_series(1, 499998) g;
+  if public.auth_limite_registrar('nueva1', 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'con 499 999 vigentes debía registrar'; end if;   -- ahora 500 000
+  if public.auth_limite_registrar('nueva2', 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'con 500 000 vigentes aún debía registrar'; end if;   -- ahora 500 001
+  if public.auth_limite_registrar('nueva3', 'ip_intento', 30, 600, b) <> 'lleno' then raise exception 'con 500 001 vigentes debía responder lleno'; end if;
   if public.auth_limite_registrar('nueva1', 'ip_intento', 1, 600, b) <> 'limitado' then raise exception 'una clave ya en el límite sigue limitada'; end if;
+  select count(*) into n from public.auth_limites_eventos where ocurrido_en < b - interval '2 days';
+  if n <> 500001 - 3 * 5000 then raise exception 'cerca del tope cada llamada debía liberar 5 000 vencidas (quedan %)', n; end if;
+  select count(*) into n from public.auth_limites_eventos where ocurrido_en >= b - interval '2 days';
+  if n <> 500001 then raise exception 'la purga por lotes no debe tocar filas vigentes (hay %)', n; end if;
+  -- Recuperación: al vencer las filas vigentes (pasan más de 2 días) la tabla vuelve a aceptar eventos sin esperar a una purga
+  if public.auth_limite_registrar('nueva4', 'ip_intento', 30, 600, b + interval '3 days') <> 'ok' then
+    raise exception 'pasados 2 días las filas dejan de contar y debía registrar';
+  end if;
   delete from public.auth_limites_eventos;
   if public.auth_limite_registrar('nueva3', 'ip_intento', 30, 600, b) <> 'ok' then raise exception 'vaciada la tabla debía registrar'; end if;
+  -- El límite por clave sigue usando solo su propia ventana
   delete from public.auth_limites_eventos;
-  raise notice 'OK: límites por IP: ventana deslizante, números de INV-010 y tope de 500 000 filas';
+  raise notice 'OK: límites por IP: ventana deslizante, números de INV-010 y tope de 500 000 filas vigentes';
 end $$;
 
 -- 5. Baja de cuenta y purga
@@ -418,8 +475,23 @@ begin
   if n <> 0 then raise exception 'la purga siguiente no borró el evento de 5 días'; end if;
   select count(*) into n from public.auth_limites_eventos where clave = 'purga';
   if n <> 1 then raise exception 'debe haber una sola marca de purga (hay %)', n; end if;
+
+  -- Purga por lotes (I-4): p_lote filas por tabla y llamada; con trabajo pendiente la marca NO se renueva
   delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos;
-  raise notice 'OK: baja de cuenta (sin tocar eventos de límites) y purga (2 y 30 días, marca, una vez al día)';
+  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) select 'lote' || g, 'correo', b - interval '3 days' from generate_series(1, 5) g;
+  if public.auth_purgar(b, 2) <> 2 then raise exception 'el primer lote debía borrar 2'; end if;
+  select count(*) into n from public.auth_limites_eventos where clave = 'purga';
+  if n <> 0 then raise exception 'con trabajo pendiente no debía renovarse la marca'; end if;
+  if public.auth_purgar(b, 2) <> 2 then raise exception 'el segundo lote debía borrar 2'; end if;
+  if public.auth_purgar(b, 2) <> 1 then raise exception 'el tercer lote debía borrar 1'; end if;      -- 1 < lote: terminó
+  select count(*) into n from public.auth_limites_eventos where clave = 'purga';
+  if n <> 1 then raise exception 'terminada la purga debía quedar la marca'; end if;
+  if public.auth_purgar(b, 2) <> -1 then raise exception 'ya purgado hoy debía devolver -1'; end if;
+  begin perform public.auth_purgar(b, 0); raise exception 'lote 0 aceptado';
+  exception when raise_exception then if sqlerrm <> 'lote inválido' then raise; end if; end;
+  -- (con otra sesión purgando, auth_purgar devuelve -1 sin esperar: se prueba con sesiones reales en probar.sh)
+  delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos;
+  raise notice 'OK: baja de cuenta (sin tocar eventos de límites) y purga (2 y 30 días, por lotes, marca, una vez al día)';
 end $$;
 
 -- 6. Las funciones también funcionan con el rol del backend (SECURITY INVOKER: necesita los GRANT de tablas y secuencia)

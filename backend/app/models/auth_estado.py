@@ -40,7 +40,12 @@ ESPACIO_CODIGO_SEG = 60
 LIMITE_DESTINATARIO = 10           # correos/día por destinatario
 LIMITE_GLOBAL = 250                # correos/día en total
 VENTANA_ENVIO_SEG = 86400
-TOPE_FILAS_EVENTOS = 500_000
+TOPE_FILAS_EVENTOS = 500_000       # filas VIGENTES (dentro de la retención de 2 días); las vencidas no cuentan (B-1).
+                                   # Con el 90 % (450 000) auth_limite_registrar libera un lote de 5 000 vencidas
+LOTE_PURGA_LIMITE = 5_000
+LOTE_PURGA = 10_000                # filas por tabla y por llamada a auth_purgar (por lotes, I-4)
+RESERVA_CADUCA_SEG = 10            # una reserva sin resolver tras 10 s ya no está «en vuelo» (I-1; la petición dura ≤ 5 s)
+INTERVALO_INTENTO_PURGA_SEG = 3600 # cada proceso intenta la purga en segundo plano como mucho una vez por hora
 RETENCION_EVENTOS_SEG = 2 * 86400
 RETENCION_ESTADO_SEG = 30 * 86400
 INTERVALO_PURGA_SEG = 86400
@@ -181,6 +186,17 @@ async def _ejecutar(operacion: str, fn: Callable[[], Any]) -> Any:
         raise EstadoNoDisponible("falló la BD de estado")
 
 
+async def ejecutar(operacion: str, fn: Callable[[], Any]) -> Any:
+    """Para otras lecturas de las rutas de autenticación (p. ej. la tabla de usuarios, I-3): mismo ejecutor propio,
+    mismo presupuesto de 5 s por petición y mismo 503 (`EstadoNoDisponible`) sin bloquear el event loop."""
+    return await _ejecutar(operacion, fn)
+
+
+def cliente_estado():
+    """Cliente DEDICADO (plazo real de 4 s, sin reintentos) para usar dentro de `ejecutar`."""
+    return _cliente()
+
+
 def _rpc(nombre: str, args: dict) -> Any:
     """Llamada RPC bloqueante (se ejecuta en un hilo del ejecutor propio). Nunca envía `p_ahora`."""
     assert "p_ahora" not in args
@@ -209,6 +225,9 @@ def _fecha(valor: Any) -> Optional[datetime]:
 
 # ── Almacén del modo demo (misma semántica que las funciones SQL) ─────────────
 
+_intento_purga: dict[str, Optional[datetime]] = {"ultimo": None}   # último intento de purga en segundo plano (este proceso)
+
+
 class _Memoria:
     """Solo existe sin Supabase y fuera de producción (INV-041). Se vacía en las pruebas."""
     lock = threading.RLock()
@@ -224,51 +243,83 @@ class _Memoria:
             cls.codigos.clear()
             cls.eventos.clear()
             cls.ultima_purga = None
+        _intento_purga["ultimo"] = None
 
     @classmethod
     def total_eventos(cls) -> int:
         return sum(len(v) for v in cls.eventos.values())
 
 
-def _mem_purgar(ahora: datetime) -> int:
-    m = _Memoria
-    if m.ultima_purga is not None and m.ultima_purga > ahora - timedelta(seconds=INTERVALO_PURGA_SEG):
-        return -1
-    m.ultima_purga = ahora
-    total = 0
-    corte = ahora - timedelta(seconds=RETENCION_EVENTOS_SEG)
+def _mem_borrar_eventos_vencidos(corte: datetime, tope: Optional[int]) -> int:
+    """Borra eventos anteriores a `corte` (hasta `tope` filas, o todos si es None). Devuelve cuántos borró."""
+    m, borrados = _Memoria, 0
     for k in list(m.eventos):
-        vivos = [t for t in m.eventos[k] if t >= corte]
-        total += len(m.eventos[k]) - len(vivos)
+        if tope is not None and borrados >= tope:
+            break
+        vivos, quedan = [], (None if tope is None else tope - borrados)
+        for t in m.eventos[k]:
+            if t < corte and (quedan is None or quedan > 0):
+                borrados += 1
+                if quedan is not None:
+                    quedan -= 1
+            else:
+                vivos.append(t)
         if vivos:
             m.eventos[k] = vivos
         else:
             del m.eventos[k]
+    return borrados
+
+
+def _mem_purgar(ahora: datetime, lote: Optional[int] = None) -> int:
+    """Igual que `auth_purgar`: por lotes de `lote` filas por tabla; con trabajo pendiente la marca no se renueva."""
+    m = _Memoria
+    if m.ultima_purga is not None and m.ultima_purga > ahora - timedelta(seconds=INTERVALO_PURGA_SEG):
+        return -1
+    total, pendiente = 0, False
+    n = _mem_borrar_eventos_vencidos(ahora - timedelta(seconds=RETENCION_EVENTOS_SEG), lote)
+    total += n
+    pendiente = pendiente or (lote is not None and n >= lote)
     corte = ahora - timedelta(seconds=RETENCION_ESTADO_SEG)
-    for k in [k for k, f in m.intentos.items() if f["actualizado_en"] < corte]:
+    vencidos = [k for k, f in m.intentos.items() if f["actualizado_en"] < corte][:lote]
+    for k in vencidos:
         del m.intentos[k]
-        total += 1
-    for k in [k for k, c in m.codigos.items() if c["emitido_en"] < corte]:
+    total += len(vencidos)
+    pendiente = pendiente or (lote is not None and len(vencidos) >= lote)
+    vencidos = [k for k, c in m.codigos.items() if c["emitido_en"] < corte][:lote]
+    for k in vencidos:
         del m.codigos[k]
-        total += 1
+    total += len(vencidos)
+    pendiente = pendiente or (lote is not None and len(vencidos) >= lote)
+    if not pendiente:
+        m.ultima_purga = ahora
     return total
+
+
+def _reserva_caducada(f: dict, ahora: datetime) -> bool:
+    """I-1: la última reserva fue hace más de 10 s (o no consta): nada de lo que contó `en_vuelo` se resolverá ya."""
+    ultima = f.get("ultima_reserva")
+    return ultima is None or ultima < ahora - timedelta(seconds=RESERVA_CADUCA_SEG)
 
 
 def _mem_reservar(clave: str) -> tuple[bool, Optional[datetime]]:
     m, ahora = _Memoria, _ahora()
     with m.lock:
-        f = m.intentos.setdefault(clave, {"fallos": 0, "en_vuelo": 0, "ventana_inicio": ahora,
+        f = m.intentos.setdefault(clave, {"fallos": 0, "en_vuelo": 0, "ventana_inicio": ahora, "ultima_reserva": None,
                                           "bloqueado_hasta": None, "actualizado_en": ahora})
         if f["bloqueado_hasta"] is not None and f["bloqueado_hasta"] > ahora:
             return False, f["bloqueado_hasta"]
         if (f["bloqueado_hasta"] is not None or f["fallos"] == 0
                 or f["ventana_inicio"] + timedelta(seconds=VENTANA_LOGIN_SEG) <= ahora):
             f.update(fallos=0, en_vuelo=0, ventana_inicio=ahora, bloqueado_hasta=None)
+        if _reserva_caducada(f, ahora):
+            f["en_vuelo"] = 0      # I-1: las reservas que nunca se resolvieron ya no están en vuelo
         f["fallos"] += 1
         f["en_vuelo"] += 1
         if f["fallos"] >= MAX_FALLOS_LOGIN:
             f["bloqueado_hasta"] = ahora + timedelta(seconds=BLOQUEO_LOGIN_SEG)
         f["actualizado_en"] = ahora
+        f["ultima_reserva"] = ahora
         return True, f["bloqueado_hasta"]
 
 
@@ -278,6 +329,8 @@ def _mem_resolver(clave: str, acierto: bool) -> None:
         f = m.intentos.get(clave)
         if f is None:
             return
+        if _reserva_caducada(f, _ahora()):
+            f["en_vuelo"] = 0
         f["en_vuelo"] = max(f["en_vuelo"] - 1, 0)
         if acierto:
             f["fallos"] = max(f["fallos"] - 1, 0)
@@ -292,8 +345,7 @@ def _mem_resolver(clave: str, acierto: bool) -> None:
 def _mem_emitir(clave: str, proposito: str, codigo_hmac: str, espacio_seg: int, limite_destinatario: int,
                 limite_global: int) -> str:
     m, ahora = _Memoria, _ahora()
-    with m.lock:
-        _mem_purgar(ahora)
+    with m.lock:     # sin purgar: la purga es una llamada aparte (I-4)
         ev_correo = m.eventos.get((clave, "correo"), [])
         if espacio_seg > 0 and any(t > ahora - timedelta(seconds=espacio_seg) for t in ev_correo):
             return "reciente"
@@ -328,12 +380,18 @@ def _mem_verificar(clave: str, proposito: str, codigo_hmac: str) -> str:
 
 
 def _mem_limite(clave: str, tipo: str, limite: int, ventana_seg: int) -> str:
+    """Igual que `auth_limite_registrar`: el tope cuenta solo filas VIGENTES (dentro de 2 días, B-1) y cerca del tope
+    se libera un lote de las vencidas."""
     m, ahora = _Memoria, _ahora()
     with m.lock:
         eventos = m.eventos.get((clave, tipo), [])
         if sum(1 for t in eventos if t > ahora - timedelta(seconds=ventana_seg)) >= limite:
             return "limitado"
-        if m.total_eventos() > TOPE_FILAS_EVENTOS:
+        corte = ahora - timedelta(seconds=RETENCION_EVENTOS_SEG)
+        vigentes = sum(1 for lista in m.eventos.values() for t in lista if t >= corte)
+        if vigentes >= int(TOPE_FILAS_EVENTOS * 0.9):
+            _mem_borrar_eventos_vencidos(corte, LOTE_PURGA_LIMITE)
+        if vigentes > TOPE_FILAS_EVENTOS:
             return "lleno"
         m.eventos.setdefault((clave, tipo), []).append(ahora)
         return "ok"
@@ -444,3 +502,21 @@ async def purgar() -> int:
     if type(dato) is not int:
         raise EstadoNoDisponible("respuesta inesperada")
     return dato
+
+
+async def purgar_en_segundo_plano() -> None:
+    """Purga oportunista FUERA de la emisión de códigos (I-4). Se programa como tarea de fondo tras responder: tiene su
+    propio presupuesto, nunca lanza (un fallo solo deja un aviso sin datos) y cada proceso lo intenta como mucho una vez
+    por hora (la BD además la limita a una vez al día entre todas las instancias)."""
+    ahora = _ahora()
+    ultimo = _intento_purga["ultimo"]
+    if ultimo is not None and ultimo > ahora - timedelta(seconds=INTERVALO_INTENTO_PURGA_SEG):
+        return
+    _intento_purga["ultimo"] = ahora
+    iniciar_presupuesto()
+    try:
+        await purgar()
+    except EstadoNoDisponible:
+        print("[auth_estado] Aviso: no se pudo purgar el estado de autenticación (se reintentará)")
+    except Exception as e:
+        print(f"[auth_estado] Aviso: falló la purga ({type(e).__name__})")

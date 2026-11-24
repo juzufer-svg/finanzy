@@ -120,5 +120,30 @@ rm -f "$TMP"/r.*
 en_paralelo "select pg_advisory_xact_lock(hashtextextended('auth_limite:conc_ip:ip_intento', 0))" 40 "select public.auth_limite_registrar('conc_ip', 'ip_intento', 30, 600)"
 esperar "40 intentos por IP simultáneos: ok" "$(cuenta ok)" 30
 esperar "40 intentos por IP simultáneos: limitado" "$(cuenta limitado)" 10
+# I-4: la purga es una llamada aparte; ni espera a la emisión de códigos ni la hace esperar ni causa errores o interbloqueos
+# (a) otra sesión retiene el bloqueo de purga: auth_purgar devuelve -1 de inmediato y la emisión no espera
+sql "delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select pg_advisory_xact_lock(hashtextextended('auth_purgar', 0)); select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+T0=$(date +%s%N)
+esperar "auth_purgar con otra sesión purgando" "$(sql "select public.auth_purgar()")" -1
+esperar "emisión mientras otra sesión purga" "$(sql "select public.auth_codigo_emitir('conc_pa', 'verify', 'h')")" enviado
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: la purga bloqueó la emisión ($MS ms)"; exit 1; fi
+echo "OK: ni la purga ni la emisión esperaron al bloqueo de purga ($MS ms)"
+wait
+# (b) una purga grande (600 000 eventos vencidos) a la vez que 10 emisiones al mismo correo y 5 a otros: sin errores ni interbloqueos
+sql "delete from public.auth_limites_eventos" > /dev/null
+sql "insert into public.auth_limites_eventos(clave, tipo, ocurrido_en) select 'vencido' || g, 'correo', now() - interval '3 days' from generate_series(1, 600000) g" > /dev/null
+rm -f "$TMP"/r.*
+sql "select public.auth_purgar(now(), 1000000)" > "$TMP/purga" &
+sleep 0.2
+for n in $(seq 1 10); do sql "select public.auth_codigo_emitir('conc_pb', 'verify', 'h')" > "$TMP/r.$n" & done
+for n in $(seq 11 15); do sql "select public.auth_codigo_emitir('conc_pb$n', 'reset', 'h')" > "$TMP/r.$n" & done
+wait
+esperar "purga grande a la vez que emisiones: enviado" "$(cuenta enviado)" 6
+esperar "purga grande a la vez que emisiones: reciente" "$(cuenta reciente)" 9
+esperar "purga grande: filas vencidas borradas" "$(cat "$TMP/purga")" 600000
+esperar "purga grande: no tocó los eventos de las emisiones" "$(sql "select count(*) from public.auth_limites_eventos where clave like 'conc_pb%' and tipo = 'correo'")" 6
 sql "delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos" > /dev/null
 echo "OK: concurrencia real del estado de autenticación"

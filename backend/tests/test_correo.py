@@ -47,12 +47,31 @@ def test_plantilla_de_verificacion(brevo):
     assert "Código de verificación" in calls[-1]["json"]["htmlContent"]
 
 
-def test_error_de_brevo_devuelve_false_y_registra_el_motivo(brevo, capsys):
+def test_error_de_brevo_devuelve_false_y_registra_el_motivo(brevo, capsys, caplog):
     _, state = brevo
-    state.update(status=401, text='{"message":"Key not found"}')
+    state.update(status=401, text='{"message":"Key not found para ana@example.com"}')
     assert em.send_verification_email("ana@example.com", "111111") is False
-    out = capsys.readouterr().out
-    assert "Brevo responded 401" in out and "Key not found" in out
+    todo = capsys.readouterr().out + caplog.text
+    assert "Brevo responded 401" in todo and "verify" in todo        # propósito y código de estado
+    # M-1: ni el correo, ni el cuerpo de la respuesta de Brevo (puede repetirlo), ni el código
+    assert "ana@example.com" not in todo and "Key not found" not in todo and "111111" not in todo
+
+
+def test_m1_excepcion_de_brevo_registra_solo_el_tipo(brevo, monkeypatch, capsys, caplog):
+    def falla(*a, **k):
+        raise ConnectionError("no se pudo conectar para ana@example.com con la clave xkeysib-test y el código 222222")
+    monkeypatch.setattr(em.httpx, "post", falla)
+    assert em.send_verification_email("ana@example.com", "222222", "reset") is False
+    todo = capsys.readouterr().out + caplog.text
+    assert "ConnectionError" in todo and "reset" in todo
+    for dato in ("ana@example.com", "xkeysib-test", "222222", "no se pudo conectar"):
+        assert dato not in todo
+
+
+def test_m1_el_envio_correcto_no_registra_el_correo(brevo, capsys, caplog):
+    assert em.send_verification_email("ana@example.com", "123456") is True
+    todo = capsys.readouterr().out + caplog.text
+    assert "Sent via Brevo" in todo and "ana@example.com" not in todo and "123456" not in todo
 
 
 def test_sin_remitente_no_llama_a_brevo(brevo, monkeypatch, capsys):

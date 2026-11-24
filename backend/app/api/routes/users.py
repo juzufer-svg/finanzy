@@ -13,7 +13,7 @@ from app.api.sesion import usuario_de_sesion
 from app.api.dueno import es_correo_dueno
 from app.api.routes import auth as auth_routes
 from app.core.config import settings
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token
 from app.models import auth_estado
 
 _NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos."
@@ -121,7 +121,7 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     email = user["email"].lower()
     await auth_routes.reservar_intento_de_login(email)   # 429 si está bloqueado; cuenta el intento antes de comprobar
-    acierto = verify_password(data.actual, user.get("hashed_password", ""))
+    acierto = await auth_routes.comprobar_contrasena(data.actual, user.get("hashed_password", ""))   # bcrypt fuera del loop (I-6)
     await auth_estado.login_resolver(email, acierto)
     if not acierto:
         raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
@@ -145,7 +145,8 @@ async def change_password(data: ChangePasswordRequest, request: Request, authori
     # posterior no puede dejar la contraseña cambiada con un error en pantalla (INV-027).
     if type(nueva_version) is not int or nueva_version < 1:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_DISPONIBLE)
-    await auth_estado.login_reiniciar(email)   # desbloquear el login tras el cambio
+    # Desbloquear el login tras el cambio: best-effort, la contraseña ya cambió (I-2, INV-027)
+    await auth_routes.reiniciar_login_sin_fallar(email, "users.change_password")
 
     token = create_access_token(
         data={"sub": user_id, "sv": nueva_version},
@@ -161,6 +162,10 @@ async def delete_current_user(authorization: str = Header(...)):
     # El correo se lee antes de borrar: el estado de autenticación se borra por huella del correo (INV-040)
     existente = await UserDB.get_by_id(user_id)
     correo = (existente or {}).get("email")
+    if not correo:
+        # get_by_id falló (devuelve None ante un error) o el usuario ya no existe: se borra igual, pero sin correo no se
+        # puede limpiar el estado de autenticación; solo un aviso sin datos (las filas son huellas y se purgan a los 30 días)
+        print("[users.delete_current_user] Aviso: sin correo, se omite la limpieza del estado de autenticación")
     deleted = await UserDB.delete_by_id(user_id)
 
     if not deleted:

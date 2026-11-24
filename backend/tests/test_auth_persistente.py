@@ -65,6 +65,23 @@ class BDFalsa:
         self.falla: Exception | None = None            # falla todas las llamadas
         self.falla_en: dict[str, Exception] = {}       # falla solo algunas funciones
         self.espera = 0.0
+        self.espera_usuarios = 0.0                     # lentitud de la tabla de usuarios (I-3)
+        self.filas_usuarios: list[dict] = []
+        self.hilos_usuarios: list[str] = []
+
+    def table(self, _nombre):
+        """Tabla de usuarios del cliente dedicado (`UserDB.get_by_email_estricto`, I-3): encadenable y con lentitud."""
+        bd = self
+
+        class Consulta:
+            def __getattr__(self, _):
+                return lambda *a, **k: self
+
+            def execute(self):
+                bd.hilos_usuarios.append(threading.current_thread().name)
+                time.sleep(bd.espera_usuarios)
+                return type("R", (), {"data": bd.filas_usuarios})()
+        return Consulta()
 
     @property
     def nombres(self) -> list[str]:
@@ -124,6 +141,9 @@ def bd(monkeypatch, reloj):
     monkeypatch.setattr(settings, "SUPABASE_KEY", "k")
     falsa = BDFalsa()
     monkeypatch.setattr(ae, "_cliente", lambda: falsa)
+    # La purga en segundo plano (I-4) se prueba aparte: aquí se da por «ya intentada» para que no aparezca entre las
+    # llamadas a la BD que cuentan las demás pruebas (y que deben ser idénticas exista o no la cuenta)
+    ae._intento_purga["ultimo"] = reloj.t
 
     async def desenlazar(_user_id):
         return True
@@ -139,7 +159,7 @@ def bcrypt_contado(monkeypatch):
     def verify(plain, hashed):
         comprobados.append(hashed)
         return bool(hashed) and hashed == "hash:" + plain
-    for modulo in (security, auth_routes, users_routes):
+    for modulo in (security, auth_routes):      # users.py comprueba vía auth_routes.comprobar_contrasena (I-6)
         monkeypatch.setattr(modulo, "verify_password", verify)
     monkeypatch.setattr(security, "get_password_hash", lambda p: "hash:" + p)
     return comprobados
@@ -738,6 +758,7 @@ def test_inv040_si_falla_la_limpieza_la_baja_no_se_revierte(client, users, bd, m
 
 def test_inv040_purga_30_dias_intentos_y_codigos_y_2_dias_eventos_una_vez_al_dia(client, users, bd, reloj):
     _alta(users, "pend@example.com", activa=False)
+    ae._intento_purga["ultimo"] = None                             # esta prueba SÍ quiere la purga en segundo plano
     t = reloj.t
     al = bd.almacen
 
@@ -852,3 +873,175 @@ def test_req_n017_llamadas_a_la_bd_por_operacion(client, users, bd, sent_emails,
     reloj.avanzar(seconds=61)
     r, n = contar(lambda: _post(client, "forgot-password", {"email": "pend@example.com"}, 33))
     assert r.status_code == 200 and n == 2                         # límite IP + emitir
+
+
+# ───────────────────────── Ciclo 2 de CHG-020 (revisión independiente) ─────────────────────────
+
+def _lenta_y_health(peticion_lenta):
+    """Lanza `peticion_lenta` (coroutine con un cliente httpx) y, a la vez, 5 GET /health. Devuelve
+    (respuesta_lenta, segundos_lenta, [segundos de cada /health])."""
+    async def principal():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://prueba") as c:
+            async def lenta():
+                t = time.monotonic()
+                r = await peticion_lenta(c)
+                return r, time.monotonic() - t
+
+            async def salud():
+                await asyncio.sleep(0.1)                           # la lenta ya empezó
+                tiempos = []
+                for _ in range(5):
+                    t = time.monotonic()
+                    assert (await c.get("/health")).status_code == 200
+                    tiempos.append(time.monotonic() - t)
+                    await asyncio.sleep(0.05)
+                return tiempos
+            (r, dur), tiempos = await asyncio.gather(lenta(), salud())
+            return r, dur, tiempos
+    return asyncio.run(principal())
+
+
+def test_i3_tabla_de_usuarios_lenta_responde_503_en_5s_y_no_bloquea_otras_peticiones(bd):
+    bd.filas_usuarios = [{"id": "u1", "email": ANA, "hashed_password": "hash:" + CLAVE, "is_active": True}]
+    bd.espera_usuarios = 4.6                                      # más que el plazo de 4 s por llamada
+    r, dur, tiempos = _lenta_y_health(lambda c: c.post(
+        "/api/v1/auth/login", json={"email": ANA, "password": CLAVE}, headers=ip(1)))
+    assert r.status_code == 503 and r.json() == {"detail": ae.MENSAJE_503} and "access_token" not in r.text
+    assert dur <= 5.2                                             # presupuesto de 5 s por petición
+    assert max(tiempos) < 0.5                                     # el event loop siguió atendiendo (no se bloqueó 4 s)
+    assert bd.hilos_usuarios and all(h.startswith("auth-estado") for h in bd.hilos_usuarios)   # en el ejecutor propio
+    assert _huella_en_bd(bd)["fallos"] == 1                       # el intento ya estaba contado (INV-038)
+    for _ in range(150):                                          # el hilo colgado termina y libera su ranura
+        if ae._ranuras._value == ae.MAX_HILOS:
+            break
+        time.sleep(0.05)
+    assert ae._ranuras._value == ae.MAX_HILOS
+
+
+def test_i3_la_lectura_estricta_usa_el_cliente_dedicado_y_devuelve_el_usuario(bd):
+    bd.filas_usuarios = [{"id": "u1", "email": ANA, "hashed_password": "hash:" + CLAVE, "is_active": True}]
+    from fastapi.testclient import TestClient
+    r = _login(TestClient(app), n=1)
+    assert r.status_code == 200 and "access_token" in r.json()
+    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver"]
+    assert bd.hilos_usuarios and bd.hilos_usuarios[0].startswith("auth-estado")
+
+
+def _bcrypt_lento(monkeypatch, segundos):
+    """verify_password síncrono y lento (como bcrypt, ~0,3 s) que cuenta en qué hilo corre."""
+    hilos = []
+
+    def verify(plain, hashed):
+        hilos.append(threading.current_thread().name)
+        time.sleep(segundos)
+        return bool(hashed) and hashed == "hash:" + plain
+    for modulo in (security, auth_routes):
+        monkeypatch.setattr(modulo, "verify_password", verify)
+    return hilos
+
+
+def test_i6_login_con_cuenta_real_no_bloquea_el_event_loop_con_bcrypt(users, bd, monkeypatch):
+    _alta(users)
+    hilos = _bcrypt_lento(monkeypatch, 0.8)
+    r, dur, tiempos = _lenta_y_health(lambda c: c.post(
+        "/api/v1/auth/login", json={"email": ANA, "password": CLAVE}, headers=ip(1)))
+    assert r.status_code == 200 and dur >= 0.8
+    assert max(tiempos) < 0.4                                     # /health respondió mientras bcrypt tardaba 0,8 s
+    assert hilos and threading.main_thread().name not in hilos and hilos[0] != threading.current_thread().name
+
+
+def test_i6_login_con_cuenta_inexistente_tambien_va_al_hilo_y_tarda_lo_mismo(users, bd, monkeypatch):
+    _alta(users)
+    hilos = _bcrypt_lento(monkeypatch, 0.8)
+    tiempos_login = {}
+    for correo in (ANA, "nadie@example.com"):
+        r, dur, tiempos = _lenta_y_health(lambda c, correo=correo: c.post(
+            "/api/v1/auth/login", json={"email": correo, "password": "Otra12345"}, headers=ip(2)))
+        assert r.status_code == 401 and max(tiempos) < 0.4
+        tiempos_login[correo] = dur
+    assert len(hilos) == 2 and len(set(hilos)) >= 1               # ambas comprobaciones corrieron fuera del loop
+    assert abs(tiempos_login[ANA] - tiempos_login["nadie@example.com"]) < 0.3     # mismo tiempo (INV-009)
+
+
+def test_i6_change_password_no_bloquea_el_event_loop_con_bcrypt(users, bd, monkeypatch):
+    _alta(users)
+    _bcrypt_lento(monkeypatch, 0.8)
+    r, dur, tiempos = _lenta_y_health(lambda c: c.post(
+        "/api/v1/users/me/password", json={"actual": CLAVE, "nueva": "NuevaClave1"}, headers={**_sesion(f"id-{ANA}"), **ip(1)}))
+    assert r.status_code == 200 and dur >= 0.8 and max(tiempos) < 0.4
+
+
+def test_i2_si_falla_reiniciar_el_login_change_password_devuelve_exito(client, users, bd, capsys):
+    _alta(users)
+    bd.falla_en["auth_login_reiniciar"] = RuntimeError(f"caída del estado para {ANA}")
+    r = client.post("/api/v1/users/me/password", json={"actual": CLAVE, "nueva": "NuevaClave1"},
+                    headers={**_sesion(f"id-{ANA}"), **ip(1)})
+    assert r.status_code == 200 and "access_token" in r.json()     # la contraseña ya cambió: nunca 503 (INV-027)
+    assert users[ANA]["hashed_password"] == "hash:NuevaClave1" and users[ANA]["session_version"] == 1
+    assert "auth_login_reiniciar" in bd.nombres
+    salida = capsys.readouterr()
+    todo = salida.out + salida.err
+    assert "no se pudo reiniciar el bloqueo" in todo and ANA not in todo and "caída del estado" not in todo
+
+
+def test_i2_si_falla_reiniciar_el_login_reset_password_devuelve_exito_y_el_codigo_queda_gastado(client, users, bd, sent_emails, capsys):
+    _alta(users)
+    assert _post(client, "forgot-password", {"email": ANA}, 1).status_code == 200
+    codigo = sent_emails[-1][1]
+    bd.falla_en["auth_login_reiniciar"] = RuntimeError(f"caída del estado para {ANA}")
+    r = _post(client, "reset-password", {"email": ANA, "code": codigo, "new_password": "NuevaClave1"}, 2)
+    assert r.status_code == 200 and users[ANA]["hashed_password"] == "hash:NuevaClave1"
+    assert _post(client, "reset-password", {"email": ANA, "code": codigo, "new_password": "OtraClave12"}, 3).status_code == 400
+    salida = capsys.readouterr()
+    assert ANA not in salida.out + salida.err and "caída del estado" not in salida.out + salida.err
+
+
+def test_i1_una_reserva_huerfana_no_impide_que_el_login_correcto_reinicie_la_serie(client, users, bd, reloj):
+    _alta(users)
+    bd.falla_en["auth_login_resolver"] = RuntimeError("se cayó justo al resolver")
+    assert _login(client, n=1).status_code == 503                  # credenciales correctas, pero la reserva quedó sin resolver
+    assert _huella_en_bd(bd)["en_vuelo"] == 1 and _huella_en_bd(bd)["fallos"] == 1
+    del bd.falla_en["auth_login_resolver"]
+    reloj.avanzar(seconds=11)                                      # más de 10 s: ya no está en vuelo
+    assert _login(client, n=2).status_code == 200
+    assert _huella_en_bd(bd) is None                               # serie reiniciada (con la huérfana la serie quedaba)
+    assert [_login(client, clave="mala", n=3 + i).status_code for i in range(5)] == [401] * 5   # 5 fallos NUEVOS
+    assert _login(client, n=9).status_code == 429                  # y recién el 5.º bloquea
+
+
+def test_i4_la_purga_va_aparte_y_su_fallo_no_afecta_la_respuesta(client, users, bd, sent_emails, capsys):
+    _alta(users, activa=False)
+    ae._intento_purga["ultimo"] = None
+    bd.falla_en["auth_purgar"] = RuntimeError(f"purga lenta con {ANA}")
+    r = _post(client, "resend-code", {"email": ANA}, 1)
+    assert r.status_code == 200 and len(sent_emails) == 1          # el pedido y el correo salen igual
+    assert bd.nombres == ["auth_limite_registrar", "auth_codigo_emitir", "auth_purgar"]   # purga en llamada aparte, DESPUÉS
+    salida = capsys.readouterr()
+    assert "no se pudo purgar" in salida.out + salida.err and ANA not in salida.out + salida.err
+
+
+def test_i4_la_purga_se_intenta_una_vez_por_hora_por_proceso(client, users, bd, sent_emails, reloj):
+    _alta(users, activa=False)
+    ae._intento_purga["ultimo"] = None
+    assert _post(client, "resend-code", {"email": ANA}, 1).status_code == 200
+    reloj.avanzar(seconds=61)
+    assert _post(client, "resend-code", {"email": ANA}, 2).status_code == 200
+    assert bd.nombres.count("auth_purgar") == 1
+    reloj.avanzar(hours=1)
+    assert _post(client, "resend-code", {"email": ANA}, 3).status_code == 200
+    assert bd.nombres.count("auth_purgar") == 2
+
+
+def test_m4_si_get_by_id_falla_la_baja_sigue_y_deja_un_aviso_sin_datos(client, users, bd, monkeypatch, capsys):
+    _borrable(monkeypatch, users)
+    _alta(users)
+
+    async def falla(_user_id):
+        return None                                                # lo que devuelve UserDB.get_by_id ante un error
+    monkeypatch.setattr(UserDB, "get_by_id", staticmethod(falla))
+    r = client.delete("/api/v1/users/me", headers=_sesion(f"id-{ANA}"))
+    assert r.status_code == 204 and ANA not in users
+    assert "auth_borrar_de_cuenta" not in bd.nombres               # sin correo no hay limpieza por huella
+    salida = capsys.readouterr()
+    todo = salida.out + salida.err
+    assert "se omite la limpieza del estado de autenticación" in todo and ANA not in todo

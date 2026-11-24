@@ -64,12 +64,14 @@ def test_inv007_codigo_se_invalida_tras_5_fallos_y_vence(reloj):
     run = asyncio.run
     assert run(ae.codigo_emitir("v@example.com", "verify", "123456")) == "enviado"
     for _ in range(5):
-        assert run(ae.codigo_verificar("v@example.com", "verify", "000000")) != "ok"
-    assert run(ae.codigo_verificar("v@example.com", "verify", "123456")) != "ok"  # invalidado
+        assert run(ae.codigo_verificar("v@example.com", "verify", "000000")) == "incorrecto"
+    # al 6.º intento ya está agotado: ni siquiera el código correcto lo activa
+    assert run(ae.codigo_verificar("v@example.com", "verify", "123456")) == "invalido"
 
     assert run(ae.codigo_emitir("w@example.com", "verify", "654321")) == "enviado"
     reloj.avanzar(minutes=10, seconds=1)
-    assert run(ae.codigo_verificar("w@example.com", "verify", "654321")) != "ok"  # vencido
+    assert run(ae.codigo_verificar("w@example.com", "verify", "654321")) == "invalido"  # vencido
+    assert (ae.huella_correo("w@example.com"), "verify") not in ae._Memoria.codigos      # y el vencido se borra
 
 
 def test_inv007_codigo_de_6_digitos_generado_con_secrets():

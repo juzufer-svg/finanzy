@@ -135,12 +135,13 @@ def send_verification_email(to_email: str, code: str, purpose: str = "verify") -
                 timeout=15,
             )
             if resp.status_code in (200, 201, 202):
-                print(f"[EMAIL] Sent via Brevo to {to_email} ({purpose})")
+                print(f"[EMAIL] Sent via Brevo ({purpose})")   # sin el correo del destinatario (INV-040)
                 contadores.incrementar("brevo_correos_enviados", "general", 1)   # solo si Brevo aceptó (INV-036)
                 return True
-            print(f"[EMAIL ERROR] Brevo responded {resp.status_code}: {resp.text}")
+            # Sin el correo, sin el cuerpo de la respuesta de Brevo (puede repetirlo) y sin el texto de la excepción
+            print(f"[EMAIL ERROR] Brevo responded {resp.status_code} ({purpose})")
         except Exception as e:
-            print(f"[EMAIL ERROR] Brevo exception: {e}")
+            print(f"[EMAIL ERROR] Brevo exception {type(e).__name__} ({purpose})")
         return False
 
     # Sin clave de Brevo: en producción es un error de configuración y el código

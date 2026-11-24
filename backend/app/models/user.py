@@ -6,6 +6,7 @@ from typing import Optional
 import uuid
 from app.core.security import get_password_hash
 from app.core.supabase import SupabaseDB
+from app.models import auth_estado
 
 
 def _map_user(row: dict) -> dict:
@@ -48,16 +49,25 @@ class UserDB:
     async def get_by_email_estricto(email: str) -> Optional[dict]:
         """Como `get_by_email`, pero los errores de la BD se PROPAGAN (CHG-020, INV-039): un fallo de lectura no se
         confunde con «la cuenta no existe». Devuelve None solo si de verdad no hay usuario (o no hay Supabase, modo
-        demo). Las rutas de autenticación lo usan para responder 503 en vez de 401/200 ante un fallo."""
+        demo). Las rutas de autenticación lo usan para responder 503 en vez de 401/200 ante un fallo.
+
+        I-3: la consulta (síncrona) corre en el ejecutor propio del estado de autenticación y con su cliente DEDICADO
+        (plazo real de 4 s, sin reintentos), dentro del presupuesto de 5 s de la petición: una tabla de usuarios lenta
+        da `EstadoNoDisponible` (503) a tiempo y no bloquea el event loop. Cualquier fallo se convierte en
+        `EstadoNoDisponible` (sin datos personales en el mensaje)."""
         if not UserDB._is_supabase_available():
             return None
-        client = SupabaseDB.get_client()
-        result = client.table(UserDB.TABLE_NAME)\
-            .select("*")\
-            .eq("email", email.lower())\
-            .limit(1)\
-            .execute()
-        return _map_user(result.data[0]) if result.data else None
+        correo = email.lower()
+
+        def leer() -> Optional[dict]:
+            result = auth_estado.cliente_estado().table(UserDB.TABLE_NAME)\
+                .select("*")\
+                .eq("email", correo)\
+                .limit(1)\
+                .execute()
+            return _map_user(result.data[0]) if result.data else None
+
+        return await auth_estado.ejecutar("leer_usuario", leer)
 
     @staticmethod
     async def get_by_id(user_id: str) -> Optional[dict]:

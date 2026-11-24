@@ -6,6 +6,7 @@ Fail-closed (INV-039): si la BD de estado o la lectura de usuarios falla, 503; n
 """
 from datetime import timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from app.schemas.auth import (
     UserRegistration, UserLogin, Token,
     VerifyEmailRequest, ResendCodeRequest, PendingVerification,
@@ -62,6 +63,26 @@ async def reservar_intento_de_login(email: str) -> None:
         raise HTTPException(status_code=429, detail=_BLOQUEADO_MSG)
 
 
+async def reiniciar_login_sin_fallar(email: str, origen: str) -> None:
+    """Desbloquea el login DESPUÉS de haber cambiado la contraseña (best-effort, I-2): si la BD de estado falla, el
+    cambio ya está hecho y gastado el código, así que NO se responde 503 (INV-027); solo un aviso sin datos. El bloqueo
+    vence solo a los 15 min como mucho."""
+    try:
+        await auth_estado.login_reiniciar(email)
+    except EstadoNoDisponible:
+        print(f"[{origen}] Aviso: no se pudo reiniciar el bloqueo de login tras cambiar la contraseña")
+
+
+async def comprobar_contrasena(contrasena: str, hashed: str) -> bool:
+    """bcrypt (~0,3 s) FUERA del event loop (I-6): otras peticiones siguen avanzando mientras tanto."""
+    return await run_in_threadpool(verify_password, contrasena, hashed)
+
+
+async def comprobar_contrasena_senuelo(contrasena: str) -> bool:
+    """Mismo costo bcrypt y mismo hilo que una comprobación real (INV-009, M-5), también fuera del event loop."""
+    return await run_in_threadpool(verify_password_senuelo, contrasena)
+
+
 async def cerrar_reserva_tras_fallo_interno(email: str) -> None:
     """Si algo falla entre reservar y resolver, se cierra la reserva como fallo (el intento ya estaba contado)."""
     try:
@@ -88,6 +109,8 @@ async def _issue_code(
     if resultado == "enviado":
         if enviar:
             background_tasks.add_task(send_verification_email, email, codigo, purpose)
+        # La purga NO corre dentro de la emisión (I-4): va aparte, tras responder, y nunca hace fallar la petición
+        background_tasks.add_task(auth_estado.purgar_en_segundo_plano)
         return "sent"
     return "recent" if resultado == "reciente" else "limited"
 
@@ -185,9 +208,9 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
         raise
 
     if user:
-        acierto = verify_password(user_data.password, user.get("hashed_password", ""))
+        acierto = await comprobar_contrasena(user_data.password, user.get("hashed_password", ""))
     else:
-        verify_password_senuelo(user_data.password)   # mismo costo bcrypt que con una cuenta real (INV-009, M-5)
+        await comprobar_contrasena_senuelo(user_data.password)   # mismo costo bcrypt que con una cuenta real (INV-009, M-5)
         acierto = False
 
     await auth_estado.login_resolver(email, acierto)
@@ -250,5 +273,7 @@ async def reset_password(data: ResetPasswordRequest, request: Request):
     if not await UserDB.update_password(email, data.new_password):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
-    await auth_estado.login_reiniciar(email)  # desbloquear el login tras el cambio (también si otra persona lo bloqueó)
+    # Desbloquear el login tras el cambio (también si otra persona lo bloqueó). Best-effort: la contraseña ya cambió y el
+    # código ya se gastó, así que un fallo de la BD de estado no puede convertirse en 503 (I-2, INV-027)
+    await reiniciar_login_sin_fallar(email, "auth.reset_password")
     return MessageResponse(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión.")

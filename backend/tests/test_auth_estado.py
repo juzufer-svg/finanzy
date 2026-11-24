@@ -618,22 +618,57 @@ def test_inv039_get_by_email_estricto_propaga_los_errores_y_get_by_email_los_tra
     monkeypatch.setattr(settings, "SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setattr(settings, "SUPABASE_KEY", "k")
     from app.models import user as user_mod
+    # I-3: la lectura estricta usa el cliente DEDICADO del estado de autenticación (4 s), no el general
+    monkeypatch.setattr(ae, "_cliente", lambda: _Cli(_Tabla(falla=RuntimeError("tabla caída con a@example.com"))))
     monkeypatch.setattr(user_mod.SupabaseDB, "get_client",
                         staticmethod(lambda: _Cli(_Tabla(falla=RuntimeError("tabla caída")))))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ae.EstadoNoDisponible) as e:
         run(UserDB.get_by_email_estricto("a@example.com"))
+    assert "a@example.com" not in str(e.value)
     assert run(UserDB.get_by_email("a@example.com")) is None          # el actual se conserva para el resto
 
 
 def test_inv039_get_by_email_estricto_devuelve_usuario_o_none(monkeypatch):
     monkeypatch.setattr(settings, "SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setattr(settings, "SUPABASE_KEY", "k")
-    from app.models import user as user_mod
     fila = {"id": "1", "email": "a@example.com", "hashed_password": "h", "is_active": True}
-    monkeypatch.setattr(user_mod.SupabaseDB, "get_client", staticmethod(lambda: _Cli(_Tabla([fila]))))
+    monkeypatch.setattr(ae, "_cliente", lambda: _Cli(_Tabla([fila])))
     assert run(UserDB.get_by_email_estricto("A@Example.com"))["id"] == "1"
-    monkeypatch.setattr(user_mod.SupabaseDB, "get_client", staticmethod(lambda: _Cli(_Tabla([]))))
+    monkeypatch.setattr(ae, "_cliente", lambda: _Cli(_Tabla([])))
     assert run(UserDB.get_by_email_estricto("a@example.com")) is None
+
+
+def test_i3_get_by_email_estricto_no_usa_el_cliente_general_ni_bloquea_el_loop(monkeypatch):
+    """La lectura corre en el ejecutor propio con el cliente dedicado: el cliente general (120 s, con reintentos) no se
+    toca y, mientras la tabla tarda, el event loop sigue atendiendo."""
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "k")
+    from app.models import user as user_mod
+    def general():
+        raise AssertionError("no debe usarse el cliente general")
+    monkeypatch.setattr(user_mod.SupabaseDB, "get_client", staticmethod(general))
+    hilos = []
+
+    class Lenta(_Tabla):
+        def execute(self):
+            hilos.append(threading.current_thread().name)
+            time.sleep(0.5)
+            return type("R", (), {"data": []})()
+    monkeypatch.setattr(ae, "_cliente", lambda: _Cli(Lenta()))
+
+    async def principal():
+        latidos = []
+
+        async def latido():
+            for _ in range(4):
+                t = time.monotonic()
+                await asyncio.sleep(0.05)
+                latidos.append(time.monotonic() - t)
+        await asyncio.gather(UserDB.get_by_email_estricto("a@example.com"), latido())
+        return latidos
+    latidos = run(principal())
+    assert hilos and hilos[0].startswith("auth-estado")                  # en el ejecutor propio, no en el loop
+    assert max(latidos) < 0.3                                             # el loop nunca se bloqueó los 0,5 s de la consulta
 
 
 def test_get_by_email_estricto_sin_supabase_devuelve_none():
@@ -701,3 +736,130 @@ def test_inv040_limite_lleno_responde_429_con_aviso_sin_datos(bd, capsys):
 def test_los_limitadores_de_los_demas_usos_siguen_en_memoria():
     sw = rate_limit.SlidingWindow(limit=2, window_seconds=60)
     assert sw.hit("k") and sw.hit("k") and not sw.hit("k")
+
+
+# ───────────────────────── Ciclo 2 de CHG-020 (revisión independiente) ─────────────────────────
+
+def _poner_eventos(clave, tipo, cantidad, hace, ahora):
+    """Siembra `cantidad` eventos de hace `hace` (una clave por fila, como una ráfaga de IP falsificadas)."""
+    for i in range(cantidad):
+        ae._Memoria.eventos[(f"{clave}{i}", tipo)] = [ahora - hace]
+
+
+def test_b1_las_filas_vencidas_no_cuentan_para_el_tope(reloj, monkeypatch):
+    """B-1: con la tabla llena de filas de hace 3 días (sin purgar) todavía se registra; solo cuentan las vigentes."""
+    monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 5)
+    _poner_eventos("viejo", "ip_intentos_auth", 6, timedelta(days=3), reloj.t)        # 6 > tope, pero vencidas
+    assert run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600)) == "ok"
+
+
+def test_b1_las_filas_vigentes_si_llenan_el_tope_y_se_recupera_al_vencer(reloj, monkeypatch):
+    monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 5)
+    _poner_eventos("vigente", "ip_intentos_auth", 6, timedelta(hours=1), reloj.t)      # 6 > tope y dentro de la retención
+    assert run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600)) == "lleno"
+    assert run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600)) == "lleno"        # sigue lleno mientras sean vigentes
+    reloj.avanzar(days=2)                                                              # salen de la retención de 2 días
+    assert run(ae.limite_registrar(IP, "ip_intentos_auth", 30, 600)) == "ok"           # recuperación sin esperar a la purga
+
+
+def test_b1_en_el_tope_exacto_registra_y_por_encima_responde_lleno(reloj, monkeypatch):
+    monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 5)
+    _poner_eventos("vigente", "ip_intentos_auth", 4, timedelta(hours=1), reloj.t)
+    assert run(ae.limite_registrar("10.0.0.1", "ip_intentos_auth", 30, 600)) == "ok"   # 4 → 5
+    assert run(ae.limite_registrar("10.0.0.2", "ip_intentos_auth", 30, 600)) == "ok"   # 5 (en el tope) → 6
+    assert run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600)) == "lleno"
+
+
+def test_b1_cerca_del_tope_libera_un_lote_de_filas_vencidas_sin_tocar_las_vigentes(reloj, monkeypatch):
+    monkeypatch.setattr(ae, "TOPE_FILAS_EVENTOS", 10)
+    monkeypatch.setattr(ae, "LOTE_PURGA_LIMITE", 2)
+    _poner_eventos("vigente", "ip_intentos_auth", 8, timedelta(hours=1), reloj.t)      # 8 < 9 (90 % de 10): lejos del tope
+    _poner_eventos("viejo", "ip_intentos_auth", 5, timedelta(days=3), reloj.t)
+    run(ae.limite_registrar("10.0.0.1", "ip_intentos_auth", 30, 600))                  # 8 vigentes → no purga
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 5
+    run(ae.limite_registrar("10.0.0.2", "ip_intentos_auth", 30, 600))                  # 9 vigentes → cerca del tope: lote de 2
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 3
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("vigente")) == 8      # las vigentes siguen
+    run(ae.limite_registrar("10.0.0.3", "ip_intentos_auth", 30, 600))
+    assert sum(1 for k in ae._Memoria.eventos if k[0].startswith("viejo")) == 1
+
+
+def test_b1_la_baja_de_cuenta_sigue_sin_borrar_eventos_de_limites(reloj):
+    run(ae.codigo_emitir(CORREO, "verify", CODIGO))
+    antes = ae._Memoria.total_eventos()
+    run(ae.borrar_de_cuenta(CORREO))
+    assert ae._Memoria.total_eventos() == antes == 2
+
+
+def test_i1_una_reserva_que_nunca_se_resolvio_no_impide_reiniciar_la_serie(reloj):
+    assert run(ae.login_reservar(CORREO))[0]                      # huérfana: el despliegue cortó la petición
+    reloj.avanzar(seconds=30)
+    assert run(ae.login_reservar(CORREO))[0]                      # el login correcto
+    f = ae._Memoria.intentos[ae.huella_correo(CORREO)]
+    assert f["fallos"] == 2 and f["en_vuelo"] == 1                # la huérfana de hace 30 s ya no cuenta en vuelo
+    run(ae.login_resolver(CORREO, True))
+    assert ae.huella_correo(CORREO) not in ae._Memoria.intentos   # serie borrada
+    for i in range(4):                                            # hacen falta 5 fallos NUEVOS para bloquear
+        permitido, hasta = run(ae.login_reservar(CORREO))
+        run(ae.login_resolver(CORREO, False))
+        assert permitido and hasta is None, i
+    permitido, hasta = run(ae.login_reservar(CORREO))
+    assert permitido and hasta is not None                        # el 5.º fallo nuevo fija el bloqueo
+    assert run(ae.login_reservar(CORREO))[0] is False
+
+
+def test_i1_antes_de_10_segundos_la_reserva_sigue_en_vuelo(reloj):
+    run(ae.login_reservar(CORREO))
+    reloj.avanzar(seconds=2)
+    run(ae.login_reservar(CORREO))
+    reloj.avanzar(seconds=10)                                     # 10 s exactos desde la última reserva: aún en vuelo
+    run(ae.login_resolver(CORREO, True))
+    f = ae._Memoria.intentos[ae.huella_correo(CORREO)]
+    assert f["fallos"] == 1 and f["en_vuelo"] == 1                # no se borraron los fallos de la otra petición
+    reloj.avanzar(seconds=1)                                      # pasaron más de 10 s: la que quedaba no se resolverá
+    run(ae.login_reservar(CORREO))
+    run(ae.login_resolver(CORREO, True))
+    assert ae.huella_correo(CORREO) not in ae._Memoria.intentos
+
+
+def test_i1_un_fallo_resuelto_tarde_conserva_el_fallo_contado(reloj):
+    run(ae.login_reservar(CORREO))
+    reloj.avanzar(seconds=60)
+    run(ae.login_resolver(CORREO, False))
+    f = ae._Memoria.intentos[ae.huella_correo(CORREO)]
+    assert f["fallos"] == 1 and f["en_vuelo"] == 0
+
+
+def test_i4_emitir_no_purga_la_purga_es_una_llamada_aparte(reloj):
+    ae._Memoria.eventos[("viejo", "correo")] = [reloj.t - timedelta(days=3)]
+    run(ae.codigo_emitir(CORREO, "verify", CODIGO))
+    assert ("viejo", "correo") in ae._Memoria.eventos and ae._Memoria.ultima_purga is None
+    assert run(ae.purgar()) >= 1
+    assert ("viejo", "correo") not in ae._Memoria.eventos
+
+
+def test_i4_purga_por_lotes_no_renueva_la_marca_hasta_terminar(reloj):
+    for i in range(5):
+        ae._Memoria.eventos[(f"viejo{i}", "correo")] = [reloj.t - timedelta(days=3)]
+    assert ae._mem_purgar(reloj.t, 2) == 2 and ae._Memoria.ultima_purga is None   # quedó trabajo: sin marca
+    assert ae._mem_purgar(reloj.t, 2) == 2 and ae._Memoria.ultima_purga is None
+    assert ae._mem_purgar(reloj.t, 2) == 1 and ae._Memoria.ultima_purga == reloj.t  # 1 < lote: terminó
+    assert ae._mem_purgar(reloj.t, 2) == -1
+
+
+def test_i4_purga_en_segundo_plano_una_vez_por_hora_por_proceso(bd, reloj):
+    cliente = bd(ClienteFalso({"auth_purgar": 0}))
+    run(ae.purgar_en_segundo_plano())
+    run(ae.purgar_en_segundo_plano())
+    assert [n for n, _ in cliente.llamadas] == ["auth_purgar"]                    # el segundo intento se saltó
+    reloj.avanzar(minutes=61)
+    run(ae.purgar_en_segundo_plano())
+    assert [n for n, _ in cliente.llamadas] == ["auth_purgar", "auth_purgar"]
+
+
+def test_i4_purga_en_segundo_plano_nunca_lanza_ni_imprime_datos(bd, capsys):
+    bd(ClienteFalso(falla=RuntimeError(f"detalle con {CORREO} y {IP}")))
+    run(ae.purgar_en_segundo_plano())                                              # no lanza
+    salida = capsys.readouterr()
+    todo = salida.out + salida.err
+    assert "Aviso" in todo and CORREO not in todo and IP not in todo and "detalle" not in todo

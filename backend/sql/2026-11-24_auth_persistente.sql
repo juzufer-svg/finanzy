@@ -10,6 +10,9 @@
 -- backend nunca lo envía.
 -- Atomicidad (INV-038): cada función bloquea la fila (FOR UPDATE) o la clave (pg_advisory_xact_lock) antes de decidir.
 -- Orden de bloqueos en la emisión de códigos: primero la clave del correo, luego la global (evita interbloqueos).
+-- La purga NO corre dentro de la emisión de códigos (I-4): es una llamada aparte (auth_purgar), por lotes, con un bloqueo
+-- consultivo «try» que nunca espera, y la dispara el backend en segundo plano. Así una purga lenta no causa 503 ni
+-- interbloqueos en la emisión.
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Tablas
@@ -20,12 +23,16 @@ create table if not exists public.auth_login_intentos (
   clave varchar(128) primary key,
   fallos integer not null default 0,
   en_vuelo integer not null default 0,                       -- reservas que aún comprueban la contraseña
+  ultima_reserva timestamptz,                                -- cuándo se hizo la última reserva (I-1: caducan a los 10 s)
   ventana_inicio timestamptz not null default now(),         -- primer fallo de la serie (caduca a las 24 h)
   bloqueado_hasta timestamptz,
   actualizado_en timestamptz not null default now(),
   constraint auth_login_intentos_fallos_ck check (fallos >= 0),
   constraint auth_login_intentos_en_vuelo_ck check (en_vuelo >= 0)
 );
+
+-- Por si la tabla ya existía sin la columna (repetir la migración es seguro)
+alter table public.auth_login_intentos add column if not exists ultima_reserva timestamptz;
 
 -- Un código vigente por correo y propósito (INV-007): solo su HMAC
 create table if not exists public.auth_codigos (
@@ -54,10 +61,14 @@ create index if not exists auth_codigos_emitido_idx on public.auth_codigos (emit
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Purga oportunista (como mucho una vez al día entre todas las instancias; sin tarea programada)
--- Retención: eventos de límites 2 días; intentos de login y códigos 30 días. Devuelve cuántas filas borró, o -1 si no
--- purgó (ya se purgó hace menos de un día o la está haciendo otra sesión).
+-- Retención: eventos de límites 2 días; intentos de login y códigos 30 días. Se borra POR LOTES (p_lote filas por tabla y
+-- por llamada, con LIMIT): si quedó trabajo pendiente la marca de purga NO se renueva y la siguiente llamada continúa.
+-- Devuelve cuántas filas borró, o -1 si no purgó (ya se purgó hace menos de un día o la está haciendo otra sesión).
+-- No la llama la emisión de códigos (I-4): la dispara el backend aparte, y auth_limite_registrar libera eventos vencidos
+-- por su cuenta cuando la tabla se acerca al tope.
 -- ---------------------------------------------------------------------------------------------------------------------
-create or replace function public.auth_purgar(p_ahora timestamptz default now())
+drop function if exists public.auth_purgar(timestamptz);     -- firma anterior (sin lote), por si existiera
+create or replace function public.auth_purgar(p_ahora timestamptz default now(), p_lote integer default 10000)
 returns integer
 language plpgsql
 security invoker
@@ -67,12 +78,16 @@ declare
   v_marca timestamptz;
   v_total integer := 0;
   v_n integer;
+  v_pendiente boolean := false;
 begin
+  if p_lote is null or p_lote < 1 then
+    raise exception 'lote inválido';
+  end if;
   select max(e.ocurrido_en) into v_marca from public.auth_limites_eventos e where e.clave = 'purga';
   if v_marca is not null and v_marca > p_ahora - interval '1 day' then
     return -1;
   end if;
-  -- Solo una sesión purga; las demás no esperan (no se serializa la emisión de códigos)
+  -- Solo una sesión purga; las demás no esperan (no se serializa nada)
   if not pg_try_advisory_xact_lock(hashtextextended('auth_purgar', 0)) then
     return -1;
   end if;
@@ -82,18 +97,30 @@ begin
     return -1;
   end if;
 
-  delete from public.auth_limites_eventos e where e.clave = 'purga';
-  insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) values ('purga', 'purga', p_ahora);
+  delete from public.auth_limites_eventos e where e.id in (
+    select x.id from public.auth_limites_eventos x
+     where x.clave <> 'purga' and x.ocurrido_en < p_ahora - interval '2 days' limit p_lote);
+  get diagnostics v_n = row_count;
+  v_total := v_total + v_n;
+  v_pendiente := v_pendiente or v_n >= p_lote;
 
-  delete from public.auth_limites_eventos e where e.clave <> 'purga' and e.ocurrido_en < p_ahora - interval '2 days';
+  delete from public.auth_login_intentos i where i.clave in (
+    select x.clave from public.auth_login_intentos x where x.actualizado_en < p_ahora - interval '30 days' limit p_lote);
   get diagnostics v_n = row_count;
   v_total := v_total + v_n;
-  delete from public.auth_login_intentos i where i.actualizado_en < p_ahora - interval '30 days';
+  v_pendiente := v_pendiente or v_n >= p_lote;
+
+  delete from public.auth_codigos c where c.ctid in (
+    select x.ctid from public.auth_codigos x where x.emitido_en < p_ahora - interval '30 days' limit p_lote);
   get diagnostics v_n = row_count;
   v_total := v_total + v_n;
-  delete from public.auth_codigos c where c.emitido_en < p_ahora - interval '30 days';
-  get diagnostics v_n = row_count;
-  v_total := v_total + v_n;
+  v_pendiente := v_pendiente or v_n >= p_lote;
+
+  -- La marca solo se renueva si no quedó nada vencido por borrar (si no, la próxima llamada sigue con el siguiente lote)
+  if not v_pendiente then
+    delete from public.auth_limites_eventos e where e.clave = 'purga';
+    insert into public.auth_limites_eventos (clave, tipo, ocurrido_en) values ('purga', 'purga', p_ahora);
+  end if;
   return v_total;
 end $$;
 
@@ -138,6 +165,11 @@ begin
     f.ventana_inicio := p_ahora;
     f.bloqueado_hasta := null;
   end if;
+  -- I-1: una reserva que no se resolvió en 10 s (la petición dura como mucho 5 s: despliegue, plazo vencido, ejecutor
+  -- lleno) ya no está en vuelo; si no, impediría para siempre que un login correcto reinicie la serie
+  if f.ultima_reserva is null or f.ultima_reserva < p_ahora - interval '10 seconds' then
+    f.en_vuelo := 0;
+  end if;
 
   f.fallos := f.fallos + 1;
   f.en_vuelo := f.en_vuelo + 1;
@@ -146,14 +178,15 @@ begin
   end if;
   update public.auth_login_intentos t
      set fallos = f.fallos, en_vuelo = f.en_vuelo, ventana_inicio = f.ventana_inicio,
-         bloqueado_hasta = f.bloqueado_hasta, actualizado_en = p_ahora
+         bloqueado_hasta = f.bloqueado_hasta, actualizado_en = p_ahora, ultima_reserva = p_ahora
    where t.clave = p_clave;
   return query select true, f.bloqueado_hasta;
 end $$;
 
 -- Cierra la reserva después de comprobar la contraseña. Si fue incorrecta, el fallo ya estaba contado. Si fue correcta,
 -- devuelve el intento (fallos - 1, levanta el bloqueo si quedan menos de p_max) y borra la serie SOLO si ya no hay
--- reservas en vuelo (nunca borra los fallos de peticiones que aún comprueban su contraseña).
+-- reservas en vuelo (nunca borra los fallos de peticiones que aún comprueban su contraseña). Una reserva cuya última
+-- actividad fue hace más de 10 s no cuenta como en vuelo (el presupuesto de la petición es de 5 s).
 create or replace function public.auth_login_resolver(
   p_clave text,
   p_acierto boolean,
@@ -171,6 +204,10 @@ begin
   select * into f from public.auth_login_intentos t where t.clave = p_clave for update;
   if not found then
     return;
+  end if;
+  -- I-1: las reservas de hace más de 10 s no se resolverán nunca: no cuentan como «en vuelo»
+  if f.ultima_reserva is null or f.ultima_reserva < p_ahora - interval '10 seconds' then
+    f.en_vuelo := 0;
   end if;
   f.en_vuelo := greatest(f.en_vuelo - 1, 0);
   if coalesce(p_acierto, false) then
@@ -203,7 +240,7 @@ end $$;
 -- Códigos de correo
 -- ---------------------------------------------------------------------------------------------------------------------
 
--- Emisión en UNA sola transacción: 60 s entre códigos al mismo correo, topes por destinatario y global, registro de los
+-- Emisión en UNA sola transacción (sin purgar: la purga es aparte, I-4): 60 s entre códigos al mismo correo, topes por destinatario y global, registro de los
 -- eventos y guardado del HMAC del código (reemplaza al anterior del mismo propósito).
 -- Devuelve 'enviado' | 'reciente' | 'limitado'. Con p_espacio_seg <= 0 no se comprueba el espacio (solo para pruebas).
 create or replace function public.auth_codigo_emitir(
@@ -230,8 +267,6 @@ begin
   if p_proposito not in ('verify', 'reset') then
     raise exception 'propósito inválido';
   end if;
-
-  perform public.auth_purgar(p_ahora);                       -- oportunista; no espera a otras sesiones
 
   -- Primero el correo, luego el global (siempre en este orden)
   perform pg_advisory_xact_lock(hashtextextended('auth_emitir:correo:' || p_clave_correo, 0));
@@ -309,7 +344,11 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 
 -- Cuenta los eventos de la clave dentro de la ventana y solo inserta uno si no se llegó al límite.
--- Devuelve 'ok' | 'limitado' | 'lleno' (la tabla supera 500 000 filas: tope contra IP falsificadas, INV-040).
+-- Devuelve 'ok' | 'limitado' | 'lleno' (más de 500 000 filas DENTRO de la retención de 2 días: tope contra IP falsificadas,
+-- INV-040). Las filas vencidas no cuentan para el tope (B-1): si una purga se atrasa, no hay 429 para todos. Cuando las
+-- filas vigentes se acercan al tope (450 000 o más) se libera, por lotes de 5 000 y sin esperar a nadie, lo ya vencido.
+-- Coste (M-3): el conteo usa el índice por ocurrido_en y se acota con LIMIT 500001, así que como mucho recorre 500 001
+-- entradas del índice (decenas de ms en el peor caso); en uso normal solo recorre las de los últimos 2 días.
 create or replace function public.auth_limite_registrar(
   p_clave text,
   p_tipo text,
@@ -323,6 +362,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_n integer;
+  v_corte timestamptz := p_ahora - interval '2 days';
 begin
   if p_clave is null or p_clave = '' or p_clave = 'purga' or p_tipo is null or p_tipo = '' then
     raise exception 'parámetros inválidos';
@@ -335,7 +375,12 @@ begin
     return 'limitado';
   end if;
   select count(*) into v_n from (
-    select 1 from public.auth_limites_eventos e where e.clave <> 'purga' limit 500001) s;
+    select 1 from public.auth_limites_eventos e where e.clave <> 'purga' and e.ocurrido_en >= v_corte limit 500001) s;
+  if v_n >= 450000 and pg_try_advisory_xact_lock(hashtextextended('auth_purgar', 0)) then
+    delete from public.auth_limites_eventos e where e.id in (
+      select x.id from public.auth_limites_eventos x
+       where x.clave <> 'purga' and x.ocurrido_en < v_corte limit 5000);
+  end if;
   if v_n > 500000 then
     return 'lleno';
   end if;
