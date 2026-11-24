@@ -76,6 +76,13 @@ const IconChat = () => (
   </svg>
 )
 
+const IconMonitor = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+  </svg>
+)
+
 const IconLogout = () => (
   <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -111,10 +118,13 @@ const menuItems = [
   { href: '/dashboard/profile', label: 'Perfil', Icon: IconProfile },
 ]
 
+// Solo para el Dueño (CHG-017): se añade al menú únicamente si `es_dueno` es true
+const monitorItem = { href: '/dashboard/monitor', label: 'Monitor', Icon: IconMonitor }
+
 /** Inicial del nombre (o del correo) para el avatar. */
 // Fuera de la barra inferior del celular: Perfil y Asistente se abren desde la barra superior;
 // Recurrentes y Categorías, desde el menú lateral (así caben 5 botones sin cortar textos)
-const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories'])
+const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories', '/dashboard/monitor'])
 
 const initialOf = (user: { full_name?: string; email?: string } | null) =>
   (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()
@@ -135,7 +145,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
   // false en el servidor y durante la hidratación, true después en el cliente
   const hydrated = useSyncExternalStore(subscribeNoop, () => true, () => false)
-  const { isAuthenticated, logout, user, loadAuth, setUser } = useAuthStore()
+  const { isAuthenticated, logout, user, loadAuth, setUser, esDueno, setEsDueno } = useAuthStore()
+  const userId = user?.id
   const { dark, toggle: toggleTheme } = useThemeStore()
   const { loadRates } = useCurrencyStore()
   const setCurrency = useCurrencyStore(s => s.setCurrency)
@@ -153,11 +164,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!isAuthenticated) return
     let active = true
     apiClient.get('/api/v1/users/me')
-      .then(res => { if (active && isSupportedCurrency(res.data?.currency)) setCurrency(res.data.currency) })
-      .catch(() => { /* sin conexión: se usa la moneda guardada en este navegador */ })
+      .then(res => {
+        if (!active) return
+        if (isSupportedCurrency(res.data?.currency)) setCurrency(res.data.currency)
+        // Solo un `true` explícito muestra el enlace «Monitor»; se recalcula al cambiar de usuario
+        setEsDueno(res.data?.es_dueno === true)
+      })
+      .catch(() => { /* sin conexión: se usa la moneda guardada en este navegador; sin enlace «Monitor» */ })
       .finally(() => { if (active) setMonedaLista(true) })
     return () => { active = false }
-  }, [isAuthenticated, setCurrency])
+  }, [isAuthenticated, userId, setCurrency, setEsDueno])
 
   // Si el usuario ya tiene sesión pero no tiene full_name (sesión antigua), lo carga desde la API
   useEffect(() => {
@@ -193,9 +209,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
+  const items = esDueno ? [...menuItems, monitorItem] : menuItems
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
-  const currentSection = menuItems.find(item => isActive(item.href))?.label ?? 'Inicio'
+  const currentSection = items.find(item => isActive(item.href))?.label ?? 'Inicio'
   const displayName = user?.full_name || user?.email || 'Usuario'
   // Al cerrar sesión el período vuelve al mes actual (la siguiente persona no hereda el filtro)
   const handleLogout = async () => { resetPeriod(); await logout(); router.push('/') }
@@ -269,7 +286,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </Link>
 
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          {menuItems.map(({ href, label, Icon }) => {
+          {items.map(({ href, label, Icon }) => {
             const active = isActive(href)
             return (
               <Link
@@ -343,7 +360,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-              {menuItems.map(({ href, label, Icon }) => {
+              {items.map(({ href, label, Icon }) => {
                 const active = isActive(href)
                 return (
                   <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} aria-current={active ? 'page' : undefined} className={`${navLinkClass(active)} py-3`}>
