@@ -25,7 +25,7 @@ Estados: `vigente`, `usado`, `invalidado`, `vencido`
 
 | Desde | Acción | Hacia | Precondiciones / efecto |
 |---|---|---|---|
-| — | emitir | vigente | Respeta límites (INV-010); reemplaza al código anterior del mismo propósito |
+| — | emitir | vigente | Respeta límites (INV-010): el espacio de 60 s y los topes se comprueban y el código se guarda en una sola operación atómica (INV-038); reemplaza al código anterior del mismo propósito |
 | vigente | verificar con el valor correcto | usado | Un solo uso (INV-007) |
 | vigente | 5.º intento fallido | invalidado | Hay que pedir otro |
 | vigente | pasan 10 minutos | vencido | — |
@@ -33,29 +33,30 @@ Estados: `vigente`, `usado`, `invalidado`, `vencido`
 
 ## Bloqueo de login (CHG-020)
 
-Estados: `libre`, `contando` (1 a 4 fallos en la ventana de 15 min), `bloqueado` (5.º fallo, 15 min)
+Estados: `libre`, `contando` (1 a 4 fallos dentro de la ventana de **24 h** contada desde el primer fallo), `bloqueado` (5.º fallo, 15 min)
 
 | Desde | Acción | Hacia | Precondiciones / efecto |
 |---|---|---|---|
-| libre | fallo de login (o de contraseña actual en el perfil) | contando | Se reserva el intento antes de comprobar la contraseña (INV-038) |
-| contando | 5.º fallo dentro de 15 min | bloqueado | 429 durante 15 min desde ese fallo; no se comprueba ninguna contraseña |
-| contando | 15 min desde el primer fallo sin llegar a 5 | libre | La ventana caduca |
-| contando / bloqueado | inicio de sesión correcto (solo si no está bloqueado), restablecimiento de contraseña | libre | Reinicia el contador |
-| bloqueado | pasan 15 min | libre | — |
+| libre | intento de login (o de contraseña actual en el perfil) | contando | Se **reserva** el intento antes de comprobar la contraseña (INV-038); si era incorrecta, el fallo ya está contado |
+| contando | 5.ª reserva dentro de las 24 h | bloqueado | 429 durante 15 min desde esa reserva; no se comprueba ninguna contraseña más. Si la 5.ª reserva acierta, se le devuelve el intento y se levanta el bloqueo (inicia sesión) |
+| contando | pasan 24 h desde el primer fallo sin llegar a 5 | libre | La serie caduca (INV-010) |
+| contando | contraseña correcta | contando o libre | Se **devuelve** el intento reservado (sin borrar los fallos de otras peticiones en vuelo); la serie se borra solo cuando ya no queda ninguna reserva en vuelo |
+| contando / bloqueado | restablecimiento de contraseña | libre | Borra la serie (también desbloquea a quien otra persona bloqueó, riesgo aceptado M-6) |
+| bloqueado | pasan 15 min | libre | La serie nueva empieza de cero |
 | cualquiera | reinicio o despliegue del backend | (se conserva) | Persistido en PostgreSQL (INV-037) |
 | cualquiera | eliminar la cuenta / pasan 30 días sin actividad | (desaparece) | INV-040 |
 
 ## Cuenta de dinero (CHG-019)
 
-Estados: `activa`, `archivada`, `eliminada` (no existe). El saldo es derivado, no un estado (INV-047).
+Estados: `no archivada`, `archivada`, `eliminada` (no existe). El saldo es derivado, no un estado (INV-047). (La «cuenta» de usuario sí es `activa`/`pendiente`: no mezclar.)
 
 | Desde | Acción | Hacia | Quién | Precondiciones / efecto |
 |---|---|---|---|---|
-| — | crear | activa | Usuario | Menos de 20 cuentas, nombre único, saldo inicial válido (INV-050, INV-051) |
-| activa | archivar | archivada | Usuario | Cualquier saldo; queda congelada (sin altas, cambios ni bajas de movimientos) |
-| archivada | desarchivar | activa | Usuario | — |
-| activa | eliminar | eliminada | Usuario | Solo sin movimientos ni transferencias; si no, 409 «archívala» |
-| activa / archivada | eliminar la cuenta de usuario | eliminada | Usuario | Cascada con todos sus datos (INV-021) |
+| — | crear | no archivada | Usuario | Menos de 20 cuentas de dinero, nombre único, saldo inicial válido (INV-050, INV-051) |
+| no archivada | archivar | archivada | Usuario | Cualquier saldo, con o sin transacciones; queda congelada (sin transacciones nuevas, cambios ni bajas de transacciones o transferencias; `FZ002` bajo el mismo bloqueo del saldo) |
+| archivada | desarchivar | no archivada | Usuario | — |
+| no archivada | eliminar | eliminada | Usuario | Solo sin transacciones ni transferencias; si no, 409 «archívala» |
+| no archivada / archivada | eliminar la cuenta de usuario | eliminada | Usuario | Cascada con todos sus datos (INV-021) |
 
 Una **Transferencia** no tiene estados: se crea y se elimina (no se edita).
 

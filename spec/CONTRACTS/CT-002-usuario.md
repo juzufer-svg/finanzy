@@ -34,7 +34,7 @@ Efectos: guarda el nuevo hash bcrypt y sube `session_version` (el token nuevo us
 
 | Error | Cuándo | `detail` |
 |---|---|---|
-| 400 | Contraseña actual incorrecta (cuenta como fallo de login: 5 → bloqueo de 15 min, INV-010). No es 401 para que el frontend no cierre la sesión | «La contraseña actual no es correcta» |
+| 400 | Contraseña actual incorrecta (cuenta como fallo de login: 5 dentro de una ventana de 24 h → bloqueo de 15 min, INV-010; el intento se reserva antes de comprobar la contraseña, INV-038). No es 401 para que el frontend no cierre la sesión | «La contraseña actual no es correcta» |
 | 422 | Nueva fuera de 8-128 o igual a la actual | «La nueva contraseña debe ser distinta de la actual» / validación |
 | 429 | Correo bloqueado por fallos o demasiados intentos desde la IP | «Demasiados intentos fallidos…» / «Demasiadas solicitudes…» |
 | 503 | La base de datos falló: no cambia nada ni cierra sesiones | «No se pudo guardar el cambio. Intenta de nuevo en unos minutos.» |
@@ -43,4 +43,4 @@ Efectos: guarda el nuevo hash bcrypt y sube `session_version` (el token nuevo us
 Elimina la cuenta y, por cascada, todas sus categorías, transacciones, presupuestos y metas. Irreversible.
 La confirmación (escribir el correo) se exige en la interfaz.
 
-**Notas de CHG-019 y CHG-020 sobre `DELETE /users/me`:** el borrado en cascada incluye las cuentas de dinero y las transferencias del usuario (INV-021, INV-050; el disparador de saldo no bloquea la cascada) y, después del borrado, se limpian sus intentos de login y códigos pendientes por huella (INV-040; si la limpieza falla, la baja no se revierte). `POST /users/me/password` puede responder **503** si falla el estado de autenticación (CT-001, INV-039).
+**Notas de CHG-019 y CHG-020 sobre `DELETE /users/me`:** el borrado en cascada incluye las cuentas de dinero y las transferencias del usuario (INV-021, INV-050; el disparador de saldo no bloquea la cascada) y, después del borrado, se limpian sus intentos de login y códigos pendientes por huella (INV-040; si la limpieza falla, la baja no se revierte; las huellas de límites —solo huella y hora— expiran con su purga, hasta 2 días, Q-5). `POST /users/me/password` puede responder **503** si falla el estado de autenticación o la lectura de usuarios (CT-001, INV-039).

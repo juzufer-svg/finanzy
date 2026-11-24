@@ -45,8 +45,8 @@ mensaje; si uno es inválido no se guarda ninguno. Deshacer/corregir: solo el ú
 WhatsApp, de las últimas 24 h, y solo transacciones del mismo usuario.
 
 ## Cuentas de dinero en WhatsApp (CHG-019, fase c)
-La herramienta de la IA que crea movimientos admite un campo opcional `cuenta` (**nombre**) que la IA solo debe rellenar si la persona
-nombró la cuenta. El backend la busca entre las **cuentas activas del usuario del número enlazado** (sin distinguir mayúsculas ni tildes)
-y valida saldo y archivada con las mismas reglas de la app (INV-029, INV-048); si no se nombra, el movimiento queda **sin cuenta**; si
+La herramienta de la IA que crea transacciones admite un campo opcional `cuenta` (**nombre de una cuenta de dinero**) que la IA solo debe rellenar si la persona
+nombró la cuenta de dinero. El backend la busca entre las **cuentas de dinero no archivadas del usuario del número enlazado** (sin distinguir mayúsculas ni tildes)
+y valida saldo y archivada con las mismas reglas de la app (INV-029, INV-048); si no se nombra, la transacción queda **sin cuenta**; si
 se nombra y no existe, está archivada o no alcanza el saldo, **no se registra nada** y la respuesta lo explica. A Claude se le envían
-solo los nombres de las cuentas activas (sin ids ni saldos). WhatsApp **no** crea transferencias.
+solo los nombres de las cuentas de dinero no archivadas (sin ids ni saldos). WhatsApp **no** crea transferencias.

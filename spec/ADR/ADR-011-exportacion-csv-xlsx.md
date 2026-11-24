@@ -1,12 +1,19 @@
 # ADR-011 — Exportación de transacciones a CSV y Excel (.xlsx) y dependencia `openpyxl`
 
-- **Estado:** propuesta (spec de CHG-018, pendiente de aprobación; formatos y alcance ya decididos por el dueño el 2026-11-24)
+- **Estado:** propuesta (spec de CHG-018, ciclo 2; pendiente de aprobación; formatos, alcance y «Origen solo App o WhatsApp» ya decididos por el dueño el 2026-11-24)
 - **Fecha:** 2026-11-24 · **Decide:** dueño del proyecto
 
 ## Contexto
 REQ-F-019 pide descargar las transacciones del mes (o de un rango) en CSV y Excel. Hasta ahora «importación/exportación
 de archivos» estaba fuera de alcance (REQUIREMENTS §4) y el backend no tiene librería para `.xlsx`. Los archivos
 contienen datos financieros que salen de la app y texto libre del usuario (riesgo de **inyección de fórmulas**).
+
+**Estado real del proxy (verificado en `frontend/app/api/v1/[...path]/route.ts`, ciclo 2):** el proxy de Next.js ya
+entrega el cuerpo del backend como bytes (`upstream.arrayBuffer()`), añade `Cache-Control: no-store` a toda respuesta y
+la cabecera `X-Content-Type-Options: nosniff` sale de `next.config.js` para todas las rutas. **Lo único que falta**
+para descargas es: (1) reenviar `Content-Disposition` (hoy solo se reenvía `Content-Type`, así que el navegador no
+conoce el nombre del archivo), (2) declarar `export const maxDuration = 10` en la función del proxy y (3) corregir el
+comentario del archivo («la API no usa … descargas»). No hay que cambiar cómo se pasa el binario.
 
 ## Alternativas evaluadas
 | Opción | Pros | Contras |
@@ -19,16 +26,18 @@ contienen datos financieros que salen de la app y texto libre del usuario (riesg
 
 ## Decisión
 1. Endpoint del backend `GET /api/v1/exportaciones/transacciones` (CT-011): el filtro por usuario sale de la sesión (INV-001, INV-042), no de la interfaz.
-2. **CSV** (decisiones provisionales del coordinador, el dueño puede cambiarlas): UTF-8 **con BOM**, separador `;`, `\r\n`, comillas RFC 4180, monto con coma decimal y sin miles, fecha `AAAA-MM-DD`. **Excel (.xlsx)** con `openpyxl` `write_only`: números y fechas reales, textos siempre como cadena.
-3. **Neutralización de fórmulas (INV-043):** en CSV y xlsx, todo texto que empiece por `=`, `+`, `-`, `@`, tabulación o retorno de carro se prefija con `'`. En xlsx además se fuerza el tipo cadena de cada celda de texto. Los números y fechas no son texto y no se prefijan.
+2. **CSV** (decisión del dueño, 2026-11-24, ciclo 2: se mantiene): UTF-8 **con BOM**, separador `;`, `\r\n`, comillas RFC 4180, monto con **coma decimal** y sin miles, fecha `AAAA-MM-DD` (Excel en español de Colombia lo abre bien). **Riesgo documentado:** un Excel con configuración regional en **inglés** (separador de lista `,` y decimal `.`) no separa por `;` (todo queda en una columna) y puede leer `1234,50` como texto. **El `.xlsx` es el formato seguro** (números y fechas reales, sin depender de la configuración regional): la interfaz muestra esa nota junto al botón de descarga (CT-011, UC-015). **Excel (.xlsx)** con `openpyxl` `write_only`: números y fechas reales, textos siempre como cadena.
+3. **Neutralización de fórmulas (INV-043):** todo texto que empiece por `=`, `+`, `-`, `@`, tabulación o retorno de carro se neutraliza, **de forma distinta según el formato**: en **CSV** se antepone un apóstrofo `'` (el CSV no tiene tipos: es la única defensa; el apóstrofo se verá en Excel y es aceptado); en **xlsx** NO se antepone ningún apóstrofo visible: la celda se escribe como **cadena explícita** (tipo `s`, nunca fórmula) con el estilo `quotePrefix` activado (la propia marca de Excel para «texto que parece fórmula»), con lo que el valor guardado es el texto original y Excel no lo evalúa ni muestra apóstrofo. El generador confirma al implementar el atributo exacto de `openpyxl` (`celda.quotePrefix`/estilo equivalente); si la versión fijada no lo permite en `write_only`, se **escala** (no se cambia a apóstrofo visible sin decisión). Los números y fechas no son texto y no se tocan.
 4. **Dependencia:** añadir `openpyxl` (última versión estable 3.1.x al implementar, **fijada con `==`**) a `requirements.txt` y `requirements-dev.txt`; `python -m pip_audit -r requirements.txt` debe dar 0 vulnerabilidades antes de cerrar (REQ-N-004, REQ-N-021). Sin costo (REQ-N-006).
-5. **Límites explícitos (INV-044):** ≤ 12 meses, ≤ 10 000 filas (cabe en < 4 MB con descripciones de 255 caracteres; Vercel corta las respuestas de función alrededor de 4,5 MB), paginando de 1000 en 1000 porque PostgREST corta ahí en silencio; si se supera, 422 con mensaje claro.
-6. **Proxy:** para `exportaciones/*` reenvía además `Content-Disposition` y `Cache-Control` y devuelve el cuerpo binario sin convertirlo a texto. Resto de rutas sin cambio (INV-020 intacto: la sesión sigue en la cookie HttpOnly).
-7. **Cabeceras:** `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment` con nombre genérico (sin nombre ni correo).
-8. **Origen:** solo «App» o «WhatsApp» (WhatsApp = existe fila en `whatsapp_registros`). «Recurrente» y «Abono a meta» no se pueden distinguir hoy: requerirían una columna `origen` en `transacciones` (otro cambio).
-9. Los **reportes no se recalculan** en el backend (dos fuentes de cifras): se exportan las transacciones del período.
+5. **Límites explícitos (INV-044), tres topes:** ≤ **12 meses**, ≤ **10 000 filas** y ≤ **4 MB (4 000 000 bytes)** de archivo. Vercel responde **413 opaco** (`FUNCTION_PAYLOAD_TOO_LARGE`, sin JSON) a una función que devuelve más de ~4,5 MB; el tope de 4 MB deja margen y garantiza que el usuario siempre vea un error claro del backend en vez de ese 413. Si el archivo generado supera 4 000 000 bytes → **422 `exportacion_demasiado_grande`** con mensaje claro, **nunca** truncado ni parcial. El servidor lo comprueba **mientras genera** (CSV: cuenta los bytes reales tras cada página y deja de pedir páginas al superar el tope; xlsx: escribe a un archivo temporal acotado y comprueba el tamaño final, con el tope de 10 000 filas como cota de lo que se procesa) y procesa por páginas de 1000 (PostgREST corta ahí en silencio): no carga todo en memoria sin control. Con descripciones de 255 caracteres de varios bytes, comillas y la columna Cuenta, **10 000 filas pueden superar 4 MB**: ese caso se rechaza con el 422 de tamaño, no se entrega.
+6. **Proxy (exacto):** reenviar `Content-Disposition` **solo** para rutas `exportaciones/*` (función pura `cabecerasDeDescarga` en `frontend/lib/exportar.ts`, con prueba); `export const maxDuration = 10` (límite de Hobby; no subirlo sin ADR); el resto de rutas queda igual. INV-020 intacto: la sesión sigue en la cookie HttpOnly. **Prueba del proxy:** `frontend/tests/exportar.test.mjs` (`cabecerasDeDescarga`, Node, en CI) y recorrido de punta a punta `frontend/e2e/exportar.mjs` (Playwright, manual).
+7. **Interfaz y errores:** la descarga usa `apiClient.get(..., { responseType: 'blob' })`; con ese tipo, los errores **422/429/503 llegan como `Blob`** (no como objeto JSON) y `apiErrorMessage` no encontraría `detail`. Por eso `errorDeBlob(err)` (`frontend/lib/exportar.ts`) lee el `Blob` como texto, lo interpreta como JSON y lo deja en `err.response.data` antes de llamar a `apiErrorMessage`; un 413 opaco de Vercel (sin JSON) se traduce a «El archivo es demasiado grande. Elige menos meses.»; con pruebas en `frontend/tests/exportar.test.mjs`.
+8. **Cabeceras:** `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment` con nombre genérico (sin nombre ni correo).
+9. **Origen:** solo «App» o «WhatsApp» (WhatsApp = existe fila en `whatsapp_registros`); **decisión del dueño**. «Recurrente» y «Abono a meta» no se pueden distinguir hoy: requerirían una columna `origen` en `transacciones` (otro cambio).
+10. **Rendimiento (REQ-N-019, REQ-N-026):** la generación del CSV y del xlsx **no bloquea el bucle de eventos** del servidor (se ejecuta en un hilo, `asyncio.to_thread`/`run_in_threadpool`, y la lectura paginada también), con un **plazo total de 8 s** (comprobado entre páginas y antes de escribir); si se excede → 503 «La exportación tardó demasiado. Elige menos meses.» sin archivo parcial. El proxy de Vercel corta a los 10 s (`maxDuration`), por eso 8 s en el servidor.
+11. Los **reportes no se recalculan** en el backend (dos fuentes de cifras): se exportan las transacciones del período.
 
 ## Consecuencias
-- Positivas: el dueño y los usuarios pueden llevarse sus datos y analizarlos en Excel; sin servicios nuevos ni costo.
-- Negativas / deuda aceptada: una dependencia más que auditar y actualizar; tope de 10 000 filas por archivo; la paginación no es una instantánea (INV-044); sin importación.
-- Impacto en spec, código y pruebas: REQUIREMENTS §4 (se saca **solo exportar** de «Fuera»), REQ-F-019, CT-011, INV-042 a INV-045, `backend/tests/test_exportar.py`, `frontend/tests/exportar.test.mjs`, proxy de Next.js, `requirements*.txt`.
+- Positivas: el dueño y los usuarios pueden llevarse sus datos y analizarlos en Excel; sin servicios nuevos ni costo; los errores de tamaño nunca llegan como un 413 opaco.
+- Negativas / deuda aceptada: una dependencia más que auditar y actualizar; tope de 10 000 filas **y** 4 MB por archivo (el CSV con apóstrofo visible en Excel); el CSV depende de la configuración regional de Excel (el xlsx es la salida segura); la paginación no es una instantánea (INV-044); sin importación.
+- Impacto en spec, código y pruebas: REQUIREMENTS §4 (se saca **solo exportar** de «Fuera»), REQ-F-019, CT-011, INV-042 a INV-045, REQ-N-019 a REQ-N-021 y REQ-N-026, `backend/tests/test_exportar.py`, `frontend/tests/exportar.test.mjs`, `frontend/e2e/exportar.mjs`, proxy de Next.js (`Content-Disposition`, `maxDuration`), `requirements*.txt`.

@@ -14,7 +14,7 @@ Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no e
   "fecha": "YYYY-MM-DD (INV-005)",
   "tipo": "ingreso | gasto (INV-004)",
   "medio_pago": "debito | credito | efectivo | transferencia | nequi_daviplata | null — opcional (INV-022)",
-  "cuenta_id": "uuid ≤ 64 — opcional (CHG-019, fase a): null/ausente = sin cuenta; debe ser una cuenta del usuario (INV-046) y no estar archivada; monto ≤ 9 999 999 999,99 con cuenta (INV-051)"
+  "cuenta_id": "uuid ≤ 64 — opcional (CHG-019, fase a): null/ausente = sin cuenta; debe ser una cuenta de dinero del usuario (INV-046) y no estar archivada; monto ≤ 9 999 999 999,99 y ≤ 2 decimales con cuenta de dinero (INV-051)"
 }
 ```
 Salida: `{ "id", "usuario_id", "categoria_id", "monto", "descripcion", "fecha", "tipo", "medio_pago", "cuenta_id" }`
@@ -23,10 +23,11 @@ Salida: `{ "id", "usuario_id", "categoria_id", "monto", "descripcion", "fecha", 
 `medio_pago` en `PUT`: si no se envía, se conserva el actual; `null` lo quita; otro valor lo reemplaza.
 Un valor fuera de la lista → 422.
 
-`cuenta_id` (CHG-019): las transacciones anteriores salen con `null` y **no mueven ningún saldo**. En `PUT`, igual que `medio_pago`:
-no enviar = conservar; `null` = quitar; otro valor = reemplazar. Errores propios: **404** «Cuenta no encontrada» (no es suya o no
-existe, INV-046); **409** «Saldo insuficiente…» si el movimiento dejaría una cuenta que no es tarjeta de crédito en negativo, o
-«La cuenta … está archivada…» (INV-048, INV-050); en ambos casos no se guarda nada. Ver CT-012. Las transferencias entre cuentas
+`cuenta_id` (CHG-019, cuenta de dinero): las transacciones anteriores salen con `null` y **no mueven ningún saldo**. En `PUT`, igual que `medio_pago`:
+no enviar = conservar; `null` = quitar; otro valor = reemplazar. Un `PUT` que solo cambia `cuenta_id` valida el monto ya guardado
+(≤ 9 999 999 999,99 y 2 decimales, leído con `Decimal`): si no cumple, 422 (INV-051). Errores propios: **404** «Cuenta no encontrada» (no es suya o no
+existe, INV-046); **409** «Saldo insuficiente…» si la transacción dejaría una cuenta de dinero que no es tarjeta de crédito en negativo, o
+«La cuenta … está archivada…» (INV-048, INV-050); en ambos casos no se guarda nada. Ver CT-012. Las transferencias entre cuentas de dinero
 **no** son transacciones: no salen en `GET /transacciones` ni en `resumen/{mes}` (INV-049).
 
 | Endpoint | Respuesta | Errores propios |

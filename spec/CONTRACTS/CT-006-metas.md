@@ -18,7 +18,7 @@ Salida: `{ "id", "usuario_id", "nombre", "monto_objetivo", "monto_actual", "fech
 4. Suma el monto a `monto_actual`; si falla, elimina el gasto creado.
 
 ## Abono con cuenta (CHG-019, fase c)
-`POST /metas/{id}/abonar` acepta `cuenta_id` opcional (cuenta de origen del dinero, debe ser del usuario). El gasto «Ahorro» se
+`POST /metas/{id}/abonar` acepta `cuenta_id` opcional (cuenta de dinero de origen, debe ser del usuario). El gasto «Ahorro» se
 crea con esa cuenta y su saldo baja dentro de la **misma transacción SQL** que suma a la meta (INV-008, INV-052). 404 «Cuenta no
-encontrada» si no es suya; 409 «Saldo insuficiente…» o cuenta archivada: no se registra el gasto ni se suma a la meta; 503 si la
+encontrada» si no es suya; 409 «Saldo insuficiente…» o cuenta de dinero archivada: no se registra el gasto ni se suma a la meta; 503 si la
 función SQL actualizada no está disponible (con cuenta nunca se usa el método anterior no atómico). Sin `cuenta_id` todo igual que antes.

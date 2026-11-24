@@ -1,6 +1,6 @@
 # language: es
-# Trazabilidad: REQ-F-019 · UC-015 · CT-011 · INV-042 a INV-045 · ADR-011 · REQ-N-019 a REQ-N-021
-# Pruebas: backend/tests/test_exportar.py y frontend/tests/exportar.test.mjs (npm test). Recorrido de punta a punta con el proxy: frontend/e2e/exportar.mjs (manual, Playwright).
+# Trazabilidad: REQ-F-019 · UC-015 · CT-011 · INV-042 a INV-045 · ADR-011 · REQ-N-019 a REQ-N-021 y REQ-N-026
+# Pruebas: backend/tests/test_exportar.py y frontend/tests/exportar.test.mjs (npm test, incluye la prueba del proxy: cabecerasDeDescarga y errorDeBlob). Recorrido de punta a punta con el proxy real: frontend/e2e/exportar.mjs (manual, Playwright).
 Característica: Exportar transacciones a CSV o Excel
 
   @BDD-EXPORTAR @happy-path @INV-045
@@ -40,6 +40,13 @@ Característica: Exportar transacciones a CSV o Excel
     Dado una transacción creada por WhatsApp con débito y otra creada en la app sin medio de pago
     Cuando exporta
     Entonces la primera dice Origen "WhatsApp" y Medio de pago "Débito", y la segunda "App" y vacío
+
+  @BDD-EXPORTAR @borde @INV-045
+  # Prueba: tests/test_exportar.py::test_inv045_origen_solo_app_o_whatsapp_las_recurrentes_y_abonos_salen_como_app
+  Escenario: Una recurrente confirmada y un abono salen como App
+    Dado una transacción creada al confirmar una recurrente y otra creada por un abono a meta
+    Cuando exporta
+    Entonces ambas dicen Origen "App" (decisión del dueño: solo App o WhatsApp)
 
   @BDD-EXPORTAR @invariante @INV-042
   # Prueba: tests/test_exportar.py::test_inv042_exporta_solo_las_transacciones_del_usuario_de_la_sesion
@@ -89,10 +96,11 @@ Característica: Exportar transacciones a CSV o Excel
 
   @BDD-EXPORTAR @invariante @INV-043
   # Prueba: tests/test_exportar.py::test_inv043_xlsx_neutraliza_formulas_y_no_hay_celdas_de_formula
-  Escenario: Lo mismo en Excel
+  Escenario: Lo mismo en Excel, sin apóstrofo visible
     Dado las mismas descripciones y una categoría llamada "=1+1"
     Cuando se exporta en xlsx
-    Entonces ninguna celda tiene tipo fórmula, y los textos peligrosos llevan el apóstrofo
+    Entonces ninguna celda tiene tipo fórmula (ni hay elementos de fórmula en el XML de la hoja)
+    Y cada texto peligroso es una cadena explícita con quotePrefix y su valor es el texto original, sin apóstrofo antepuesto
 
   @BDD-EXPORTAR @borde @INV-043
   # Prueba: tests/test_exportar.py::test_inv043_montos_y_fechas_no_se_prefijan
@@ -106,7 +114,7 @@ Característica: Exportar transacciones a CSV o Excel
   Escenario: Un texto normal queda igual
     Dado una descripción "Almuerzo - menú del día"
     Cuando se exporta
-    Entonces sale idéntica, sin apóstrofo
+    Entonces sale idéntica, sin apóstrofo ni quotePrefix
 
   @BDD-EXPORTAR @invariante @INV-044
   # Prueba: tests/test_exportar.py::test_inv044_rango_mayor_de_12_meses_responde_422
@@ -119,7 +127,21 @@ Característica: Exportar transacciones a CSV o Excel
   Escenario: Demasiadas filas no se truncan en silencio
     Dado un usuario con 10 001 transacciones en el rango
     Cuando exporta
-    Entonces recibe 422 "Hay más de 10 000 transacciones…" y no se entrega ningún archivo; con exactamente 10 000 sí
+    Entonces recibe 422 "Hay más de 10 000 transacciones…" con codigo "exportacion_demasiadas_filas" y no se entrega ningún archivo; con exactamente 10 000 (de tamaño normal) sí
+
+  @BDD-EXPORTAR @invariante @INV-044
+  # Prueba: tests/test_exportar.py::test_inv044_mas_de_4mb_responde_422_exportacion_demasiado_grande
+  Escenario: Un archivo de más de 4 MB no se entrega ni se trunca
+    Dado transacciones cuyo archivo, en CSV o en xlsx, pasaría de 4 000 000 bytes
+    Cuando exporta
+    Entonces recibe 422 "El archivo superaría los 4 MB…" con codigo "exportacion_demasiado_grande" y no se entrega ningún archivo
+
+  @BDD-EXPORTAR @invariante @INV-044
+  # Prueba: tests/test_exportar.py::test_inv044_el_tope_de_bytes_corta_la_generacion_sin_acumular_todo
+  Escenario: El servidor comprueba el tamaño mientras genera
+    Dado un cliente de BD que cuenta las páginas pedidas y filas muy grandes
+    Cuando se supera el tope de 4 MB a mitad del rango
+    Entonces deja de pedir páginas, responde 422 y no llega a construir el archivo completo en memoria
 
   @BDD-EXPORTAR @invariante @INV-044
   # Prueba: tests/test_exportar.py::test_inv044_pagina_todas_las_filas_mas_alla_de_1000
@@ -141,25 +163,53 @@ Característica: Exportar transacciones a CSV o Excel
     Cuando exporta
     Entonces responde 503 y no entrega un archivo parcial (INV-013)
 
-  @BDD-EXPORTAR @borde @REQ-N-019
+  @BDD-EXPORTAR @invariante @INV-044
+  # Prueba: tests/test_exportar.py::test_inv044_plazo_total_de_8s_responde_503_sin_archivo_parcial
+  Escenario: Una exportación demasiado lenta se corta antes del límite del proxy
+    Dado una BD que tarda 3 s por página
+    Cuando se exportan 10 000 filas
+    Entonces responde 503 "La exportación tardó demasiado…" a los 8 s como máximo y no entrega archivo
+
+  @BDD-EXPORTAR @borde @INV-044
   # Prueba: tests/test_exportar.py::test_inv044_limite_de_10_descargas_por_minuto_responde_429
   Escenario: Límite de descargas
     Cuando un usuario pide 11 descargas en un minuto
     Entonces la 11.ª recibe 429 y otro usuario no se ve afectado
 
   @BDD-EXPORTAR @borde @REQ-N-020
-  # Prueba: tests/test_exportar.py::test_req_n020_peor_caso_10000_filas_cabe_en_4mb
-  Escenario: Peor caso de tamaño
-    Dado 10 000 transacciones con descripción de 255 caracteres
+  # Prueba: tests/test_exportar.py::test_req_n020_peor_caso_real_con_comillas_multibyte_y_cuenta_responde_422
+  Escenario: Peor caso real de tamaño
+    Dado 10 000 transacciones con descripción de 255 caracteres con comillas y caracteres de varios bytes, y la columna Cuenta
     Cuando se exporta en CSV y en xlsx
-    Entonces cada archivo pesa menos de 4 MB
+    Entonces el servidor responde 422 "exportacion_demasiado_grande" (no entrega un archivo de más de 4 000 000 bytes ni lo trunca)
+
+  @BDD-EXPORTAR @borde @REQ-N-020
+  # Prueba: tests/test_exportar.py::test_req_n020_descripciones_ascii_de_255_caracteres_caben_en_4mb
+  Escenario: Descripciones largas pero normales caben
+    Dado 10 000 transacciones con descripción ASCII de 255 caracteres
+    Cuando se exporta en CSV y en xlsx
+    Entonces cada archivo pesa menos de 4 000 000 bytes y tiene las 10 000 filas
+
+  @BDD-EXPORTAR @invariante @REQ-N-020
+  # Prueba: tests/test_exportar.py::test_req_n020_ningun_archivo_entregado_supera_4_000_000_bytes
+  Escenario: Nunca se entrega un archivo de más de 4 MB
+    Dado distintas combinaciones de filas, tamaños de descripción y formatos
+    Cuando se exporta
+    Entonces toda respuesta 200 pesa como máximo 4 000 000 bytes; el resto son 422
 
   @BDD-EXPORTAR @borde @REQ-N-019
-  # Prueba: tests/test_exportar.py::test_req_n019_10000_filas_en_menos_de_3s_csv_y_8s_xlsx
+  # Prueba: tests/test_exportar.py::test_req_n019_10000_filas_en_menos_de_3s_csv_y_6s_xlsx
   Escenario: Tiempo de generación
-    Dado 10 000 transacciones
+    Dado 10 000 transacciones de tamaño normal
     Cuando se exporta
-    Entonces el CSV se genera en menos de 3 s y el xlsx en menos de 8 s (sin red)
+    Entonces el CSV se genera en menos de 3 s y el xlsx en menos de 6 s (sin red)
+
+  @BDD-EXPORTAR @borde @REQ-N-026
+  # Prueba: tests/test_exportar.py::test_req_n026_la_generacion_no_bloquea_el_bucle_de_eventos
+  Escenario: Generar el archivo no congela el servidor
+    Dado una exportación de 10 000 filas en curso
+    Cuando otra petición llega mientras se genera
+    Entonces el bucle de eventos nunca queda bloqueado más de 0,5 s
 
   @BDD-EXPORTAR @borde @INV-045
   # Prueba: frontend/tests/exportar.test.mjs (rangoValido, nombreDeArchivo)
@@ -167,3 +217,25 @@ Característica: Exportar transacciones a CSV o Excel
     Dado el diálogo de descarga
     Cuando se elige un rango de más de 12 meses o con inicio posterior al final
     Entonces el botón «Descargar» queda desactivado y se explica por qué
+
+  @BDD-EXPORTAR @borde @INV-044
+  # Prueba: frontend/tests/exportar.test.mjs ("errorDeBlob: 422, 429 y 503 llegan como Blob y se lee su detail", "errorDeBlob: un Blob que no es JSON usa el mensaje por defecto", "errorDeBlob: un 413 opaco de Vercel se traduce a un mensaje claro")
+  Escenario: Los errores de una descarga se leen aunque lleguen como Blob
+    Dado una descarga con responseType blob que recibe 422, 429, 503 o un 413 sin JSON
+    Cuando la interfaz procesa el error
+    Entonces el usuario ve el mensaje de detail (o el mensaje claro por defecto) con apiErrorMessage y useDialog, nunca "[object Blob]" ni un mensaje genérico
+
+  @BDD-EXPORTAR @borde @INV-042
+  # Prueba: frontend/tests/exportar.test.mjs ("cabecerasDeDescarga: reenvía Content-Disposition y Content-Type solo en exportaciones/*", "cabecerasDeDescarga: ignora Content-Disposition en cualquier otra ruta")
+  # Prueba de punta a punta (manual): frontend/e2e/exportar.mjs (descarga real por el proxy, nombre del archivo, 422 visible, la cookie de sesión nunca llega al JavaScript)
+  Escenario: El proxy entrega el archivo con su nombre y solo para exportaciones
+    Dado una respuesta del backend con Content-Disposition
+    Cuando pasa por el proxy en la ruta exportaciones/transacciones y en otra ruta
+    Entonces en la primera el navegador recibe Content-Disposition y Content-Type, y en la otra solo Content-Type
+
+  @BDD-EXPORTAR @borde @INV-045
+  # Prueba: frontend/e2e/exportar.mjs (manual; comprueba que junto al botón se lee la nota del .xlsx para Excel en inglés)
+  Escenario: La nota del formato seguro está junto al botón
+    Dado el diálogo de descarga
+    Cuando se elige CSV
+    Entonces se lee «Si tu Excel está en inglés y el CSV se ve en una sola columna, descarga el .xlsx.»

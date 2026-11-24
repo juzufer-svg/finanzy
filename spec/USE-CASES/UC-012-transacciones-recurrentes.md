@@ -16,4 +16,4 @@
 - **Doble toque / otra pestaña:** la segunda confirmación de la misma fecha recibe 409 y la lista se actualiza (INV-026).
 - **Pausar / activar / editar / eliminar:** desde la lista. Una pausada no aparece en pendientes. Eliminar conserva las transacciones ya registradas.
 - **Categoría borrada:** la recurrente queda «Sin categoría».
-- **Cuenta (CHG-019, fase c):** la recurrente puede tener cuenta de dinero; si al confirmar la cuenta está archivada o sin saldo → 409, no se crea la transacción y la fecha no avanza (INV-026, INV-052; UC-016).
+- **Cuenta (CHG-019, fase c):** la recurrente puede tener cuenta de dinero; si al confirmar la cuenta de dinero está archivada o sin saldo → 409, no se crea la transacción y la fecha no avanza (INV-026, INV-052; UC-016). Confirmar es una sola operación atómica de la BD (`confirmar_recurrente`): ya no se avanza la fecha y luego se intenta revertir (ADR-009 punto 13).
