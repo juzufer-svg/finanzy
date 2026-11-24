@@ -67,7 +67,9 @@ REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, I
 | 2026-11-24 | generador | Pruebas ejecutadas (ciclo 2) | `cd backend && python -m pytest -q`: 431 pruebas pasan, repetida 5 veces seguidas sin fallos intermitentes. El frontend no se tocó en este ciclo |
 
 ## 8. Cierre
-- **Aprobación humana final:** pendiente (falta la revisión independiente del ciclo 2 y la verificación manual de los tokens reales, ADR-008)
+- Verificación manual con tokens reales (2026-11-24): Railway, Meta, Vercel, Brevo, Anthropic (contadores propios, solo chat) y Supabase (RPC `tamano_bd`) muestran datos en producción.
+- Despliegues a main aprobados por el dueño: 3b09ee2, a59987c, 0a6eb85, aa0251b.
+- **Aprobación humana final:** Julián Zúñiga, 2026-11-24 («Ahora sí todas se ven») (falta la revisión independiente del ciclo 2 y la verificación manual de los tokens reales, ADR-008)
 
 ## Cierre (propuesto, a la espera del dueño)
 - Decisiones: ver §4 (1-5 aprobadas por el dueño; 6-20 provisionales del coordinador, por defecto seguro).
