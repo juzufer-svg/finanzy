@@ -39,12 +39,17 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   de escritura **se verifica por revisión de configuración, no por prueba automatizada**. Registro por plataforma
   (permiso elegido y si admite solo lectura): _se completa al crear los tokens, antes del cierre de CHG-017_.
   Estado conocido tras implementar (CHG-017 T2/T4):
-  - **Supabase: pendiente.** La Management API no ofrece un GET de solo lectura con el tamaño de la BD (solo
-    `database/query`, que ejecuta SQL con un token de cuenta completa; no se usa, INV-033). Supabase queda siempre
-    `no_disponible` hasta que el Dueño decida otra vía (p. ej. una función SQL de solo lectura expuesta aparte).
+  - **Supabase: función SQL de solo lectura (CHG-017).** El tamaño de la BD se lee con la RPC `public.tamano_bd()`
+    (`backend/sql/2026-11-24_monitor_tamano_bd.sql`; EXECUTE solo para `service_role`) usando el cliente de Supabase
+    que la app ya tiene: sin token nuevo y sin la Management API. Límite: 500 MB (plan gratuito), configurable con
+    `MONITOR_SUPABASE_LIMITE_BD_BYTES`. Si el SQL no se ha ejecutado, la tarjeta queda «no disponible».
   - **Brevo: la clave es de acceso completo.** Brevo no ofrece claves de solo lectura; `MONITOR_BREVO_KEY` es una
     clave de API distinta de la de envío, pero con permisos completos. El código solo la usa en GET de cuenta e informe.
-  - **Anthropic:** exige clave de administración de una organización (`sk-ant-admin...`); otra clave no se envía.
+  - **Anthropic:** con clave de administración de una organización (`sk-ant-admin...`) se usa la fuente oficial y
+    prevalece; otra clave no se envía. Sin ella (el Dueño no la tiene), la tarjeta estima el MES UTC en curso con
+    los contadores propios (INV-036), solo del origen `asistente` (WhatsApp aparte), y el costo con una tabla fija
+    de precios por modelo (`claude-haiku-5-5`: US$ 0,10/M entrada y US$ 0,50/M salida; precios del 2026-11-24, a
+    revisar si cambia el modelo o el precio). Modelo desconocido: se omite el costo. Es una estimación y se rotula así.
   - **Verificación manual antes de producción:** los formatos de respuesta de las seis APIs se simularon en pruebas,
     pero **no se han probado con tokens reales**. Antes de desplegar, el Dueño comprueba una vez, con los tokens de
     producción, qué plataformas muestran datos y cuáles quedan «no disponible», y se registra aquí el resultado.

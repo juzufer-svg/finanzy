@@ -11,8 +11,10 @@ Un cliente por plataforma (Railway, Anthropic, Meta, Supabase, Vercel y Brevo). 
   lleva el nombre de la plataforma, el TIPO de la excepción y un motivo de lista cerrada (`MOTIVOS`), nunca
   URL, cabeceras, cuerpo, mensaje ni token.
 - INV-033: solo lectura (GET; Railway usa GraphQL por POST pero solo con una consulta `query`).
-- Solo se usan los tokens MONITOR_*; nunca los de escritura (WHATSAPP_TOKEN, BREVO_API_KEY, SUPABASE_KEY,
-  ANTHROPIC_API_KEY).
+- Solo se usan los tokens MONITOR_*; nunca los de escritura (WHATSAPP_TOKEN, BREVO_API_KEY, ANTHROPIC_API_KEY).
+  Excepción acotada (CHG-017): el tamaño de la BD de Supabase se lee con el cliente de Supabase que ya usa la app
+  (misma credencial, sin token nuevo) llamando SOLO a la función de lectura `public.tamano_bd()`. Sin clave de
+  administración de Anthropic, el consumo del chat se estima con los contadores propios (INV-036).
 """
 from __future__ import annotations
 
@@ -29,6 +31,8 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 
 from app.core.config import settings
+from app.core.supabase import SupabaseDB
+from app.models import contadores
 
 PLATAFORMAS = ("railway", "anthropic", "meta", "supabase", "vercel", "brevo")
 
@@ -57,7 +61,8 @@ _PREFIJO_ADMIN_ANTHROPIC = "sk-ant-admin"
 ESQUEMA: dict[str, dict[str, Any]] = {
     "railway": {"costo_estimado_mes": "num", "uso_cpu_vcpu_horas": "num", "uso_memoria_gb_horas": "num",
                 "creditos_saldo": "num", "moneda": ("USD",), "periodo_hasta": "fecha"},
-    "anthropic": {"costo_mes": "num", "moneda": ("USD",), "tokens_entrada_mes": "num", "tokens_salida_mes": "num"},
+    "anthropic": {"costo_mes": "num", "moneda": ("USD",), "tokens_entrada_mes": "num", "tokens_salida_mes": "num",
+                  "llamadas_mes": "num"},
     "meta": {"conversaciones_periodo": "num", "periodo_desde": "fecha", "periodo_hasta": "fecha"},
     "supabase": {"tamano_bd_bytes": "num", "limite_bd_bytes": "num"},
     "vercel": {"plan": ("gratuito", "pro", "otro"), "ancho_banda_bytes": "num", "limite_ancho_banda_bytes": "num"},
@@ -330,10 +335,47 @@ def _resultados(datos: Any) -> list:
     return salida
 
 
+# Precio ESTIMADO por modelo, en US$ por millón de tokens: (entrada, salida). Tabla fija del código.
+# Fuente: precios publicados de Anthropic el 2026-11-24 (prompts de hasta 100K tokens). REVISAR si cambia el
+# modelo (ANTHROPIC_MODEL) o el precio. Un modelo que no esté aquí NO inventa precio: se omite `costo_mes`.
+PRECIOS_MODELO_USD_POR_MILLON: dict[str, tuple[Decimal, Decimal]] = {
+    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50")),
+}
+
+
+def _costo_estimado(modelo: str, entrada: int, salida: int) -> Optional[float]:
+    precio = PRECIOS_MODELO_USD_POR_MILLON.get((modelo or "").strip())
+    if precio is None:
+        return None
+    costo = (Decimal(entrada) * precio[0] + Decimal(salida) * precio[1]) / Decimal(1_000_000)
+    return float(costo)
+
+
+async def _anthropic_contadores() -> dict:
+    """Sin clave de administración: consumo del MES UTC del chat del Asistente (origen `asistente`; el de
+    WhatsApp NO se suma) a partir de los contadores propios (INV-036). Es una ESTIMACIÓN. Si el contador falla
+    → no disponible (el error se propaga a `_consultar`)."""
+    try:
+        total = await asyncio.to_thread(contadores.leer_mes_claude, "asistente")
+    except Exception as e:
+        raise _NoDisponible("forma_inesperada") from e
+    entrada, salida = total["claude_tokens_entrada"], total["claude_tokens_salida"]
+    crudo: dict[str, Any] = {
+        "llamadas_mes": total["claude_llamadas"], "tokens_entrada_mes": entrada, "tokens_salida_mes": salida,
+    }
+    costo = _costo_estimado(settings.ANTHROPIC_MODEL, entrada, salida)
+    if costo is not None:
+        crudo["costo_mes"] = costo
+        crudo["moneda"] = "USD"
+    return crudo
+
+
 async def _anthropic(client: httpx.AsyncClient) -> dict:
-    clave = _token(settings.MONITOR_ANTHROPIC_ADMIN_KEY)
-    if not clave.startswith(_PREFIJO_ADMIN_ANTHROPIC):   # solo claves de administración de una organización
-        raise _NoDisponible("config_invalida")
+    clave = (settings.MONITOR_ANTHROPIC_ADMIN_KEY or "").strip()
+    if not clave.startswith(_PREFIJO_ADMIN_ANTHROPIC):
+        # Vacía o no es de administración: no se envía a ninguna parte; se usan los contadores propios
+        return await _anthropic_contadores()
+    clave = _token(clave)   # con clave de administración válida, la fuente oficial prevalece
     hoy = _hoy()
     parametros = {"starting_at": f"{_inicio_de_mes(hoy).isoformat()}T00:00:00Z", "bucket_width": "1d", "limit": 31}
     cabeceras = {"x-api-key": clave, "anthropic-version": "2023-06-01"}
@@ -432,12 +474,27 @@ async def _meta(client: httpx.AsyncClient) -> dict:
     return {"conversaciones_periodo": total, "periodo_desde": inicio.date().isoformat(), "periodo_hasta": hoy.isoformat()}
 
 
+def _tamano_bd() -> Any:
+    """RPC `public.tamano_bd()` (solo lectura; `backend/sql/2026-11-24_monitor_tamano_bd.sql`) con el cliente de
+    Supabase existente y sus credenciales de siempre. Sin token nuevo. Bloqueante: se ejecuta en un hilo."""
+    return SupabaseDB.get_client().rpc("tamano_bd", {}).execute().data
+
+
 async def _supabase(_client: httpx.AsyncClient) -> dict:
-    """Pendiente (CHG-017, ADR-008): la Management API de Supabase no ofrece un GET de solo lectura con el
-    tamaño de la BD (solo `database/query`, que ejecuta SQL con un token de cuenta completa; no se usa por
-    seguridad, INV-033). Hasta confirmarlo con el Dueño, la plataforma queda «no disponible»."""
-    _token(settings.MONITOR_SUPABASE_TOKEN)
-    raise _NoDisponible("config_invalida")
+    """Tamaño de la BD vía RPC (CHG-017, ADR-008). Función ausente o fallo → no disponible, con un motivo de
+    la lista cerrada (nunca el mensaje del servidor)."""
+    if not (settings.SUPABASE_URL and settings.SUPABASE_KEY):
+        raise _NoDisponible("config_invalida")
+    try:
+        tamano = await asyncio.to_thread(_tamano_bd)
+    except Exception as e:
+        # PGRST202: la función no existe (falta ejecutar el SQL). Solo se mira el código, no el mensaje.
+        raise _NoDisponible("http_404" if getattr(e, "code", None) == "PGRST202" else "http_otro") from e
+    if isinstance(tamano, list) and len(tamano) == 1:   # algunas versiones envuelven el escalar
+        tamano = tamano[0]
+    if not _numero_valido(tamano):
+        raise _NoDisponible("forma_inesperada")
+    return {"tamano_bd_bytes": int(tamano), "limite_bd_bytes": settings.MONITOR_SUPABASE_LIMITE_BD_BYTES}
 
 
 _PLANES_VERCEL = {"hobby": "gratuito", "pro": "pro"}

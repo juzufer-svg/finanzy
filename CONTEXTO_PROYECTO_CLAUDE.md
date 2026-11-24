@@ -43,7 +43,7 @@ reemplazó por Brevo.
 (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES`, `SUPABASE_URL`, `SUPABASE_KEY` (service_role),
 `SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`, `ANTHROPIC_API_KEY` (opcional, asistente),
 `ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`, y para WhatsApp (opcionales) `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_MENSAJES_POR_DIA`, `WHATSAPP_MENSAJES_TOTALES_DIA`.
-Monitor del Dueño (CHG-017, opcionales): `OWNER_EMAIL` (único correo que ve el Monitor; vacío = nadie), `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID`, `MONITOR_ANTHROPIC_ADMIN_KEY`, `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID`, `MONITOR_SUPABASE_TOKEN`, `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID`, `MONITOR_BREVO_KEY` (tokens propios de menor permiso, nunca los de escritura).
+Monitor del Dueño (CHG-017, opcionales): `OWNER_EMAIL` (único correo que ve el Monitor; vacío = nadie), `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID`, `MONITOR_ANTHROPIC_ADMIN_KEY`, `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID`, `MONITOR_SUPABASE_TOKEN`, `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID`, `MONITOR_BREVO_KEY` (tokens propios de menor permiso, nunca los de escritura), y opcional `MONITOR_SUPABASE_LIMITE_BD_BYTES` (límite de la BD para la barra de uso; por defecto 524288000 = 500 MB). Sin `MONITOR_ANTHROPIC_ADMIN_KEY`, la tarjeta de Claude estima el mes con los contadores propios (solo el chat). El tamaño de la BD requiere ejecutar `backend/sql/2026-11-24_monitor_tamano_bd.sql` en Supabase.
 
 **Vercel (frontend):** `BACKEND_URL` (URL pública de Railway, con `https://`). Root Directory = `frontend`.
 

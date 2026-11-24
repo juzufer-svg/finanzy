@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   TEXTO_NO_DISPONIBLE, PLATAFORMAS, formatBytes, formatNumero, formatUsd, formatFechaDia, formatInstante,
-  camposVisibles, estadoPlataforma, porcentajeUso, normalizarResumen, sumarDias, serieDias, diaDeInstante,
+  camposVisibles, notaPlataforma, NOTA_ESTIMADO_CONTADORES, estadoPlataforma, porcentajeUso, normalizarResumen, sumarDias, serieDias, diaDeInstante,
   total, alturasApiladas,
 } from '../lib/monitor.ts'
 
@@ -63,6 +63,30 @@ test('campos visibles: solo lista blanca y valores válidos', () => {
   assert.deepEqual(camposVisibles('vercel', { plan: 'gratuito', ancho_banda_bytes: -4 }).map(c => c.valor), ['Gratuito'])
   assert.deepEqual(camposVisibles('vercel', { plan: 'inventado' }), [])
   assert.deepEqual(camposVisibles('brevo', null), [])
+})
+
+test('Supabase: etiquetas de tamaño y límite en MB/GB', () => {
+  const c = camposVisibles('supabase', { tamano_bd_bytes: 52428800, limite_bd_bytes: 524288000 })
+  assert.deepEqual(c.map(x => [x.etiqueta, x.valor]), [['Tamaño de la BD', '50 MB'], ['Límite del plan', '500 MB']])
+  assert.equal(camposVisibles('supabase', { tamano_bd_bytes: 2 * 1024 ** 3 })[0].valor, '2 GB')
+  assert.equal(porcentajeUso(52428800, 524288000), 10)
+})
+
+test('Anthropic estimado con contadores propios: etiquetas, US$ sin conversor y nota', () => {
+  const datos = { llamadas_mes: 1200, tokens_entrada_mes: 3500000, tokens_salida_mes: 40000, costo_mes: 0.37, moneda: 'USD', cuenta: 'x' }
+  assert.deepEqual(camposVisibles('anthropic', datos).map(c => [c.etiqueta, c.valor]), [
+    ['Llamadas del chat (mes)', '1.200'], ['Tokens de entrada (mes)', '3.500.000'],
+    ['Tokens de salida (mes)', '40.000'], ['Costo estimado del mes (US$)', 'US$ 0,37']])
+  assert.equal(notaPlataforma('anthropic', datos), 'Estimado a partir de los contadores propios (solo el chat; WhatsApp aparte)')
+  assert.equal(NOTA_ESTIMADO_CONTADORES, notaPlataforma('anthropic', datos))
+  // modelo desconocido: sin costo
+  assert.deepEqual(camposVisibles('anthropic', { llamadas_mes: 1, tokens_entrada_mes: 2, tokens_salida_mes: 3 }).map(c => c.clave),
+    ['llamadas_mes', 'tokens_entrada_mes', 'tokens_salida_mes'])
+  // datos oficiales (clave de administración): sin nota y con las etiquetas oficiales
+  const oficial = { costo_mes: 2.5, moneda: 'USD', tokens_entrada_mes: 10 }
+  assert.equal(notaPlataforma('anthropic', oficial), null)
+  assert.deepEqual(camposVisibles('anthropic', oficial).map(c => c.etiqueta), ['Tokens de entrada del mes', 'Costo del mes'])
+  assert.equal(notaPlataforma('brevo', datos), null)
 })
 
 test('estado de plataforma: ok solo con algún campo mostrable', () => {

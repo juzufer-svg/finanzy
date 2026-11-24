@@ -133,6 +133,31 @@ def leer_ventana() -> list[dict]:
             if f >= desde and m != METRICA_PURGA]
 
 
+METRICAS_CLAUDE = ("claude_llamadas", "claude_tokens_entrada", "claude_tokens_salida")
+
+
+def leer_mes_claude(origen: str = "asistente") -> dict[str, int]:
+    """Totales del MES UTC en curso (del día 1 a hoy) de las métricas de Claude de UN origen (por defecto
+    `asistente`; el origen `whatsapp` nunca se mezcla): {metrica: total}, con 0 donde no hay filas.
+
+    Los errores se propagan: quien lee decide qué responder (el Monitor lo marca «no disponible»)."""
+    if origen not in ORIGENES_CLAUDE:
+        raise ValueError("origen fuera de la lista fija")
+    desde = _hoy().replace(day=1)
+    totales = {m: 0 for m in METRICAS_CLAUDE}
+    if _supabase_ok():
+        client = SupabaseDB.get_client()
+        r = (client.table("contadores_diarios").select("metrica,cantidad")
+             .gte("fecha", desde.isoformat()).eq("origen", origen).in_("metrica", list(METRICAS_CLAUDE)).execute())
+        filas = [(f["metrica"], int(f["cantidad"])) for f in (r.data or [])]
+    else:
+        filas = [(m, c) for (f, m, o), c in _Memoria.filas.items() if f >= desde and o == origen]
+    for metrica, cantidad in filas:
+        if metrica in totales:
+            totales[metrica] += cantidad
+    return totales
+
+
 def fecha_mas_antigua() -> Optional[str]:
     """Fecha (YYYY-MM-DD) del contador más antiguo conservado, sin contar la marca de purga; None si no hay."""
     if _supabase_ok():

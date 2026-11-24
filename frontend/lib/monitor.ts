@@ -34,7 +34,13 @@ export interface ResumenMonitor {
 }
 
 type TipoCampo = 'usd' | 'numero' | 'bytes' | 'fecha' | 'plan' | 'moneda'
-interface CampoDef { clave: string; etiqueta: string; tipo: TipoCampo }
+interface CampoDef {
+  clave: string
+  etiqueta: string
+  tipo: TipoCampo
+  /** Etiqueta cuando el dato es oficial (la plataforma lo entrega), no estimado con los contadores propios. */
+  etiquetaOficial?: string
+}
 
 /** Orden y nombre visible de las seis plataformas. */
 export const PLATAFORMAS: { clave: NombrePlataforma; nombre: string }[] = [
@@ -55,10 +61,13 @@ const CAMPOS: Record<NombrePlataforma, CampoDef[]> = {
     { clave: 'uso_memoria_gb_horas', etiqueta: 'Memoria (GB-horas)', tipo: 'numero' },
     { clave: 'periodo_hasta', etiqueta: 'Período hasta', tipo: 'fecha' },
   ],
+  // Sin clave de administración el backend estima el mes con los contadores propios (solo el chat) y envía
+  // `llamadas_mes`; con ella, los datos son oficiales y se usan las etiquetas «oficiales».
   anthropic: [
-    { clave: 'costo_mes', etiqueta: 'Costo del mes', tipo: 'usd' },
-    { clave: 'tokens_entrada_mes', etiqueta: 'Tokens de entrada del mes', tipo: 'numero' },
-    { clave: 'tokens_salida_mes', etiqueta: 'Tokens de salida del mes', tipo: 'numero' },
+    { clave: 'llamadas_mes', etiqueta: 'Llamadas del chat (mes)', tipo: 'numero' },
+    { clave: 'tokens_entrada_mes', etiqueta: 'Tokens de entrada (mes)', tipo: 'numero', etiquetaOficial: 'Tokens de entrada del mes' },
+    { clave: 'tokens_salida_mes', etiqueta: 'Tokens de salida (mes)', tipo: 'numero', etiquetaOficial: 'Tokens de salida del mes' },
+    { clave: 'costo_mes', etiqueta: 'Costo estimado del mes (US$)', tipo: 'usd', etiquetaOficial: 'Costo del mes' },
   ],
   meta: [
     { clave: 'conversaciones_periodo', etiqueta: 'Mensajes facturables del mes', tipo: 'numero' },
@@ -66,7 +75,7 @@ const CAMPOS: Record<NombrePlataforma, CampoDef[]> = {
     { clave: 'periodo_hasta', etiqueta: 'Período hasta', tipo: 'fecha' },
   ],
   supabase: [
-    { clave: 'tamano_bd_bytes', etiqueta: 'Tamaño de la base de datos', tipo: 'bytes' },
+    { clave: 'tamano_bd_bytes', etiqueta: 'Tamaño de la BD', tipo: 'bytes' },
     { clave: 'limite_bd_bytes', etiqueta: 'Límite del plan', tipo: 'bytes' },
   ],
   vercel: [
@@ -155,9 +164,18 @@ export function camposVisibles(nombre: NombrePlataforma, datos: Plataforma['dato
   for (const def of CAMPOS[nombre] ?? []) {
     if (!(def.clave in datos)) continue
     const valor = formatCampo(def, datos[def.clave])
-    if (valor !== null) salida.push({ clave: def.clave, etiqueta: def.etiqueta, valor })
+    if (valor === null) continue
+    const oficial = nombre === 'anthropic' && !('llamadas_mes' in datos) && def.etiquetaOficial
+    salida.push({ clave: def.clave, etiqueta: oficial || def.etiqueta, valor })
   }
   return salida
+}
+
+/** Nota de la tarjeta cuando los datos son una estimación con los contadores propios (no oficiales). */
+export const NOTA_ESTIMADO_CONTADORES = 'Estimado a partir de los contadores propios (solo el chat; WhatsApp aparte)'
+
+export function notaPlataforma(nombre: NombrePlataforma, datos: Plataforma['datos']): string | null {
+  return nombre === 'anthropic' && esObjeto(datos) && 'llamadas_mes' in datos ? NOTA_ESTIMADO_CONTADORES : null
 }
 
 /** Estado efectivo: «ok» solo si el backend lo dice y queda al menos un campo mostrable. */

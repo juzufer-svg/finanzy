@@ -84,3 +84,19 @@ begin
   delete from public.contadores_diarios;
   raise notice 'OK: contadores_diarios con RLS, clave única, incremento atómico y purga';
 end $$;
+
+-- CHG-017: tamano_bd() (después de 2026-11-24_monitor_tamano_bd.sql)
+do $$
+declare n bigint; t bigint;
+begin
+  select count(*) into n from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+   where s.nspname = 'public' and p.proname = 'tamano_bd' and p.pronargs = 0;
+  if n <> 1 then raise exception 'falta public.tamano_bd()'; end if;
+  t := public.tamano_bd();
+  if t is null or t <= 0 then raise exception 'tamano_bd() devolvió % (esperado > 0)', t; end if;
+  if has_function_privilege('anon', 'public.tamano_bd()', 'execute')
+     or has_function_privilege('authenticated', 'public.tamano_bd()', 'execute') then
+    raise exception 'anon/authenticated pueden ejecutar tamano_bd()';
+  end if;
+  raise notice 'OK: tamano_bd() existe, devuelve % bytes y solo service_role la ejecuta', t;
+end $$;

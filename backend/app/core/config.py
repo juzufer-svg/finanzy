@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     MONITOR_VERCEL_TOKEN: str = Field(default="", repr=False)
     MONITOR_VERCEL_TEAM_ID: str = Field(default="", repr=False)
     MONITOR_BREVO_KEY: str = Field(default="", repr=False)
+    # Límite de la BD en bytes para la barra de uso de Supabase (plan gratuito: 500 MB = 524288000)
+    MONITOR_SUPABASE_LIMITE_BD_BYTES: int = Field(default=524288000, gt=0)
 
     # Environment
     ENVIRONMENT: str = Field(default="development")

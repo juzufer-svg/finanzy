@@ -8,6 +8,7 @@ import asyncio
 import hmac
 import threading
 import time
+from datetime import timedelta
 
 import httpx
 import pytest
@@ -404,7 +405,8 @@ def test_inv031_barra_final_es_404_como_cualquier_ruta_inexistente(client, sesio
 # ==================== plataformas ====================
 
 def test_plataforma_caida_no_rompe_las_demas(client, sesiones, externas, monkeypatch):
-    monkeypatch.setattr(settings, "MONITOR_ANTHROPIC_ADMIN_KEY", "")   # falta el token
+    monkeypatch.setattr(settings, "MONITOR_ANTHROPIC_ADMIN_KEY", "")   # sin clave: usa los contadores propios
+    monkeypatch.setattr(contadores, "leer_mes_claude", lambda origen="asistente": (_ for _ in ()).throw(RuntimeError("x")))
     externas.por_host["backboard.railway.com"] = lambda r: httpx.Response(500, text="boom TOKEN-INTERNO")
     r = client.get(RUTA, headers=sesiones["dueno"])
     assert r.status_code == 200
@@ -460,18 +462,221 @@ def test_inv034_cuerpo_de_plataforma_mayor_de_1mb_es_no_disponible(client, sesio
     assert _datos(client.get(RUTA, headers=sesiones["dueno"]), "vercel")["datos"] == {"plan": "pro"}
 
 
-def test_supabase_queda_no_disponible_sin_consultar(client, sesiones, externas):
-    # Pendiente documentado (ADR-008): no hay GET de solo lectura con el tamaño de la BD
-    r = client.get(RUTA, headers=sesiones["dueno"])
+def test_supabase_sin_credenciales_no_disponible_sin_consultar(client, sesiones, externas):
+    r = client.get(RUTA, headers=sesiones["dueno"])   # los tests no tienen SUPABASE_URL/KEY
     assert _datos(r, "supabase")["estado"] == "no_disponible"
     assert "api.supabase.com" not in externas.hosts()
 
 
-def test_anthropic_exige_clave_de_administracion(client, sesiones, externas, monkeypatch):
-    monkeypatch.setattr(settings, "MONITOR_ANTHROPIC_ADMIN_KEY", "sk-ant-api03-no-es-de-admin")
+# ---------- Supabase: tamaño de la BD por RPC (CHG-017) ----------
+
+class _RpcBD:
+    def __init__(self, llamadas, nombre, args, resultado):
+        self.llamadas, self.nombre, self.args, self.resultado = llamadas, nombre, args, resultado
+
+    def execute(self):
+        self.llamadas.append((self.nombre, self.args))
+        if isinstance(self.resultado, BaseException):
+            raise self.resultado
+        if callable(self.resultado):
+            return type("R", (), {"data": self.resultado()})()
+        return type("R", (), {"data": self.resultado})()
+
+
+class _ClienteBD:
+    def __init__(self, resultado):
+        self.llamadas, self.resultado = [], resultado
+
+    def rpc(self, nombre, args=None):
+        return _RpcBD(self.llamadas, nombre, args, self.resultado)
+
+
+def _con_bd(monkeypatch, resultado):
+    cliente = _ClienteBD(resultado)
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "clave-SECRETA-supabase")
+    monkeypatch.setattr(mp.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    monkeypatch.setattr(contadores, "leer_ventana", lambda: [])         # los contadores del resumen son de otra prueba
+    monkeypatch.setattr(contadores, "fecha_mas_antigua", lambda: None)
+    monkeypatch.setattr(contadores, "leer_mes_claude", lambda origen="asistente": {
+        "claude_llamadas": 0, "claude_tokens_entrada": 0, "claude_tokens_salida": 0})
+    return cliente
+
+
+def test_supabase_rpc_ok_devuelve_tamano_y_limite(client, sesiones, externas, monkeypatch):
+    cliente = _con_bd(monkeypatch, 52428800)
     r = client.get(RUTA, headers=sesiones["dueno"])
-    assert _datos(r, "anthropic")["estado"] == "no_disponible"
+    assert _datos(r, "supabase")["datos"] == {"tamano_bd_bytes": 52428800, "limite_bd_bytes": 524288000}
+    assert [n for n, _a in cliente.llamadas] == ["tamano_bd"]   # solo la función de lectura
+    assert "api.supabase.com" not in externas.hosts()           # sin token ni API de gestión
+
+
+def test_supabase_limite_configurable(client, sesiones, externas, monkeypatch):
+    _con_bd(monkeypatch, 10)
+    monkeypatch.setattr(settings, "MONITOR_SUPABASE_LIMITE_BD_BYTES", 1000)
+    assert _datos(client.get(RUTA, headers=sesiones["dueno"]), "supabase")["datos"]["limite_bd_bytes"] == 1000
+    assert Settings(_env_file=None).MONITOR_SUPABASE_LIMITE_BD_BYTES == 524288000
+
+
+class _ErrorPostgrest(Exception):
+    code = "PGRST202"
+
+
+@pytest.mark.parametrize("resultado", [_ErrorPostgrest("Could not find the function"), RuntimeError("caída"),
+                                       "texto", -5, True, None, []])
+def test_supabase_rpc_ausente_o_rara_es_no_disponible(client, sesiones, externas, monkeypatch, capsys, resultado):
+    _con_bd(monkeypatch, resultado)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "supabase") == {"estado": "no_disponible", "datos": None, "actualizado_en": None}
+    salida = capsys.readouterr()
+    assert "Could not find" not in r.text + salida.out + salida.err and "clave-SECRETA" not in r.text + salida.out
+
+
+def test_supabase_rpc_motivos_del_log(client, sesiones, externas, monkeypatch, capsys):
+    _con_bd(monkeypatch, _ErrorPostgrest("x"))
+    client.get(RUTA, headers=sesiones["dueno"])
+    assert "supabase: no disponible (_NoDisponible: http_404)" in capsys.readouterr().out
+    mp.limpiar_cache()
+    _con_bd(monkeypatch, RuntimeError("x"))
+    client.get(RUTA, headers=sesiones["dueno"])
+    assert "supabase: no disponible (_NoDisponible: http_otro)" in capsys.readouterr().out
+
+
+def test_supabase_rpc_lenta_se_corta_a_los_5s(client, sesiones, externas, monkeypatch):
+    assert mp.TIMEOUT_TOTAL == 5.0
+    monkeypatch.setattr(mp, "TIMEOUT_TOTAL", 0.3)
+    soltar = threading.Event()
+
+    def lenta():
+        soltar.wait(1.5)
+        return 1
+
+    _con_bd(monkeypatch, lenta)
+    try:   # (el cierre del bucle de pruebas espera al hilo; lo que se comprueba es el corte por plazo)
+        r = client.get(RUTA, headers=sesiones["dueno"])
+        assert _datos(r, "supabase")["estado"] == "no_disponible"
+        assert _datos(r, "railway")["estado"] == "ok"
+    finally:
+        soltar.set()
+
+
+# ---------- Anthropic: estimado con contadores propios, solo el chat (CHG-017) ----------
+
+def _contar(metrica, origen, cantidad, dias_atras=0):
+    hoy = contadores._hoy()
+    clave = (hoy - timedelta(days=dias_atras), metrica, origen)
+    contadores._Memoria.filas[clave] = contadores._Memoria.filas.get(clave, 0) + cantidad
+
+
+@pytest.fixture
+def sin_admin(monkeypatch):
+    monkeypatch.setattr(settings, "MONITOR_ANTHROPIC_ADMIN_KEY", "")
+    monkeypatch.setattr(settings, "ANTHROPIC_MODEL", "claude-haiku-5-5")
+
+
+def test_anthropic_sin_clave_usa_contadores_solo_asistente(client, sesiones, externas, sin_admin):
+    _contar("claude_llamadas", "asistente", 4)
+    _contar("claude_tokens_entrada", "asistente", 2_000_000)
+    _contar("claude_tokens_salida", "asistente", 400_000)
+    _contar("claude_llamadas", "whatsapp", 99)            # WhatsApp NO se suma
+    _contar("claude_tokens_entrada", "whatsapp", 9_000_000)
+    _contar("claude_tokens_salida", "whatsapp", 9_000_000)
+    _contar("brevo_correos_enviados", "general", 7)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    # 2M × 0,10/M + 0,4M × 0,50/M = 0,20 + 0,20
+    assert _datos(r, "anthropic")["datos"] == {
+        "llamadas_mes": 4, "tokens_entrada_mes": 2_000_000, "tokens_salida_mes": 400_000,
+        "costo_mes": 0.4, "moneda": "USD"}
+    assert "api.anthropic.com" not in externas.hosts()
+
+
+def test_anthropic_contadores_solo_cuentan_el_mes_utc_en_curso(client, sesiones, externas, sin_admin, monkeypatch):
+    hoy = contadores._hoy()
+    monkeypatch.setattr(contadores, "_hoy", lambda: hoy.replace(day=15))   # ni el día 1 ni hoy mismo: mitad de mes
+    _contar("claude_llamadas", "asistente", 1)               # día 15 (hoy simulado)
+    contadores._Memoria.filas[(hoy.replace(day=1), "claude_llamadas", "asistente")] = 2   # día 1: cuenta
+    contadores._Memoria.filas[(hoy.replace(day=1) - timedelta(days=1), "claude_llamadas", "asistente")] = 50   # mes anterior
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic")["datos"]["llamadas_mes"] == 3
+
+
+def test_anthropic_costo_es_tokens_por_precio(client, sesiones, externas, sin_admin):
+    _contar("claude_tokens_entrada", "asistente", 1_234_567)
+    _contar("claude_tokens_salida", "asistente", 7_654)
+    datos = _datos(client.get(RUTA, headers=sesiones["dueno"]), "anthropic")["datos"]
+    esperado = 1_234_567 * 0.10 / 1e6 + 7_654 * 0.50 / 1e6
+    assert abs(datos["costo_mes"] - esperado) < 1e-4
+    assert mp.PRECIOS_MODELO_USD_POR_MILLON["claude-haiku-5-5"] == (mp.Decimal("0.10"), mp.Decimal("0.50"))
+
+
+def test_anthropic_modelo_desconocido_omite_costo(client, sesiones, externas, sin_admin, monkeypatch):
+    monkeypatch.setattr(settings, "ANTHROPIC_MODEL", "claude-modelo-inventado")
+    _contar("claude_llamadas", "asistente", 2)
+    _contar("claude_tokens_entrada", "asistente", 100)
+    datos = _datos(client.get(RUTA, headers=sesiones["dueno"]), "anthropic")["datos"]
+    assert datos == {"llamadas_mes": 2, "tokens_entrada_mes": 100, "tokens_salida_mes": 0}   # sin costo_mes ni moneda
+
+
+def test_anthropic_sin_actividad_muestra_ceros_reales(client, sesiones, externas, sin_admin):
+    datos = _datos(client.get(RUTA, headers=sesiones["dueno"]), "anthropic")["datos"]
+    assert datos["llamadas_mes"] == 0 and datos["costo_mes"] == 0
+
+
+def test_anthropic_contador_caido_es_no_disponible(client, sesiones, externas, sin_admin, monkeypatch, capsys):
+    def falla(origen="asistente"):
+        raise RuntimeError("tabla caída SECRETO-INTERNO")
+
+    monkeypatch.setattr(contadores, "leer_mes_claude", falla)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic") == {"estado": "no_disponible", "datos": None, "actualizado_en": None}
+    salida = capsys.readouterr()
+    assert "SECRETO-INTERNO" not in r.text + salida.out + salida.err
+
+
+def test_anthropic_con_supabase_lee_el_mes_solo_del_asistente(monkeypatch):
+    consultas = []
+
+    class Q:
+        def __init__(self): self.f = []
+        def select(self, c): self.f.append(("select", c)); return self
+        def gte(self, c, v): self.f.append(("gte", c, v)); return self
+        def eq(self, c, v): self.f.append(("eq", c, v)); return self
+        def in_(self, c, v): self.f.append(("in", c, tuple(v))); return self
+        def execute(self):
+            consultas.append(self.f)
+            return type("R", (), {"data": [{"metrica": "claude_llamadas", "cantidad": 3},
+                                           {"metrica": "claude_llamadas", "cantidad": "2"},
+                                           {"metrica": "otra", "cantidad": 9}]})()
+
+    cliente = type("C", (), {"table": lambda self, n: Q()})()
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "k")
+    monkeypatch.setattr(contadores.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    total = contadores.leer_mes_claude()
+    assert total == {"claude_llamadas": 5, "claude_tokens_entrada": 0, "claude_tokens_salida": 0}
+    filtros = consultas[0]
+    assert ("eq", "origen", "asistente") in filtros
+    assert ("gte", "fecha", contadores._hoy().replace(day=1).isoformat()) in filtros
+    with pytest.raises(ValueError):
+        contadores.leer_mes_claude("general")
+
+
+def test_anthropic_clave_de_admin_valida_prevalece_sobre_los_contadores(client, sesiones, externas):
+    _contar("claude_llamadas", "asistente", 4)
+    _contar("claude_tokens_entrada", "asistente", 2_000_000)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    datos = _datos(r, "anthropic")["datos"]
+    assert datos == {"tokens_entrada_mes": 115, "tokens_salida_mes": 50, "costo_mes": 2.505, "moneda": "USD"}
+    assert "llamadas_mes" not in datos and "api.anthropic.com" in externas.hosts()
+
+
+def test_anthropic_clave_con_prefijo_equivocado_usa_contadores_sin_enviarla(client, sesiones, externas, monkeypatch):
+    monkeypatch.setattr(settings, "MONITOR_ANTHROPIC_ADMIN_KEY", "sk-ant-api03-no-es-de-admin")
+    _contar("claude_llamadas", "asistente", 1)
+    r = client.get(RUTA, headers=sesiones["dueno"])
+    assert _datos(r, "anthropic")["datos"]["llamadas_mes"] == 1
     assert "api.anthropic.com" not in externas.hosts()   # ni se envía la clave equivocada
+    assert "sk-ant-api03" not in r.text
 
 
 def test_inv032_no_se_filtran_tokens_en_respuesta_ni_logs(client, sesiones, externas, capsys, caplog):

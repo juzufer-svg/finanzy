@@ -15,7 +15,7 @@ import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
 import {
   PLATAFORMAS, TEXTO_NO_DISPONIBLE, alturasApiladas, camposVisibles, diaDeInstante, estadoPlataforma,
-  formatFechaDia, formatInstante, formatNumero, normalizarResumen, porcentajeUso, serieDias, total,
+  formatFechaDia, formatInstante, formatNumero, normalizarResumen, notaPlataforma, porcentajeUso, serieDias, total,
   type NombrePlataforma, type Plataforma, type PuntoDia, type ResumenMonitor,
 } from '@/lib/monitor'
 
@@ -132,6 +132,9 @@ function TarjetaPlataforma({ clave, nombre, plataforma }: { clave: NombrePlatafo
               </div>
               <p className="mt-1 text-xs text-slate-500">{uso} % del límite</p>
             </div>
+          )}
+          {notaPlataforma(clave, plataforma.datos) && (
+            <p className="mt-3 text-xs text-slate-500">{notaPlataforma(clave, plataforma.datos)}</p>
           )}
           <p className="mt-3 text-xs text-slate-500">Dato de {formatInstante(plataforma.actualizado_en)}</p>
         </>
