@@ -1,6 +1,6 @@
 # language: es
 # Trazabilidad: REQ-F-018 · UC-014 · CT-010 · CT-002 (es_dueno) · INV-031 a INV-036
-# Las pruebas se escribirán en la implementación: backend/tests/test_monitor.py y backend/sql/pruebas/06_comprobar_monitor.sql; aún no existen.
+# Pruebas: backend/tests/test_monitor.py (INV-031 a INV-035), backend/tests/test_contadores.py (INV-036) y backend/sql/pruebas/06_comprobar_monitor.sql (RLS, clave única, atomicidad).
 Característica: Monitor de consumos solo para el Dueño
 
   @BDD-MONITOR @happy-path @INV-031
@@ -33,6 +33,13 @@ Característica: Monitor de consumos solo para el Dueño
     Dado que OWNER_EMAIL está vacía o no existe
     Cuando cualquier usuario con sesión, incluido el Dueño habitual, pide el resumen
     Entonces recibe 404
+
+  @BDD-MONITOR @invariante @INV-031
+  # Prueba: tests/test_monitor.py::test_inv031_sin_owner_email_ni_se_mira_la_sesion
+  Escenario: Sin OWNER_EMAIL ni siquiera se consulta la sesión
+    Dado que OWNER_EMAIL está vacía
+    Cuando el Dueño habitual pide el resumen
+    Entonces recibe 404 sin que se lea al usuario en la BD
 
   @BDD-MONITOR @invariante @INV-031
   # Prueba: tests/test_monitor.py::test_inv031_bd_caida_al_autorizar_responde_404
@@ -87,6 +94,19 @@ Característica: Monitor de consumos solo para el Dueño
     Y no se escribe nada en ninguna plataforma ni en la tabla de contadores desde "/monitor/*"
 
   @BDD-MONITOR @invariante @INV-033
+  # Prueba: tests/test_monitor.py::test_inv033_metodos_raros_no_dueno_recibe_404_identico_byte_a_byte y ::test_inv033_metodos_raros_dueno_recibe_405_con_no_store
+  Escenario: Cualquier método raro, incluido OPTIONS sin preflight, se trata igual
+    Cuando se envía TRACE, PROPFIND, un método inventado u OPTIONS sin "Origin" a "/api/v1/monitor/resumen"
+    Entonces un no-Dueño recibe 404 byte a byte idéntico al de "/api/v1/no-existe" con el mismo método
+    Pero el Dueño recibe 405 con "Allow: GET" y "Cache-Control: no-store"
+
+  @BDD-MONITOR @invariante @INV-031
+  # Prueba: tests/test_monitor.py::test_inv031_barra_final_es_404_como_cualquier_ruta_inexistente
+  Escenario: La barra final no delata la ruta
+    Cuando cualquier persona pide "/api/v1/monitor/resumen/" (con barra final)
+    Entonces recibe el mismo 404 que "/api/v1/no-existe/" y ninguna redirección
+
+  @BDD-MONITOR @invariante @INV-033
   # Prueba: tests/test_monitor.py::test_inv033_subruta_inexistente_responde_404_normal
   Escenario: Una subruta inexistente bajo /monitor da el 404 normal
     Cuando cualquier usuario, incluido el Dueño, pide "/api/v1/monitor/no-existe" con GET, POST o DELETE
@@ -97,7 +117,7 @@ Característica: Monitor de consumos solo para el Dueño
   # Prueba: tests/test_monitor.py::test_inv033_options_responde_igual_en_cualquier_ruta
   Escenario: El preflight CORS queda fuera de la regla de 404
     Cuando se envía OPTIONS (preflight CORS) a "/api/v1/monitor/resumen" y a "/api/v1/no-existe"
-    Entonces ambas respuestas son las del middleware CORS y son iguales
+    Entonces ambas respuestas son las del middleware CORS y son iguales (solo el preflight real, con "Origin" y "Access-Control-Request-Method")
     Y no revelan nada sobre el Monitor
 
   @BDD-MONITOR
@@ -165,6 +185,13 @@ Característica: Monitor de consumos solo para el Dueño
     Entonces recibe 200 en menos de 6 segundos con las seis plataformas "no_disponible"
     Y los contadores y las plataformas se consultaron en paralelo
 
+  @BDD-MONITOR @invariante @INV-034
+  # Prueba: tests/test_monitor.py::test_inv034_cuerpo_de_plataforma_mayor_de_1mb_es_no_disponible y ::test_inv034_lectura_de_contadores_con_plazo_total_503_solo_al_dueno
+  Escenario: Cuerpos enormes y lecturas colgadas no tumban el Monitor
+    Dado que una plataforma responde con más de 1 MB
+    Entonces esa plataforma aparece "no_disponible"
+    Y si la lectura de contadores no responde en 5 s, el Dueño recibe 503 con "Cache-Control: no-store" y un no-Dueño recibe 404
+
   @BDD-MONITOR @invariante @INV-035
   # Prueba: tests/test_monitor.py::test_inv035_cache_60s_no_reconsulta y ::test_inv035_limite_20_por_minuto_responde_429
   Escenario: Caché de 60 s y límite de 20 peticiones por minuto
@@ -203,21 +230,21 @@ Característica: Monitor de consumos solo para el Dueño
     Pero ningún 404 (no-Dueño, sin sesión, BD caída al autorizar, sin OWNER_EMAIL o ruta inexistente) lo lleva
 
   @BDD-MONITOR @invariante @INV-036
-  # Prueba: tests/test_monitor.py::test_inv036_fallo_al_contar_no_rompe_el_flujo
+  # Prueba: tests/test_contadores.py::test_inv036_fallo_al_contar_no_rompe_el_flujo
   Escenario: Los contadores guardan solo agregados y no rompen el flujo
     Dado que la tabla de contadores falla al escribir
     Cuando un usuario hace una pregunta al asistente
     Entonces recibe su respuesta normalmente y se registra un aviso sin datos personales
 
   @BDD-MONITOR @invariante @INV-036
-  # Prueba: tests/test_monitor.py::test_inv036_solo_cuentan_correos_exitosos
+  # Prueba: tests/test_contadores.py::test_inv036_solo_cuentan_correos_exitosos
   Escenario: Solo cuentan los correos enviados con éxito
     Dado que Brevo rechaza un envío
     Cuando se pide un código por correo
     Entonces el contador de correos enviados no aumenta
 
   @BDD-MONITOR @invariante @INV-036
-  # Prueba: tests/test_monitor.py::test_inv036_recibidos_solo_de_numeros_enlazados
+  # Prueba: tests/test_contadores.py::test_inv036_recibidos_solo_de_numeros_enlazados y ::test_inv036_firma_invalida_no_incrementa_whatsapp_recibidos
   Escenario: Los mensajes de números desconocidos o con firma inválida no se cuentan
     Dado un mensaje de WhatsApp de un número desconocido y otro con firma inválida
     Cuando el webhook los recibe
@@ -225,13 +252,14 @@ Característica: Monitor de consumos solo para el Dueño
     Pero un mensaje de un número enlazado con firma válida sí lo aumenta en 1
 
   @BDD-MONITOR @invariante @INV-036
-  # Prueba: tests/test_monitor.py::test_inv036_purga_a_90_dias_una_vez_al_dia
+  # Prueba: tests/test_contadores.py::test_inv036_purga_a_90_dias_una_vez_al_dia
   Escenario: La purga de 90 días ocurre al escribir, como mucho una vez al día
     Dado contadores con fecha anterior a hoy menos 90 días y otros posteriores
     Cuando se escribe un contador por primera vez en el día
     Entonces se borran solo las filas con fecha menor que hoy menos 90 días
     Y se registra la marca de última purga en la propia tabla (fila "purga"/"general" del día)
     Y una segunda escritura el mismo día, aunque sea de otra instancia, no vuelve a purgar
+    Y la misma instancia no vuelve ni a intentarlo ese día (prueba: ::test_inv036_la_purga_se_intenta_una_sola_vez_al_dia_por_instancia)
 
   @BDD-MONITOR @invariante @INV-036
   # Prueba: backend/sql/pruebas/06_comprobar_monitor.sql

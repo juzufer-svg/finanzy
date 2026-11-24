@@ -1,6 +1,6 @@
 # CHG-017 — Monitor de consumos (solo dueño)
 
-- **Estado:** spec-aprobada (1-5 por el dueño; 6-15 decisiones provisionales del coordinador; 16-20 provisionales, tras la 2.ª validación; pendiente de re-validación)
+- **Estado:** implementación T1-T3 hechas; T4 (validación, revisión independiente y documentación) en curso. Spec aprobada (1-5 por el dueño; 6-20 decisiones provisionales del coordinador)
 - **Fecha:** 2026-11-24 · **Solicitante:** Julián Zúñiga (dueño)
 - **Riesgo:** alto
 
@@ -49,10 +49,10 @@ REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, I
 ## 6. Plan de tareas
 | Tarea | Alcance | Depende de | Estado | Ciclos |
 |---|---|---|---|---|
-| T1 | Migración SQL `contadores_diarios` (RLS, clave única) + `backend/sql/pruebas/06_comprobar_monitor.sql` + modelo/utilidad de contadores (nunca rompe el flujo) + ganchos en `llamar_claude`, `send_verification_email`, `enviar` y webhook | spec | pendiente | 0 |
-| T2 | Config (`OWNER_EMAIL`, `MONITOR_*`), clientes de plataformas (Railway, Anthropic, Meta, Supabase, Vercel, Brevo), ruta `GET /monitor/resumen`, `es_dueno` en `/users/me`, `tests/test_monitor.py` | T1 | pendiente | 0 |
-| T3 | Frontend: página `/dashboard/monitor`, enlace condicional por `es_dueno`, proxy, pruebas | T2 | pendiente | 0 |
-| T4 | Validación completa, revisión independiente, trazabilidad, docs de despliegue | T1-T3 | pendiente | 0 |
+| T1 | Migración SQL `contadores_diarios` (RLS, clave única) + `backend/sql/pruebas/06_comprobar_monitor.sql` + modelo/utilidad de contadores (nunca rompe el flujo) + ganchos en `llamar_claude`, `send_verification_email`, `enviar` y webhook | spec | hecha (commit `feat(monitor)` T1) | 1 |
+| T2 | Config (`OWNER_EMAIL`, `MONITOR_*`), clientes de plataformas (Railway, Anthropic, Meta, Supabase, Vercel, Brevo), ruta `GET /monitor/resumen`, `es_dueno` en `/users/me`, `tests/test_monitor.py` | T1 | hecha (commit `feat(monitor)` T2) | 2 |
+| T3 | Frontend: página `/dashboard/monitor`, enlace condicional por `es_dueno`, proxy, pruebas | T2 | hecha (commit `feat(monitor)` T3) | 1 |
+| T4 | Validación completa, revisión independiente, trazabilidad, docs de despliegue | T1-T3 | **en curso** (ciclo 2 de correcciones del revisor aplicado; falta nueva revisión y verificación manual con tokens reales) | 2 |
 
 ## 7. Registro de ejecución
 | Fecha | Agente | Acción | Resultado / evidencia |
@@ -61,6 +61,10 @@ REQUIREMENTS (§3, REQ-F-018, REQ-N-003, §8), 05-INVARIANTS (INV-012 acotado, I
 | 2026-11-24 | clasificador | Clasificación | alto / completo / 88 %; detenido a la espera de aprobación de la spec |
 | 2026-11-24 | generador | Corrección de la spec tras el informe del validador (BLOQUEANTE-1/2, IMPORTANTE, MENORES 1-7) | Sin código. Decisiones de §4 (6 a 15) aplicadas en REQUIREMENTS, glosario, entidades, estados, INV-031..036, CT-010, UC-014, BDD-MONITOR, ADR-008, NFR y TRACEABILITY; pendiente de re-validación |
 | 2026-11-24 | generador | Corrección de la spec tras la 2.ª validación (bloqueante OPTIONS/HEAD, IMP-1 a IMP-6, menores 1-5) | Sin código. Decisiones 16 a 20 de §4 (provisionales) aplicadas en CT-010, CT-002 (`es_dueno`), UC-014, REQUIREMENTS, INV-031..036, 02-ENTITIES, BDD-MONITOR, ADR-008, NFR y TRACEABILITY; lista de pruebas unificada en INV, BDD y TRACEABILITY; pendiente de re-validación |
+| 2026-11-24 | generador | T1 a T3 implementadas | Contadores, ruta del Monitor, clientes de plataformas, `es_dueno` y página `/dashboard/monitor` con sus pruebas (commits `feat(monitor)` T1, T2 y T3) |
+| 2026-11-24 | revisor | Revisión independiente, ciclo 1 | Hallazgos B-1, B-2, I-1 a I-4, M-1 a M-4 |
+| 2026-11-24 | generador | T4, ciclo 2: corrección de los hallazgos | B-1: ruta `/monitor/resumen` registrada para cualquier método (app ASGI propia, `_RutaCualquierMetodo`) con pruebas byte a byte de TRACE/FOO/PROPFIND/OPTIONS sin Origin. B-2: la prueba de `compare_digest` inyecta un `hmac` propio solo en `app.api.dueno`. I-1: `redirect_slashes=False` (se comprobó que el proxy del frontend usa `redirect: 'manual'` y que ni el frontend ni las rutas del backend usan barra final); prueba de `/monitor/resumen/`. I-2: la purga se intenta una vez al día por instancia y `incrementar_async` lleva la red a un hilo (los llamadores asíncronos lo usan). I-3: CT-010, ADR-008, TRACEABILITY, 05-INVARIANTS, BDD-MONITOR y NFR actualizados. I-4: prueba de firma inválida. M-1: `OWNER_EMAIL` vacío → 404 sin mirar la sesión. M-2: Anthropic por informe y sin tokens inventados. M-3: plazo total de 5 s en la lectura de contadores (503 solo al Dueño). M-4: cuerpos de plataforma > 1 MB descartados |
+| 2026-11-24 | generador | Pruebas ejecutadas (ciclo 2) | `cd backend && python -m pytest -q`: 431 pruebas pasan, repetida 5 veces seguidas sin fallos intermitentes. El frontend no se tocó en este ciclo |
 
 ## 8. Cierre
-- **Aprobación humana final:** pendiente
+- **Aprobación humana final:** pendiente (falta la revisión independiente del ciclo 2 y la verificación manual de los tokens reales, ADR-008)

@@ -35,6 +35,16 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   leer se muestra «no disponible» (aprobado, pregunta 2). Que cada token tenga ese menor permiso y sea distinto de los
   de escritura **se verifica por revisión de configuración, no por prueba automatizada**. Registro por plataforma
   (permiso elegido y si admite solo lectura): _se completa al crear los tokens, antes del cierre de CHG-017_.
+  Estado conocido tras implementar (CHG-017 T2/T4):
+  - **Supabase: pendiente.** La Management API no ofrece un GET de solo lectura con el tamaño de la BD (solo
+    `database/query`, que ejecuta SQL con un token de cuenta completa; no se usa, INV-033). Supabase queda siempre
+    `no_disponible` hasta que el Dueño decida otra vía (p. ej. una función SQL de solo lectura expuesta aparte).
+  - **Brevo: la clave es de acceso completo.** Brevo no ofrece claves de solo lectura; `MONITOR_BREVO_KEY` es una
+    clave de API distinta de la de envío, pero con permisos completos. El código solo la usa en GET de cuenta e informe.
+  - **Anthropic:** exige clave de administración de una organización (`sk-ant-admin...`); otra clave no se envía.
+  - **Verificación manual antes de producción:** los formatos de respuesta de las seis APIs se simularon en pruebas,
+    pero **no se han probado con tokens reales**. Antes de desplegar, el Dueño comprueba una vez, con los tokens de
+    producción, qué plataformas muestran datos y cuáles quedan «no disponible», y se registra aquí el resultado.
 - `datos` de cada plataforma sigue un esquema mínimo de lista blanca (solo números, fechas ISO y cadenas fijas), CT-010 e INV-032.
 - URLs de proveedores fijas en el código, ids solo de configuración, sin redirecciones, con timeout (INV-034); caché
   corta (60 s por plataforma, timeout de 5 s), límite de 20 peticiones por minuto por Dueño y `Cache-Control: no-store`
@@ -42,8 +52,10 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
   es byte a byte idéntico al 404 normal de una ruta inexistente de la API, para no delatar el prefijo `/monitor`
   (un 404 no se cachea de forma útil). Fijado por el coordinador por defecto seguro; el Dueño puede cambiarlo
   (CHG-017 §4, pregunta 15).
-- Preflight CORS (OPTIONS) fuera de INV-033: lo atiende el middleware CORS como en toda la API y responde igual en
-  cualquier ruta. HEAD cuenta como método no GET (no-Dueño 404, Dueño 405). La interfaz muestra el enlace «Monitor» con
+- La ruta se registra para cualquier método y `redirect_slashes` está desactivado (la barra final es un 404 normal).
+  Solo el preflight CORS real (OPTIONS con `Origin` y `Access-Control-Request-Method`) queda fuera de INV-033: lo
+  atiende el middleware CORS como en toda la API y responde igual en cualquier ruta; un OPTIONS sin esas cabeceras
+  recibe el 404 (no-Dueño) o el 405 (Dueño). HEAD cuenta como método no GET (no-Dueño 404, Dueño 405). La interfaz muestra el enlace «Monitor» con
   el booleano `es_dueno` de `GET /users/me` (solo sobre el propio usuario; nunca el correo del dueño). Plazo total de
   5 s por plataforma con `asyncio.wait_for`, consultas en paralelo (resumen < 6 s), fallos en caché 15 s; purga con
   marca en la propia tabla (varias instancias); el 405 del Dueño cuenta para el límite. Provisional del coordinador;
