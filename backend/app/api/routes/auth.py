@@ -112,7 +112,7 @@ async def _issue_code(
     if resultado == "enviado":
         if enviar:
             background_tasks.add_task(send_verification_email, email, codigo, purpose)
-        # La purga NO corre aquí (I-4, I-A): la programa la dependencia de las rutas, tras responder
+        # La purga NO corre aquí (I-4, I-A): la dispara el middleware PurgaEnSegundoPlano, tras responder
         return "sent"
     return "recent" if resultado == "reciente" else "limited"
 
