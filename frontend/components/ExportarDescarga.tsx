@@ -162,7 +162,8 @@ export default function ExportarDescarga() {
             <p id={idMotivo} role="alert" className="text-sm text-red-700 dark:text-red-400">{rango.motivo}</p>
           )}
           {errorDescarga && rango.ok && (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">{errorDescarga}</p>
+            // Solo texto visible: el aviso (`notify`, role="alert") ya lo anuncia; así el error se lee una única vez
+            <p className="text-sm text-red-700 dark:text-red-400">{errorDescarga}</p>
           )}
 
           <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-disc pl-4">

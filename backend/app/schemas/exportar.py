@@ -3,6 +3,7 @@ Validación de la entrada de la exportación de transacciones (CT-011, INV-044).
 
 Los mensajes de error son los de CT-011. No hay parámetro de usuario: el dueño sale siempre de la sesión (INV-042).
 """
+from datetime import date
 from typing import Literal, Optional
 
 from pydantic import BaseModel
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from app.schemas.plataapp import MES_PATTERN
 
 MAX_MESES = 12
+ANIO_MIN, ANIO_MAX = 2000, 2100   # igual que frontend/lib/exportar.ts
 FORMATOS = ("csv", "xlsx")
 
 MSG_MES_INVALIDO = "Formato de mes inválido (YYYY-MM)"
@@ -38,13 +40,24 @@ class ConsultaExportacion(BaseModel):
         return f"finanzy-transacciones-{periodo}.{self.formato}"
 
 
+def _mes_valido(mes: Optional[str]) -> bool:
+    """YYYY-MM con año entre 2000 y 2100; el rango de fechas se calcula aquí para que nada inválido llegue a la BD."""
+    if mes is None or not MES_PATTERN.fullmatch(mes) or not ANIO_MIN <= int(mes[:4]) <= ANIO_MAX:
+        return False
+    try:
+        date(int(mes[:4]), int(mes[5:7]), 1)
+    except ValueError:
+        return False
+    return True
+
+
 def validar_consulta(desde: Optional[str], hasta: Optional[str], formato: Optional[str]) -> ConsultaExportacion:
     """Valida mes inicial, mes final, orden, máximo de 12 meses y formato. Lanza `ParametrosInvalidos`."""
-    if desde is None or not MES_PATTERN.fullmatch(desde):
+    if not _mes_valido(desde):
         raise ParametrosInvalidos(MSG_MES_INVALIDO)
     if hasta is None:
         hasta = desde
-    elif not MES_PATTERN.fullmatch(hasta):
+    elif not _mes_valido(hasta):
         raise ParametrosInvalidos(MSG_MES_INVALIDO)
     formato = "csv" if formato is None else formato
     if formato not in FORMATOS:

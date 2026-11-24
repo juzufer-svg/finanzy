@@ -4,6 +4,7 @@ import csv
 import io
 import random
 import re
+import threading
 import time
 import uuid
 import zipfile
@@ -13,6 +14,7 @@ import httpx
 import pytest
 from openpyxl import load_workbook
 
+from app.api.routes import exportar as exportar_routes
 from app.main import app
 from app.models import demo_db, whatsapp as whatsapp_db
 from app.models.plataapp import TransaccionDB
@@ -271,6 +273,8 @@ def test_inv044_pagina_todas_las_filas_mas_alla_de_1000(client, monkeypatch):
     {"desde": "2026-13"}, {"desde": "2026-1"}, {"desde": "2026-11\n"}, {"desde": "abc"}, {},
     {"desde": "2026-11", "hasta": "2026-00"}, {"desde": "2026-11", "hasta": "2026-10"},
     {"desde": "2026-11", "formato": "pdf"}, {"desde": "2026-11", "formato": "CSV"},
+    {"desde": "0000-01"}, {"desde": "1999-12"}, {"desde": "2101-01"}, {"desde": "9999-12"},
+    {"desde": "2026-11", "hasta": "9999-12"}, {"desde": "2099-12", "hasta": "2101-01"},
 ])
 def test_inv044_parametros_invalidos_responden_422(client, monkeypatch, params):
     def no_debe_consultar(*a, **k):
@@ -346,7 +350,9 @@ def test_inv045_csv_utf8_con_bom_separador_punto_y_coma_y_columnas(client):
     assert r.headers["content-type"] == "text/csv; charset=utf-8"
     assert r.headers["content-disposition"] == 'attachment; filename="finanzy-transacciones-2026-11.csv"'
     assert r.content.startswith(b"\xef\xbb\xbf") and b"\r\n" in r.content
-    assert r.content.decode("utf-8-sig").split("\r\n")[0] == ";".join(ENCABEZADOS)
+    # texto SIEMPRE entre comillas (H4); el monto, sin comillas y con coma decimal
+    assert r.content.decode("utf-8-sig").split("\r\n")[0] == ";".join(f'"{e}"' for e in ENCABEZADOS)
+    assert '"tercera";"Débito";1234,50;"App"\r\n' in r.content.decode("utf-8-sig")
     filas = filas_csv(r)
     assert filas[0] == ENCABEZADOS
     assert [f[3] for f in filas[1:]] == ["primera; con punto y coma", 'con "comillas"', "tercera"]  # fecha ascendente
@@ -496,3 +502,329 @@ def test_req_n026_la_generacion_no_bloquea_el_bucle_de_eventos():
     respuesta, mayor_pausa = asyncio.run(escenario())
     assert respuesta.status_code == 200
     assert mayor_pausa < 0.5
+
+
+# ── Ciclo 2 (CHG-018): H1 rama Supabase con cliente FALSO ─────────────────────
+
+class _Consulta:
+    """Registra la cadena de llamadas de PostgREST y responde con las filas que dicte `fuente(tabla, llamadas)`."""
+
+    def __init__(self, cliente, tabla):
+        self.cliente, self.tabla, self.llamadas = cliente, tabla, []
+
+    def __getattr__(self, nombre):
+        def registrar(*args, **kwargs):
+            self.llamadas.append((nombre, args))
+            return self
+        return registrar
+
+    def execute(self):
+        self.cliente.consultas.append(self)
+        filas = self.cliente.fuente(self)
+        return type("R", (), {"data": filas})()
+
+    def valor(self, nombre):
+        return [a for n, a in self.llamadas if n == nombre]
+
+
+class _ClienteFalso:
+    def __init__(self, fuente):
+        self.fuente, self.consultas = fuente, []
+
+    def table(self, nombre):
+        return _Consulta(self, nombre)
+
+
+def _con_supabase_falso(monkeypatch, fuente):
+    from app.models import plataapp
+    cliente = _ClienteFalso(fuente)
+    monkeypatch.setattr(plataapp, "_supabase_ok", lambda: True)
+    monkeypatch.setattr(plataapp.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    return cliente
+
+
+def _fila_bd(n, embed=None):
+    return {"fecha": "2026-11-01", "tipo": "gasto", "categoria_id": None, "descripcion": f"fila {n:05d}",
+            "medio_pago": None, "monto": 1, "whatsapp_registros": embed}
+
+
+def test_h1_supabase_consulta_con_usuario_de_la_sesion_orden_y_rango(client, monkeypatch):
+    cliente = _con_supabase_falso(monkeypatch, lambda q: [])
+    r = pedir(client, A, desde="2026-10", hasta="2026-11", formato="csv")
+    assert r.status_code == 200
+    tx = [q for q in cliente.consultas if q.tabla == "transacciones"]
+    cat = [q for q in cliente.consultas if q.tabla == "categorias"]
+    assert len(tx) == 1 and len(cat) == 1
+    q = tx[0]
+    assert q.valor("eq") == [("usuario_id", "user-a")]            # el dueño sale de la sesión (INV-042)
+    assert q.valor("gte") == [("fecha", "2026-10-01")] and q.valor("lt") == [("fecha", "2026-12-01")]
+    assert [a for a in q.valor("order")] == [("fecha",), ("created_at",), ("id",)]
+    assert q.valor("range") == [(0, 999)]
+    assert "whatsapp_registros(transaccion_id)" in q.valor("select")[0][0]
+    assert cat[0].valor("eq") == [("usuario_id", "user-a")]
+    # otro usuario: su propio id, nunca el de A
+    cliente.consultas.clear()
+    pedir(client, B, desde="2026-11")
+    assert all(q.valor("eq") == [("usuario_id", "user-b")] for q in cliente.consultas)
+
+
+def test_h1_supabase_pagina_1000_exactas_y_luego_menos_sin_saltar_ni_duplicar(client, monkeypatch):
+    total = 1500
+    filas = [_fila_bd(n) for n in range(total)]
+
+    def fuente(q):
+        if q.tabla != "transacciones":
+            return []
+        a, b = q.valor("range")[0]
+        return filas[a:b + 1]
+
+    cliente = _con_supabase_falso(monkeypatch, fuente)
+    r = pedir(client, A, desde="2026-11")
+    descripciones = [f[3] for f in filas_csv(r)[1:]]
+    assert descripciones == [f"fila {n:05d}" for n in range(total)]       # ni saltos ni duplicados
+    rangos = [q.valor("range")[0] for q in cliente.consultas if q.tabla == "transacciones"]
+    assert rangos == [(0, 999), (1000, 1999)]
+
+
+def test_h1_supabase_pagina_exacta_de_1000_pide_otra_vacia_y_termina(client, monkeypatch):
+    filas = [_fila_bd(n) for n in range(1000)]
+    cliente = _con_supabase_falso(
+        monkeypatch, lambda q: filas[q.valor("range")[0][0]:q.valor("range")[0][1] + 1] if q.tabla == "transacciones" else [])
+    r = pedir(client, A, desde="2026-11")
+    assert len(filas_csv(r)) == 1001
+    assert [q.valor("range")[0] for q in cliente.consultas if q.tabla == "transacciones"] == [(0, 999), (1000, 1999)]
+
+
+@pytest.mark.parametrize("embed,origen", [
+    ({"transaccion_id": "t1"}, "WhatsApp"),     # relación uno a uno: objeto
+    ([{"transaccion_id": "t1"}], "WhatsApp"),   # lista con un registro
+    (None, "App"),
+    ([], "App"),
+])
+def test_h1_supabase_embed_de_whatsapp_registros_define_el_origen(client, monkeypatch, embed, origen):
+    _con_supabase_falso(monkeypatch, lambda q: [_fila_bd(1, embed)] if q.tabla == "transacciones" else [])
+    for formato in ("csv", "xlsx"):
+        r = pedir(client, A, desde="2026-11", formato=formato)
+        assert r.status_code == 200
+        fila = filas_csv(r)[1] if formato == "csv" else [c.value for c in list(hoja_xlsx(r).iter_rows())[1]]
+        assert fila[6] == origen
+
+
+def test_h1_supabase_categorias_paginadas_solo_las_del_usuario(client, monkeypatch):
+    todas = [{"id": f"c{n:05d}", "nombre": f"Cat {n}"} for n in range(1200)]
+
+    def fuente(q):
+        if q.tabla == "categorias":
+            a, b = q.valor("range")[0]
+            return todas[a:b + 1]
+        return [dict(_fila_bd(1), categoria_id="c01150")]
+
+    cliente = _con_supabase_falso(monkeypatch, fuente)
+    r = pedir(client, A, desde="2026-11")
+    assert filas_csv(r)[1][2] == "Cat 1150"          # la categoría está en la 2.ª página
+    cats = [q for q in cliente.consultas if q.tabla == "categorias"]
+    assert [q.valor("range")[0] for q in cats] == [(0, 999), (1000, 1999)]
+    assert all(q.valor("eq") == [("usuario_id", "user-a")] for q in cats)
+
+
+def test_h1_modo_memoria_ordena_como_produccion_fecha_created_at_id():
+    sembrar(fecha="2026-11-05", descripcion="tarde")
+    sembrar(fecha="2026-11-05", descripcion="temprano")
+    sembrar(fecha="2026-11-01", descripcion="primero")
+    ts = list(demo_db.DemoTransaccionDB._transacciones.values())
+    ts[0]["created_at"], ts[1]["created_at"], ts[2]["created_at"] = "2026-11-06T10:00", "2026-11-06T09:00", "2026-11-02T00:00"
+    ts[0]["id"], ts[1]["id"] = "b", "a"
+    filas = TransaccionDB.pagina_para_exportar("user-a", "2026-11", "2026-11", 0, 1000)
+    assert [f["descripcion"] for f in filas] == ["primero", "temprano", "tarde"]
+    # mismo created_at: desempata el id
+    ts[0]["created_at"] = ts[1]["created_at"] = "2026-11-06T10:00"
+    filas = TransaccionDB.pagina_para_exportar("user-a", "2026-11", "2026-11", 0, 1000)
+    assert [f["descripcion"] for f in filas] == ["primero", "temprano", "tarde"]   # ids «a» (temprano) < «b» (tarde)
+
+
+# ── Ciclo 2: H2 tope de exportaciones simultáneas ─────────────────────────────
+
+def test_h2_ejecutor_lleno_responde_503_inmediato_sin_encolar_y_la_ranura_se_libera(client, monkeypatch):
+    sembrar(descripcion="x")
+    llegaron, soltar = threading.Event(), threading.Event()
+    leidas = []
+
+    def bloqueada(usuario_id, desde, hasta, inicio, cantidad):
+        leidas.append(inicio)
+        llegaron.set()
+        soltar.wait(5)
+        return []
+
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(bloqueada))
+    # el plazo grande evita que venza antes de comprobar el rechazo
+    monkeypatch.setattr(generador, "PLAZO_SEGUNDOS", 5.0)
+    for _ in range(exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS):
+        assert exportar_routes._ranuras.acquire(blocking=False)
+    try:
+        t0 = time.monotonic()
+        r = pedir(client, A, desde="2026-11")
+        assert time.monotonic() - t0 < 0.5                       # inmediato
+        assert r.status_code == 503 and r.json()["detail"] == "Servicio no disponible. Intenta de nuevo en unos minutos."
+        assert r.headers["cache-control"] == "no-store" and "content-disposition" not in r.headers
+        assert leidas == []                                      # no se encoló ni empezó trabajo
+    finally:
+        for _ in range(exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS):
+            exportar_routes._ranuras.release()
+    soltar.set()
+    # la ranura vuelve tras terminar el hilo: dos exportaciones seguidas funcionan
+    monkeypatch.undo()
+    for _ in range(3):
+        assert pedir(client, A, desde="2026-11").status_code == 200
+    assert exportar_routes._ranuras._value == exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS
+
+
+def test_h2_dos_en_curso_la_tercera_recibe_503_y_health_responde(client, monkeypatch):
+    llegaron = threading.Semaphore(0)
+    soltar = threading.Event()
+
+    def bloqueada(usuario_id, desde, hasta, inicio, cantidad):
+        llegaron.release()
+        soltar.wait(10)
+        return []
+
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(bloqueada))
+    monkeypatch.setattr(generador, "PLAZO_SEGUNDOS", 10.0)
+
+    async def escenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://prueba") as c:
+            tareas = [asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=A)) for _ in range(2)]
+            for _ in range(2):
+                while not llegaron.acquire(blocking=False):
+                    await asyncio.sleep(0.01)
+            tercera = await c.get(URL, params={"desde": "2026-11"}, headers=A)
+            salud = await c.get("/health")
+            soltar.set()
+            return tercera, salud, await asyncio.gather(*tareas)
+
+    tercera, salud, primeras = asyncio.run(escenario())
+    assert tercera.status_code == 503
+    assert salud.status_code == 200 and salud.json() == {"status": "healthy"}
+    assert [p.status_code for p in primeras] == [200, 200]
+    time.sleep(0.2)
+    assert exportar_routes._ranuras._value == exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS
+
+
+def test_h2_tras_el_plazo_la_ranura_se_libera_cuando_el_hilo_termina(client, monkeypatch):
+    monkeypatch.setattr(generador, "PLAZO_SEGUNDOS", 0.3)
+
+    def lenta(usuario_id, desde, hasta, inicio, cantidad):
+        time.sleep(0.5)
+        return [_fila_bd(0)] * cantidad
+
+    monkeypatch.setattr(TransaccionDB, "pagina_para_exportar", staticmethod(lenta))
+    assert pedir(client, A, desde="2026-11").status_code == 503
+    time.sleep(1.0)    # el hilo ve el plazo/`detener` tras la página en curso y termina
+    assert exportar_routes._ranuras._value == exportar_routes.MAX_EXPORTACIONES_SIMULTANEAS
+
+
+def test_h2_el_xlsx_comprueba_detener_cada_500_filas_al_escribir():
+    class Evento:
+        """Falso `threading.Event`: pide parar tras N consultas (la lectura de 2500 filas consulta 6 veces)."""
+        def __init__(self, tras):
+            self.tras, self.consultas = tras, 0
+
+        def is_set(self):
+            self.consultas += 1
+            return self.consultas > self.tras
+
+    filas = [_fila_bd(n) | {"whatsapp": False} for n in range(2500)]
+    leer = lambda inicio, cantidad: filas[inicio:inicio + cantidad]
+    ev = Evento(tras=8)
+    with pytest.raises(generador.ExportacionLenta):
+        generador.generar_archivo("xlsx", leer, {}, ev, 60)
+    assert ev.consultas == 9        # 6 de la lectura + comprobaciones en las filas 0, 500 y 1000 de la escritura
+
+
+# ── Ciclo 2: H3 sin temporales ────────────────────────────────────────────────
+
+def test_h3_el_corte_por_plazo_en_el_xlsx_no_deja_temporales(tmp_path, monkeypatch):
+    import tempfile
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    filas = [_fila_bd(n) | {"whatsapp": False} for n in range(1200)]
+    leer = lambda inicio, cantidad: filas[inicio:inicio + cantidad]
+
+    class ParaEnLaEscritura:
+        def __init__(self):
+            self.consultas = 0
+
+        def is_set(self):
+            self.consultas += 1
+            return self.consultas > 4     # la lectura (2 páginas) consulta 4 veces: corta al escribir
+
+    with pytest.raises(generador.ExportacionLenta):
+        generador.generar_archivo("xlsx", leer, {}, ParaEnLaEscritura(), 60)
+    assert list(tmp_path.iterdir()) == []
+    # y un xlsx correcto tampoco deja nada
+    assert generador.generar_archivo("xlsx", leer, {}, None, 60).startswith(b"PK")
+    assert list(tmp_path.iterdir()) == []
+    # ni uno que supera el tope de bytes
+    monkeypatch.setattr(generador, "MAX_BYTES", 100)
+    with pytest.raises(generador.ExportacionDemasiadoGrande):
+        generador.generar_archivo("xlsx", leer, {}, None, 60)
+    assert list(tmp_path.iterdir()) == []
+
+
+# ── Ciclo 2: H4 CSV con todo el texto entre comillas ──────────────────────────
+
+DESCRIPCIONES_CSV = ["x,=1+1", "x;=1+1", 'dijo "hola", =1+1', "línea 1\nlínea 2,=2+2", "=1+1,=2+2", "a\r\nb;c", ",=1", "normal"]
+
+
+def test_h4_csv_todo_el_texto_va_entre_comillas_y_el_monto_no(client):
+    for i, d in enumerate(DESCRIPCIONES_CSV):
+        sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}", medio_pago="debito")
+    texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
+    assert texto.startswith('"Fecha";"Tipo";"Categoría";"Descripción";"Medio de pago";"Monto (COP)";"Origen"\r\n')
+    assert '"2026-11-01";"Gasto";"Sin categoría";"x,=1+1";"Débito";1234,50;"App"\r\n' in texto
+    assert '"dijo ""hola"", =1+1"' in texto
+    assert '"línea 1\nlínea 2,=2+2"' in texto
+    assert ';"\'=1+1,=2+2";' in texto            # la neutralización sigue al inicio de la celda, ya entre comillas
+
+
+def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_protegen_comas_y_saltos(client):
+    for i, d in enumerate(DESCRIPCIONES_CSV):
+        sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}")
+    texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
+    esperadas = [("'" + d if d.startswith(("=", "+", "-", "@", "\t", "\r")) else d) for d in DESCRIPCIONES_CSV]
+    # con «;» (el separador del archivo) la lectura es exacta
+    filas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=";"))[1:]
+    assert [f[3] for f in filas] == esperadas and all(len(f) == 7 and f[5] == "1234,50" for f in filas)
+    # El CSV ya está delimitado por «;»: cada celda de texto sale íntegra entre comillas (con «,» o «;» internos) y
+    # ninguna celda de texto leída empieza por un carácter de fórmula. NO se afirma nada sobre una lectura con «,»
+    # como delimitador: ese lector ignora la estructura de «;» y parte la línea (límite documentado en INV-043; ahí
+    # la defensa es el .xlsx).
+    for d in esperadas:
+        assert '"' + d.replace('"', '""') + '"' in texto
+    for linea in csv.reader(io.StringIO(texto, newline=""), delimiter=";"):
+        for celda in linea[:5] + linea[6:]:
+            assert not celda.startswith(("=", "+", "-", "@", "\t", "\r"))
+
+
+# ── Ciclo 2: H5 año acotado ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("params", [{"desde": "0000-01"}, {"desde": "9999-12"}, {"desde": "1999-12"},
+                                    {"desde": "2026-11", "hasta": "2101-01"}])
+def test_h5_anio_fuera_de_2000_2100_responde_422_sin_consumir_el_limite(client, params):
+    for _ in range(12):   # más que el límite de 10 por minuto
+        r = pedir(client, A, **params)
+        assert r.status_code == 422 and r.json()["detail"] == "Formato de mes inválido (YYYY-MM)"
+    assert pedir(client, A, desde="2026-11").status_code == 200   # el límite no se consumió
+
+
+def test_h5_los_extremos_2000_01_y_2100_12_son_validos(client):
+    assert pedir(client, A, desde="2000-01", hasta="2000-03").status_code == 200
+    assert pedir(client, A, desde="2100-10", hasta="2100-12").status_code == 200
+
+
+# ── Ciclo 2: menores del validador ────────────────────────────────────────────
+
+def test_el_401_de_sesion_va_sin_cache_y_con_nosniff(client):
+    for headers in ({}, {"Authorization": "Bearer basura"}, {"Authorization": "Basic abc"}):
+        r = client.get(URL, params={"desde": "2026-11"}, headers=headers)
+        assert r.status_code == 401
+        assert r.headers["cache-control"] == "no-store" and r.headers["x-content-type-options"] == "nosniff"
+        assert set(r.json()) == {"detail"}

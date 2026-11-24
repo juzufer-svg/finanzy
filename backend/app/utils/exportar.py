@@ -4,15 +4,13 @@ Generación de los archivos de exportación de transacciones (CHG-018, CT-011, A
 Funciones SÍNCRONAS pensadas para correr en un hilo (REQ-N-026): la lectura paginada y la escritura no deben
 bloquear el bucle de eventos.
 
-- CSV: UTF-8 con BOM, «;», `\\r\\n`, monto con coma decimal. Un texto que empieza por = + - @ tab o CR lleva un
-  apóstrofo delante (INV-043; única defensa posible en un CSV).
+- CSV: UTF-8 con BOM, «;», `\\r\\n`, monto SIN comillas y con coma decimal. TODA celda de texto va entre comillas y,
+  si empieza por = + - @ tab o CR, lleva un apóstrofo delante (INV-043; única defensa posible en un CSV).
 - xlsx (openpyxl, solo escritura): números y fechas reales; todo texto es una cadena explícita y, si podría leerse
   como fórmula, lleva el estilo `quotePrefix` SIN apóstrofo visible (INV-043).
 - Topes (INV-044): 10 000 filas y 4 000 000 bytes; nunca se entrega un archivo truncado. Se lee de 1000 en 1000
   (PostgREST corta ahí en silencio) y se comprueban filas, bytes y plazo entre página y página.
 """
-import csv
-import io
 import os
 import tempfile
 import threading
@@ -29,6 +27,7 @@ MAX_FILAS = 10_000
 MAX_BYTES = 4_000_000
 TAMANO_PAGINA = 1000
 PLAZO_SEGUNDOS = 8.0
+FILAS_ENTRE_COMPROBACIONES = 500   # el bucle de escritura del xlsx también respeta `detener` y el plazo
 
 ENCABEZADOS = ("Fecha", "Tipo", "Categoría", "Descripción", "Medio de pago", "Monto (COP)", "Origen")
 NOMBRE_HOJA = "Transacciones"
@@ -110,21 +109,24 @@ def _paginas(leer_pagina: Callable[[int, int], list], categorias: dict, limite: 
             return
 
 
+def _texto_csv(texto: str) -> str:
+    """Celda de texto SIEMPRE entre comillas (las comillas internas se duplican) y neutralizada al inicio (INV-043).
+    Entre comillas, una coma o un «;» dentro de la descripción no parte la celda en las lecturas estándar."""
+    return '"' + neutralizar_csv(texto).replace('"', '""') + '"'
+
+
 def _generar_csv(paginas: Iterator[list]) -> bytes:
     trozos = [b"\xef\xbb\xbf"]   # BOM de UTF-8 para que Excel detecte la codificación
     total = len(trozos[0])
 
     def bloque(filas: list) -> bytes:
-        salida = io.StringIO(newline="")
-        escritor = csv.writer(salida, delimiter=";", lineterminator="\r\n")
-        for f in filas:
-            escritor.writerow([f[0], *(neutralizar_csv(x) for x in f[1:5]), str(f[5]).replace(".", ","),
-                               neutralizar_csv(f[6])])
-        return salida.getvalue().encode("utf-8")
+        # Texto entre comillas (QUOTE_NONNUMERIC); el monto va SIN comillas y con coma decimal
+        return "".join(
+            ";".join([_texto_csv(f[0]), *(_texto_csv(x) for x in f[1:5]), str(f[5]).replace(".", ","),
+                      _texto_csv(f[6])]) + "\r\n"
+            for f in filas).encode("utf-8")
 
-    encabezado = io.StringIO(newline="")
-    csv.writer(encabezado, delimiter=";", lineterminator="\r\n").writerow(ENCABEZADOS)
-    trozos.append(encabezado.getvalue().encode("utf-8"))
+    trozos.append((";".join(_texto_csv(e) for e in ENCABEZADOS) + "\r\n").encode("utf-8"))
     total += len(trozos[-1])
     for filas in paginas:                     # se cuentan los bytes REALES tras cada página
         trozos.append(bloque(filas))
@@ -144,34 +146,69 @@ def _texto_xlsx(hoja, texto: str) -> WriteOnlyCell:
     return celda
 
 
+def _limpiar_libro(libro) -> None:
+    """Cierra el libro y borra los temporales de sus hojas. `Workbook.close()` NO borra el temporal de cada hoja de solo
+    escritura (openpyxl lo borra únicamente al guardar): si se corta antes de `save`, quedaría en /tmp hasta reiniciar."""
+    try:
+        libro.close()
+    finally:
+        for hoja in getattr(libro, "_sheets", []):
+            escritor = getattr(hoja, "_writer", None)
+            ruta = getattr(escritor, "out", None)
+            if not isinstance(ruta, str):
+                continue
+            try:
+                filas = getattr(hoja, "_rows", None)
+                if filas is not None:
+                    filas.close()             # primero el generador de filas (si no, se queja al recolectarse)
+                escritor.close()              # cierra el generador de lxml (puede quejarse si quedó a medias)
+            except Exception:
+                pass
+            try:
+                os.remove(ruta)
+            except FileNotFoundError:
+                pass                          # ya lo borró `save`
+            try:
+                from openpyxl.worksheet import _writer as _escritor_hoja
+                _escritor_hoja.ALL_TEMP_FILES.remove(ruta)
+            except (ValueError, ImportError, AttributeError):
+                pass
+
+
 def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[threading.Event]) -> bytes:
     # Se lee TODO antes de tocar openpyxl: un fallo de la BD, el plazo o el tope de filas no deja un libro a medias.
     # La memoria está acotada por el tope de 10 000 filas (INV-044).
     paginas = list(paginas)
-    libro = Workbook(write_only=True)
-    hoja = libro.create_sheet(NOMBRE_HOJA)
-    hoja.append(list(ENCABEZADOS))
-    for filas in paginas:
-        for fecha, tipo, categoria, descripcion, medio, monto, origen in filas:
-            c_fecha = WriteOnlyCell(hoja, value=date.fromisoformat(fecha))
-            c_fecha.number_format = "yyyy-mm-dd"
-            c_monto = WriteOnlyCell(hoja, value=float(monto))
-            c_monto.number_format = "#,##0.00"
-            hoja.append([c_fecha, _texto_xlsx(hoja, tipo), _texto_xlsx(hoja, categoria),
-                         _texto_xlsx(hoja, descripcion), _texto_xlsx(hoja, medio), c_monto,
-                         _texto_xlsx(hoja, origen)])
-    _revisar_plazo(limite, detener)
-    descriptor, ruta = tempfile.mkstemp(suffix=".xlsx")
-    os.close(descriptor)
+    libro = Workbook(write_only=True)   # crea archivos temporales: `close()` SIEMPRE, también si se corta por plazo
+    ruta = None
     try:
+        hoja = libro.create_sheet(NOMBRE_HOJA)
+        hoja.append(list(ENCABEZADOS))
+        escritas = 0
+        for filas in paginas:
+            for fecha, tipo, categoria, descripcion, medio, monto, origen in filas:
+                if escritas % FILAS_ENTRE_COMPROBACIONES == 0:
+                    _revisar_plazo(limite, detener)
+                escritas += 1
+                c_fecha = WriteOnlyCell(hoja, value=date.fromisoformat(fecha))
+                c_fecha.number_format = "yyyy-mm-dd"
+                c_monto = WriteOnlyCell(hoja, value=float(monto))
+                c_monto.number_format = "#,##0.00"
+                hoja.append([c_fecha, _texto_xlsx(hoja, tipo), _texto_xlsx(hoja, categoria),
+                             _texto_xlsx(hoja, descripcion), _texto_xlsx(hoja, medio), c_monto,
+                             _texto_xlsx(hoja, origen)])
+        _revisar_plazo(limite, detener)
+        descriptor, ruta = tempfile.mkstemp(suffix=".xlsx")
+        os.close(descriptor)
         libro.save(ruta)
         if os.path.getsize(ruta) > MAX_BYTES:    # se mide el archivo REAL que se entregaría
             raise ExportacionDemasiadoGrande()
         with open(ruta, "rb") as f:
             return f.read()
     finally:
-        libro.close()
-        os.unlink(ruta)
+        _limpiar_libro(libro)
+        if ruta is not None:
+            os.unlink(ruta)
 
 
 def generar_archivo(formato: str, leer_pagina: Callable[[int, int], list], categorias: dict,

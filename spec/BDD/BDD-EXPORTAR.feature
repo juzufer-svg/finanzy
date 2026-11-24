@@ -95,6 +95,24 @@ Característica: Exportar transacciones a CSV o Excel
     Entonces cada una empieza con un apóstrofo y ninguna celda de texto empieza por = + - @ tabulación o retorno de carro
 
   @BDD-EXPORTAR @invariante @INV-043
+  # Prueba: tests/test_exportar.py::test_h4_csv_todo_el_texto_va_entre_comillas_y_el_monto_no, ::test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_protegen_comas_y_saltos
+  Escenario: Una coma o un punto y coma dentro del texto no parte la celda del CSV
+    Dado transacciones con descripción "x,=1+1", "x;=1+1", "dijo ""hola"", =1+1" y una con salto de línea
+    Cuando se exporta en CSV
+    Entonces todas las celdas de texto salen entre comillas dobles y el monto sin comillas y con coma decimal
+    Y al releer con «;» las descripciones coinciden con las originales
+
+  @BDD-EXPORTAR @invariante @INV-042 @INV-044
+  # Prueba: tests/test_exportar.py::test_h1_supabase_* (cliente de Supabase falso), ::test_h2_*, ::test_h3_*, ::test_h5_*
+  Escenario: Lectura de Supabase, tope de simultaneidad, temporales y año acotado
+    Dado la consulta a Supabase filtra por el usuario de la sesión, ordena por fecha, created_at e id y pagina de 1000 en 1000 sin saltar ni duplicar
+    Y ya hay 2 exportaciones en curso
+    Cuando llega una tercera
+    Entonces responde 503 al instante sin encolar y /health sigue respondiendo
+    Y un xlsx cortado por plazo no deja archivos temporales
+    Y un mes con año fuera de 2000 a 2100 responde 422 sin consumir el límite de 10 por minuto
+
+  @BDD-EXPORTAR @invariante @INV-043
   # Prueba: tests/test_exportar.py::test_inv043_xlsx_neutraliza_formulas_y_no_hay_celdas_de_formula
   Escenario: Lo mismo en Excel, sin apóstrofo visible
     Dado las mismas descripciones y una categoría llamada "=1+1"

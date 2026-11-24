@@ -113,7 +113,9 @@ class TransaccionDB:
                             if str(r["usuario_id"]) == str(usuario_id)}
             propias = [t for t in DemoTransaccionDB._transacciones.values()
                        if str(t["usuario_id"]) == str(usuario_id) and primero <= str(t["fecha"])[:10] < siguiente]
-            propias.sort(key=lambda t: str(t["fecha"])[:10])  # estable: respeta el orden de creación
+            # Mismo orden que producción: fecha, created_at, id (la BD demo no guarda created_at: ahí manda el orden de inserción)
+            propias.sort(key=lambda t: (str(t["fecha"])[:10], str(t.get("created_at") or ""),
+                                        str(t["id"]) if t.get("created_at") else ""))
             return [{
                 "fecha": t["fecha"], "tipo": t["tipo"], "categoria_id": t.get("categoria_id"),
                 "descripcion": t.get("descripcion"), "medio_pago": t.get("medio_pago"), "monto": t["monto"],

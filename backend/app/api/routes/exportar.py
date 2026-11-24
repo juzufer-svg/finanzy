@@ -3,6 +3,8 @@ Exportar transacciones a CSV o Excel (CHG-018, CT-011, UC-015, ADR-011).
 
 - El usuario sale SIEMPRE de la sesión (INV-001, INV-042); no hay parámetro de usuario.
 - Solo lectura. La lectura paginada y la generación corren en un hilo (REQ-N-026) con plazo total de 8 s.
+- Como máximo `MAX_EXPORTACIONES_SIMULTANEAS` (2) exportaciones a la vez, en un ejecutor PROPIO (no el compartido del
+  servidor): si está lleno, 503 inmediato SIN encolar (mismo patrón que `auth_estado.ejecutar_bcrypt`, INV-044).
 - Límite: 10 descargas por minuto por usuario (en memoria, como los demás límites de costo, INV-024).
 """
 import asyncio
@@ -10,7 +12,9 @@ import functools
 import threading
 from typing import Optional
 
-from fastapi import APIRouter, Header, Query
+from concurrent.futures import ThreadPoolExecutor
+
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from app.api.sesion import usuario_de_sesion
@@ -22,6 +26,10 @@ from app.utils import exportar as generador
 router = APIRouter()
 
 _por_minuto = SlidingWindow(limit=10, window_seconds=60)
+
+MAX_EXPORTACIONES_SIMULTANEAS = 2
+_ranuras = threading.BoundedSemaphore(MAX_EXPORTACIONES_SIMULTANEAS)   # se libera cuando el HILO termina, no al vencer el plazo
+_ejecutor = ThreadPoolExecutor(max_workers=MAX_EXPORTACIONES_SIMULTANEAS, thread_name_prefix="exportar")
 
 _CABECERAS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _MSG_429 = "Demasiadas descargas. Espera un momento e intenta de nuevo."
@@ -45,7 +53,10 @@ async def exportar_transacciones(
     formato: Optional[str] = Query(None),
     authorization: Optional[str] = Header(None),
 ):
-    usuario_id = await usuario_de_sesion(authorization)   # 401/503 (CT-002); cualquier otro dato de usuario se ignora
+    try:
+        usuario_id = await usuario_de_sesion(authorization)   # 401/503 (CT-002); cualquier otro dato de usuario se ignora
+    except HTTPException as e:   # también el 401/503 de la sesión va sin caché y con nosniff (llamadas directas al backend)
+        return _error(e.status_code, str(e.detail))
     try:
         consulta = validar_consulta(desde, hasta, formato)
     except ParametrosInvalidos as e:
@@ -53,6 +64,9 @@ async def exportar_transacciones(
     if not _por_minuto.hit(usuario_id):
         return _error(429, _MSG_429)
 
+    if not _ranuras.acquire(blocking=False):   # lleno: se rechaza al instante, nunca se encola ni se acumula trabajo
+        print("[exportar] Aviso: ejecutor de exportaciones lleno")
+        return _error(503, _MSG_503)
     detener = threading.Event()
 
     def trabajo() -> bytes:
@@ -61,7 +75,13 @@ async def exportar_transacciones(
         return generador.generar_archivo(consulta.formato, leer, categorias, detener, generador.PLAZO_SEGUNDOS)
 
     try:
-        archivo = await asyncio.wait_for(asyncio.to_thread(trabajo), timeout=generador.PLAZO_SEGUNDOS)
+        futuro = _ejecutor.submit(trabajo)
+    except Exception:
+        _ranuras.release()
+        return _error(503, _MSG_503)
+    futuro.add_done_callback(lambda _f: _ranuras.release())
+    try:
+        archivo = await asyncio.wait_for(asyncio.wrap_future(futuro), timeout=generador.PLAZO_SEGUNDOS)
     except asyncio.TimeoutError:
         detener.set()   # el hilo termina en la siguiente comprobación; nunca se entrega un archivo parcial
         return _error(503, _MSG_LENTA)
