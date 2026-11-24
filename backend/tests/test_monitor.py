@@ -39,6 +39,9 @@ IDS = {
 }
 HOSTS_FIJOS = {"backboard.railway.com", "api.anthropic.com", "graph.facebook.com", "api.vercel.com", "api.brevo.com"}
 _ClienteReal = httpx.AsyncClient
+RAILWAY_COSTO = {"data": {"project": {"workspace": {"customer": {
+    "currentUsage": 0.0379, "creditBalance": 0,
+    "billingPeriod": {"start": "2026-11-22T17:04:27.000Z", "end": "2026-12-22T17:04:27.000Z"}}}}}}
 
 
 # ==================== ayudas ====================
@@ -70,6 +73,8 @@ def sesiones(users, monkeypatch):
 def _respuesta_json(url: httpx.URL, request: httpx.Request):
     host, ruta = url.host, url.path
     if host == "backboard.railway.com":
+        if "currentUsage" in request.content.decode():   # segunda consulta: gasto del período
+            return RAILWAY_COSTO
         return {"data": {"estimatedUsage": [{"measurement": "CPU_USAGE", "estimatedValue": 120},
                                             {"measurement": "MEMORY_USAGE_GB", "estimatedValue": 600}]}}
     if host == "api.anthropic.com" and ruta.endswith("usage_report/messages"):
@@ -156,6 +161,7 @@ def test_inv031_correo_con_mayusculas_y_espacios(client, sesiones, externas):
     assert _datos(r, "vercel")["datos"] == {"plan": "gratuito"}
     assert _datos(r, "railway")["datos"]["uso_cpu_vcpu_horas"] == 2.0
     assert _datos(r, "railway")["datos"]["uso_memoria_gb_horas"] == 10.0
+    assert _datos(r, "railway")["datos"]["costo_estimado_mes"] == 0.0379
     for p in cuerpo["plataformas"].values():
         assert set(p) == {"estado", "datos", "actualizado_en"}
 
@@ -562,7 +568,7 @@ def test_inv032_datos_solo_lista_blanca(client, sesiones, externas, monkeypatch)
     hostil_vercel = {"plan": "enterprise-hack", "ancho_banda_bytes": float("nan"),
                      "limite_ancho_banda_bytes": 100, "otro": [1, 2], "correo": DUENO}
     hostil_railway = {"costo_estimado_mes": float("inf"), "moneda": "EUR", "uso_cpu_vcpu_horas": 3,
-                      "periodo_hasta": "2026-11-30T00:00:00+00:00", "uso_memoria_gb_horas": "12",
+                      "periodo_hasta": "2026-11-30T00:00:00+00:00", "uso_memoria_gb_horas": "12", "creditos_saldo": -1,
                       "secreto": "x"}
     hostil_meta = {"conversaciones_periodo": 4.5, "periodo_desde": "2026-11-01T10:00:00Z",
                    "periodo_hasta": "ayer", "extra": {"a": 1}}
@@ -879,3 +885,95 @@ def test_contadores_agregados_por_dia(client, sesiones, externas):
                    "whatsapp": {"llamadas": 2, "tokens_entrada": 0, "tokens_salida": 0}},
         "brevo_correos_enviados": 0, "whatsapp_mensajes": {"enviados": 6, "recibidos": 7}}
     assert "purga" not in str(c)
+
+
+# ==================== Railway: gasto del período (CHG-017, CT-010) ====================
+
+def _railway(client, sesiones):
+    return _datos(client.get(RUTA, headers=sesiones["dueno"]), "railway")
+
+
+def _costo(cliente: dict):
+    return lambda r: httpx.Response(200, json={"data": {"project": {"workspace": {"customer": cliente}}}})
+
+
+def _por_consulta(uso, costo):
+    """Responde según la consulta: `uso` (estimatedUsage) o `costo` (customer); cada una es una Response o función."""
+    def manejador(r):
+        elegido = costo if "currentUsage" in r.content.decode() else uso
+        return elegido(r) if callable(elegido) else elegido
+    return manejador
+
+
+_USO_OK = httpx.Response(200, json={"data": {"estimatedUsage": [{"measurement": "CPU_USAGE", "estimatedValue": 60}]}})
+
+
+def test_railway_ambas_consultas_ok_devuelve_gasto_creditos_y_periodo(client, sesiones, externas):
+    p = _railway(client, sesiones)
+    assert p["estado"] == "ok"
+    assert p["datos"] == {"uso_cpu_vcpu_horas": 2.0, "uso_memoria_gb_horas": 10.0, "costo_estimado_mes": 0.0379,
+                          "creditos_saldo": 0, "moneda": "USD", "periodo_hasta": "2026-12-22"}
+    posts = externas.a("backboard.railway.com")
+    assert len(posts) == 2 and {x.url.path for x in posts} == {"/graphql/v2"}
+    for x in posts:
+        cuerpo = x.content.decode()
+        assert x.method == "POST" and cuerpo.startswith('{"query":"query(') and "mutation" not in cuerpo.lower()
+        assert x.headers["authorization"] == f"Bearer {TOKENS['MONITOR_RAILWAY_TOKEN']}"
+
+
+def test_railway_solo_costo_ok(client, sesiones, externas):
+    externas.por_host["backboard.railway.com"] = _por_consulta(httpx.Response(500), httpx.Response(200, json=RAILWAY_COSTO))
+    assert _railway(client, sesiones)["datos"] == {
+        "costo_estimado_mes": 0.0379, "creditos_saldo": 0, "moneda": "USD", "periodo_hasta": "2026-12-22"}
+
+
+def test_railway_solo_uso_ok_usa_fin_de_mes(client, sesiones, externas):
+    externas.por_host["backboard.railway.com"] = _por_consulta(_USO_OK, httpx.Response(200, json={"errors": [{"message": "x"}]}))
+    datos = _railway(client, sesiones)["datos"]
+    assert datos["uso_cpu_vcpu_horas"] == 1.0 and "costo_estimado_mes" not in datos and "moneda" not in datos
+    assert datos["periodo_hasta"] == mp._fin_de_mes(mp._hoy()).isoformat()
+
+
+def test_railway_ambas_fallan_no_disponible_con_motivo(client, sesiones, externas, capsys):
+    externas.por_host["backboard.railway.com"] = _por_consulta(httpx.Response(500), httpx.Response(401))
+    assert _railway(client, sesiones) == {"estado": "no_disponible", "datos": None, "actualizado_en": None}
+    assert "[monitor] railway: no disponible (_NoDisponible: http_5xx)" in capsys.readouterr().out
+
+
+def test_railway_periodo_invalido_cae_al_fin_de_mes(client, sesiones, externas):
+    cliente = {"currentUsage": 1.5, "billingPeriod": {"end": "ayer"}}
+    externas.por_host["backboard.railway.com"] = _por_consulta(httpx.Response(500), _costo(cliente))
+    datos = _railway(client, sesiones)["datos"]
+    assert datos == {"costo_estimado_mes": 1.5, "moneda": "USD", "periodo_hasta": mp._fin_de_mes(mp._hoy()).isoformat()}
+
+
+@pytest.mark.parametrize("malo", [-1, -0.5, True, False, "3.2", None, [1], float("inf")])
+def test_railway_valores_invalidos_se_descartan(client, sesiones, externas, malo):
+    cliente = {"currentUsage": malo, "creditBalance": malo, "billingPeriod": {"end": "2026-12-22T00:00:00.000Z"}}
+    externas.por_host["backboard.railway.com"] = _por_consulta(_USO_OK, _costo(cliente))
+    datos = _railway(client, sesiones)["datos"]
+    assert datos["uso_cpu_vcpu_horas"] == 1.0
+    assert not {"costo_estimado_mes", "creditos_saldo", "moneda"} & set(datos)
+
+
+def test_railway_costo_sin_valores_validos_y_sin_uso_es_no_disponible(client, sesiones, externas):
+    externas.por_host["backboard.railway.com"] = _por_consulta(
+        httpx.Response(500), _costo({"currentUsage": "x", "creditBalance": -3, "billingPeriod": {"end": "2026-12-22T00:00:00Z"}}))
+    assert _railway(client, sesiones)["estado"] == "no_disponible"
+
+
+def test_railway_no_filtra_tokens_ni_cuerpos_de_error(client, sesiones, externas, capsys, caplog):
+    secreto = TOKENS["MONITOR_RAILWAY_TOKEN"]
+    externas.por_host["backboard.railway.com"] = _por_consulta(
+        httpx.Response(200, json={"errors": [{"message": f"uso {secreto}"}]}),
+        httpx.Response(200, json={"errors": [{"message": f"costo {secreto}"}]}))
+    with caplog.at_level("DEBUG"):
+        r = client.get(RUTA, headers=sesiones["dueno"])
+    salida = capsys.readouterr()
+    assert secreto not in r.text + salida.out + salida.err + caplog.text
+    assert "[monitor] railway: no disponible (_NoDisponible: graphql_errors)" in salida.out
+
+
+def test_railway_filtrar_acepta_creditos_saldo():
+    assert mp.filtrar("railway", {"creditos_saldo": 2.5, "moneda": "USD", "x": 1}) == {"creditos_saldo": 2.5, "moneda": "USD"}
+    assert mp.filtrar("railway", {"creditos_saldo": -1}) is None

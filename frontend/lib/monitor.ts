@@ -49,7 +49,8 @@ export const PLATAFORMAS: { clave: NombrePlataforma; nombre: string }[] = [
 /** Lista blanca de campos por plataforma (CT-010): lo que no esté aquí no se muestra. */
 const CAMPOS: Record<NombrePlataforma, CampoDef[]> = {
   railway: [
-    { clave: 'costo_estimado_mes', etiqueta: 'Costo estimado del mes', tipo: 'usd' },
+    { clave: 'costo_estimado_mes', etiqueta: 'Gasto del período (US$)', tipo: 'usd' },
+    { clave: 'creditos_saldo', etiqueta: 'Créditos prepagados (US$)', tipo: 'usd' },
     { clave: 'uso_cpu_vcpu_horas', etiqueta: 'CPU (vCPU-horas)', tipo: 'numero' },
     { clave: 'uso_memoria_gb_horas', etiqueta: 'Memoria (GB-horas)', tipo: 'numero' },
     { clave: 'periodo_hasta', etiqueta: 'Período hasta', tipo: 'fecha' },

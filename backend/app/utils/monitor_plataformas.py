@@ -56,7 +56,7 @@ _PREFIJO_ADMIN_ANTHROPIC = "sk-ant-admin"
 # Lista blanca por plataforma (CT-010): clave → "num" | "fecha" | tupla de cadenas permitidas
 ESQUEMA: dict[str, dict[str, Any]] = {
     "railway": {"costo_estimado_mes": "num", "uso_cpu_vcpu_horas": "num", "uso_memoria_gb_horas": "num",
-                "moneda": ("USD",), "periodo_hasta": "fecha"},
+                "creditos_saldo": "num", "moneda": ("USD",), "periodo_hasta": "fecha"},
     "anthropic": {"costo_mes": "num", "moneda": ("USD",), "tokens_entrada_mes": "num", "tokens_salida_mes": "num"},
     "meta": {"conversaciones_periodo": "num", "periodo_desde": "fecha", "periodo_hasta": "fecha"},
     "supabase": {"tamano_bd_bytes": "num", "limite_bd_bytes": "num"},
@@ -208,14 +208,25 @@ _CONSULTA_RAILWAY = (
 )
 
 
-async def _railway(client: httpx.AsyncClient) -> dict:
-    token = _token(settings.MONITOR_RAILWAY_TOKEN)
-    proyecto = _id_valido(settings.MONITOR_RAILWAY_PROJECT_ID)
-    datos = await _pedir(
-        client, "POST", URL_RAILWAY,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"query": _CONSULTA_RAILWAY, "variables": {"p": proyecto}},
-    )
+_CONSULTA_RAILWAY_COSTO = (
+    "query($p: String!) { project(id: $p) { workspace { customer { currentUsage creditBalance "
+    "billingPeriod { start end } } } } }"
+)
+
+
+def _fin_periodo_railway(periodo: Any) -> Optional[str]:
+    """Fecha (YYYY-MM-DD, UTC) del fin del período de facturación, o None si falta o no es válida."""
+    fin = periodo.get("end") if isinstance(periodo, dict) else None
+    if not isinstance(fin, str) or not re.match(r"^\d{4}-\d{2}-\d{2}T", fin):
+        return None
+    try:
+        return date.fromisoformat(fin[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+def _uso_railway(datos: Any) -> dict:
+    """CPU y memoria (estimatedUsage) → claves de la lista blanca."""
     if not isinstance(datos, dict):
         raise _NoDisponible("forma_inesperada")
     if datos.get("errors"):
@@ -235,7 +246,59 @@ async def _railway(client: httpx.AsyncClient) -> dict:
             crudo["uso_cpu_vcpu_horas"] = valor / 60
         elif fila.get("measurement") == "MEMORY_USAGE_GB":
             crudo["uso_memoria_gb_horas"] = valor / 60
-    if crudo:
+    return crudo
+
+
+def _costo_railway(datos: Any) -> dict:
+    """Gasto del período en US$ (currentUsage), créditos prepagados y fin del período de facturación."""
+    if not isinstance(datos, dict):
+        raise _NoDisponible("forma_inesperada")
+    if datos.get("errors"):
+        raise _NoDisponible("graphql_errors")
+    cliente = ((((datos.get("data") or {}).get("project") or {}).get("workspace") or {}).get("customer"))
+    if not isinstance(cliente, dict):
+        raise _NoDisponible("forma_inesperada")
+    crudo: dict[str, Any] = {}
+    gasto = _num(cliente.get("currentUsage"))
+    if gasto is not None:
+        crudo["costo_estimado_mes"] = gasto
+        crudo["moneda"] = "USD"
+    creditos = _num(cliente.get("creditBalance"))
+    if creditos is not None:
+        crudo["creditos_saldo"] = creditos
+    fin = _fin_periodo_railway(cliente.get("billingPeriod"))
+    if fin and crudo:
+        crudo["periodo_hasta"] = fin
+    return crudo
+
+
+async def _railway(client: httpx.AsyncClient) -> dict:
+    token = _token(settings.MONITOR_RAILWAY_TOKEN)
+    proyecto = _id_valido(settings.MONITOR_RAILWAY_PROJECT_ID)
+    cabeceras = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    # Dos consultas de solo lectura en paralelo (misma URL fija y mismo token): que una falle no tumba a la otra
+    uso, costo = await asyncio.gather(
+        _pedir(client, "POST", URL_RAILWAY, headers=cabeceras,
+               json={"query": _CONSULTA_RAILWAY, "variables": {"p": proyecto}}),
+        _pedir(client, "POST", URL_RAILWAY, headers=cabeceras,
+               json={"query": _CONSULTA_RAILWAY_COSTO, "variables": {"p": proyecto}}),
+        return_exceptions=True,
+    )
+    crudo: dict[str, Any] = {}
+    ok = 0
+    errores: list[BaseException] = []
+    for resultado, procesar in ((uso, _uso_railway), (costo, _costo_railway)):
+        try:
+            if isinstance(resultado, BaseException):
+                raise resultado
+            crudo.update(procesar(resultado))
+            ok += 1
+        except Exception as e:
+            errores.append(e)   # CancelledError (BaseException) sí se propaga
+    if ok == 0:   # ambas fallaron: se propaga el motivo (lista cerrada) de la primera que lo tenga
+        _propagar_motivo(*errores)
+        raise _NoDisponible()
+    if crudo and "periodo_hasta" not in crudo:
         crudo["periodo_hasta"] = _fin_de_mes(_hoy()).isoformat()
     return crudo
 

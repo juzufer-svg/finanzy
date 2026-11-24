@@ -56,6 +56,10 @@ test('campos visibles: solo lista blanca y valores válidos', () => {
   assert.ok(!JSON.stringify(campos).includes('secreto'))
   const r = camposVisibles('railway', { costo_estimado_mes: 3.2, moneda: 'USD', periodo_hasta: '2026-11-30' })
   assert.deepEqual(r.map(c => c.valor), ['US$ 3,20', '30 nov 2026'])
+  const g = camposVisibles('railway', { costo_estimado_mes: 0.0379, creditos_saldo: 0, moneda: 'USD', periodo_hasta: '2026-12-22' })
+  assert.deepEqual(g.map(c => [c.etiqueta, c.valor]), [
+    ['Gasto del período (US$)', 'US$ 0,04'], ['Créditos prepagados (US$)', 'US$ 0,00'], ['Período hasta', '22 dic 2026']])
+  assert.deepEqual(camposVisibles('railway', { costo_estimado_mes: -1, creditos_saldo: 'x' }), [])
   assert.deepEqual(camposVisibles('vercel', { plan: 'gratuito', ancho_banda_bytes: -4 }).map(c => c.valor), ['Gratuito'])
   assert.deepEqual(camposVisibles('vercel', { plan: 'inventado' }), [])
   assert.deepEqual(camposVisibles('brevo', null), [])

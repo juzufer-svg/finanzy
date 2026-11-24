@@ -80,3 +80,11 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
 - Los tokens del Monitor son secretos adicionales: deben crearse con el mínimo permiso y rotarse si se filtran.
 - Sin costo adicional (planes gratuitos, REQ-N-006); cualquier plataforma que exija plan de pago para su API se
   muestra «no disponible» y se avisa al dueño antes de pagar.
+
+## Nota (CHG-017): gasto de Railway
+Para mostrar el gasto en dólares del período (plan Hobby, US$5/mes) el cliente de Railway añade una segunda consulta
+GraphQL de solo lectura (`query`, sin mutaciones) a la misma URL fija y con el mismo token de cuenta:
+`project(id){ workspace{ customer{ currentUsage creditBalance billingPeriod{ start end } } } }`. Corre en paralelo con
+`estimatedUsage` (`asyncio.gather` con `return_exceptions`) dentro del mismo plazo total de 5 s; si una falla, la otra
+se muestra. Verificada contra la API real de Railway con una credencial de cuenta. `currentUsage` es un valor en caché
+(puede ir algo retrasado). Sin costo adicional ni nuevas variables.
