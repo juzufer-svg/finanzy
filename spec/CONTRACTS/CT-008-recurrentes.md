@@ -1,7 +1,7 @@
 # CT-008 — Recurrentes `/api/v1/recurrentes`
 
 - **Versión:** v1 (CHG-012) · **UC:** UC-012 · **REQ:** F-016
-- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica el dueño (INV-001).
+- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica al propietario del registro (INV-001).
 - **Regla central (INV-025):** una recurrente nunca crea transacciones sola. Solo `confirmar` registra una transacción.
 
 Salida (recurrente): `{ "id", "usuario_id", "categoria_id", "tipo", "monto", "descripcion", "medio_pago", "frecuencia", "dia_ancla", "proxima_fecha", "activa" }`

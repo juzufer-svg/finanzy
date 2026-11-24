@@ -1,7 +1,7 @@
 # CT-003 — Transacciones `/api/v1/transacciones`
 
 - **Versión:** v1.1 (CHG-007: `medio_pago`, campo nuevo y opcional; compatible con clientes anteriores) · **UC:** UC-004, UC-008 · **REQ:** F-004, F-005, F-010
-- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica el dueño (INV-001).
+- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica al propietario del registro (INV-001).
 
 Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no existe o es de otro usuario) · 422 validación.
 

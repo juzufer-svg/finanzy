@@ -17,22 +17,34 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
 | Rol de administrador general en la app | Flexible | Amplía privilegios más de lo pedido |
 
 ## Decisión
-- Nuevo actor **Dueño**: quien inicia sesión con el correo de `OWNER_EMAIL` (variable de entorno, sin escribirlo en el
-  código). Su único privilegio es ver el Monitor. Se valida en el servidor en cada petición; a los demás, 404;
-  sin `OWNER_EMAIL`, se niega a todos (INV-031).
+- Nuevo actor **Dueño** (distinto del «propietario del registro» de INV-001): quien inicia sesión con el correo de
+  `OWNER_EMAIL` (variable de entorno, sin escribirlo en el código). Su único privilegio es ver el Monitor. Se valida en
+  el servidor en cada petición con `hmac.compare_digest`; **fail-closed**: a los demás, y ante cualquier fallo al
+  autorizar (BD caída, sesión inválida, `OWNER_EMAIL` vacío), 404; 503 y 429 solo tras confirmar al Dueño (INV-031).
+  Un no-Dueño con cualquier método recibe el mismo 404; el Dueño con un método distinto de GET, 405 (INV-033).
+  Estas reglas las fijó el coordinador por defecto seguro y el Dueño puede cambiarlas (CHG-017 §4, preguntas 11 y 12).
 - INV-012 y REQ-N-003 se acotan: el Monitor no es un endpoint de diagnóstico y tampoco expone secretos (INV-032).
 - Solo lectura (GET). Sin acciones sobre las plataformas (INV-033).
 - Contadores propios en Supabase, agregados por día, sin datos personales, desde la activación y con retención de
-  90 días; su escritura nunca rompe el flujo principal (INV-036).
+  90 días (purga oportunista al escribir, como mucho una vez al día, sin tarea programada); la respuesta muestra los
+  últimos 30 días; «recibidos» de WhatsApp cuenta solo números enlazados; su escritura nunca rompe el flujo
+  principal (INV-036).
 - Lectura de las seis plataformas con tokens **propios** `MONITOR_*_TOKEN`, distintos de los de envío o escritura y con
-  el menor permiso disponible. Algunas plataformas no ofrecen tokens de solo lectura (p. ej. Anthropic pide clave de
-  administración y cuenta de organización): se acepta el menor permiso disponible y lo que no se pueda leer se muestra
-  «no disponible» (aprobado, pregunta 2).
+  el menor permiso que la plataforma ofrezca. Algunas plataformas no ofrecen tokens de solo lectura (p. ej. Anthropic
+  pide clave de administración y cuenta de organización): se acepta el menor permiso disponible y lo que no se pueda
+  leer se muestra «no disponible» (aprobado, pregunta 2). Que cada token tenga ese menor permiso y sea distinto de los
+  de escritura **se verifica por revisión de configuración, no por prueba automatizada**. Registro por plataforma
+  (permiso elegido y si admite solo lectura): _se completa al crear los tokens, antes del cierre de CHG-017_.
+- `datos` de cada plataforma sigue un esquema mínimo de lista blanca (solo números, fechas ISO y cadenas fijas), CT-010 e INV-032.
 - URLs de proveedores fijas en el código, ids solo de configuración, sin redirecciones, con timeout (INV-034); caché
-  corta, límite de frecuencia y `Cache-Control: no-store` (INV-035).
+  corta (60 s por plataforma, timeout de 5 s), límite de 20 peticiones por minuto por Dueño y `Cache-Control: no-store`
+  (INV-035).
 - Basta la sesión normal del dueño, sin reautenticar (aprobado, pregunta 4).
 - El acceso se concede por correo verificado: si se elimina la cuenta del dueño y otra persona registra ese correo y
   lo verifica, obtendría el acceso. Riesgo aceptado por el dueño (pregunta 5).
+- **Deuda anotada (no se implementa):** mitigación opcional de ese riesgo, p. ej. fijar además en la configuración el
+  id de usuario del Dueño, o pedir reautenticación al entrar al Monitor. Requeriría cambio de spec (CHG-017 §4,
+  pregunta 14).
 
 ## Consecuencias
 - Nuevas variables en Railway: `OWNER_EMAIL`, `MONITOR_*_TOKEN` e ids de configuración (CT-010). Nueva migración en

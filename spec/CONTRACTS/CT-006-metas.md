@@ -1,7 +1,7 @@
 # CT-006 — Metas `/api/v1/metas`
 
 - **Versión:** v1 · **UC:** UC-007 · **REQ:** F-008, F-009
-- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica el dueño (INV-001).
+- **Permiso requerido:** sesión vigente (INV-016; errores comunes 401/503 en CT-002). Toda operación por ID verifica al propietario del registro (INV-001).
 
 Salida: `{ "id", "usuario_id", "nombre", "monto_objetivo", "monto_actual", "fecha_objetivo", "porcentaje_completado" }`
 

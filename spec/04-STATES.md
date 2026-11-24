@@ -42,4 +42,9 @@ Estados: `en progreso` (ahorrado < objetivo), `completada` (ahorrado ≥ objetiv
 
 > La columna `metas.estado` de la BD no se usa (pregunta abierta 3 en `REQUIREMENTS.md`).
 
+## Monitor y Contador diario (CHG-017)
+
+Sin estados nuevos. El Dueño es un actor derivado del correo de la sesión (no un estado del Usuario) y el Contador
+diario solo se incrementa o se purga por antigüedad (INV-036); no tiene ciclo de vida.
+
 **Transiciones no listadas = prohibidas.** El backend debe rechazarlas con error de negocio claro.

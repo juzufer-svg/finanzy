@@ -22,7 +22,7 @@
 
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
-| usuario | Usuario | Sí | Dueño (INV-001) |
+| usuario | Usuario | Sí | Propietario del registro (INV-001) |
 | nombre | Texto | Sí | 1-100 caracteres |
 | ícono | Emoji | No | ≤ 16 caracteres |
 | tipo | Tipo de transacción | Sí | INV-004 |
@@ -35,7 +35,7 @@
 
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
-| usuario | Usuario | Sí | Dueño (INV-001) |
+| usuario | Usuario | Sí | Propietario del registro (INV-001) |
 | categoría | Categoría | No | Si se indica, debe ser del usuario (INV-002). Si la categoría se borra, queda sin categoría |
 | monto | Monto | Sí | INV-003 |
 | tipo | Tipo de transacción | Sí | INV-004 |
@@ -49,7 +49,7 @@
 
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
-| usuario | Usuario | Sí | Dueño (INV-001) |
+| usuario | Usuario | Sí | Propietario del registro (INV-001) |
 | categoría | Categoría | Sí | Del usuario (INV-002); si se borra la categoría, se borra el presupuesto |
 | límite mensual | Monto | Sí | INV-003 |
 | mes | Mes | Sí | INV-005 |
@@ -62,7 +62,7 @@
 
 | Atributo | Tipo | Obligatorio | Regla |
 |---|---|---|---|
-| usuario | Usuario | Sí | Dueño (INV-001) |
+| usuario | Usuario | Sí | Propietario del registro (INV-001) |
 | nombre | Texto | Sí | 1-100 caracteres |
 | monto objetivo | Monto | Sí | INV-003 |
 | monto ahorrado | Monto | Sí | ≥ 0, inicia en 0 (INV-003) |
@@ -76,10 +76,24 @@
 - **Atributos:** valor (6 dígitos), vencimiento (10 min), intentos fallidos.
 - **Estados:** `04-STATES.md` → Código. **Invariantes:** INV-007, INV-010.
 
+## Contador diario (CHG-017)
+- **Identidad:** (fecha, métrica, origen) — clave única. No pertenece a ningún Usuario.
+- **Descripción:** consumo propio agregado por día para el Monitor; jamás guarda correos, teléfonos, textos ni ids de usuario.
+
+| Atributo | Tipo | Obligatorio | Regla |
+|---|---|---|---|
+| fecha | Fecha (día UTC) | Sí | Día en que ocurrió el consumo |
+| métrica | Texto de lista fija | Sí | Llamadas, tokens de entrada y de salida de Claude; correos de Brevo enviados; mensajes de WhatsApp enviados y recibidos (CT-010) |
+| origen | Texto de lista fija | Sí | `asistente` o `whatsapp` para Claude; `general` cuando no aplica |
+| cantidad | Entero | Sí | ≥ 0; se incrementa de forma atómica (varias escrituras simultáneas no pierden cuenta) |
+
+- **Reglas:** RLS activado (solo `service_role`); retención 90 días con purga oportunista al escribir (como mucho una vez al día); un fallo al escribirlo nunca rompe el flujo principal. **Estados:** ninguno (`04-STATES.md`). **Invariantes:** INV-036. **REQ:** F-018.
+
 ## Mapa de relaciones
 ```
 Usuario 1—N Categoría 1—N Transacción
 Usuario 1—N Transacción
 Usuario 1—N Presupuesto N—1 Categoría
 Usuario 1—N Meta  (un Abono crea 1 Transacción de gasto en la Categoría "Ahorro")
+Contador diario: sin relación con Usuario (solo agregados)
 ```

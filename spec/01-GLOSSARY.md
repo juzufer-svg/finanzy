@@ -19,4 +19,8 @@ Usar **solo** estos términos en spec, interfaz y pruebas. En el código se acep
 | Mes | Periodo de consulta en formato `YYYY-MM` | `mes`, `mes_ano` | periodo | `2026-11` |
 | Resumen | Totales del mes: ingresos, gastos, balance, cantidad | `resumen` | estado de cuenta | — |
 | Balance | Ingresos − gastos del mes | `balance` | saldo | — |
+| Dueño | **Actor** (CHG-017): el Usuario cuya sesión verificada tiene el correo de `OWNER_EMAIL`; su único privilegio extra es ver el Monitor. Es distinto del «propietario del registro» (INV-001) | `OWNER_EMAIL` | administrador, admin, superusuario; usar «propietario del registro» para el dueño de un dato | — |
+| Monitor | Página y ruta de solo lectura (`/monitor/resumen`) que muestra al Dueño los consumos de las plataformas y los contadores propios | `monitor` | panel de administración, diagnóstico | — |
+| Contador diario | Cantidad agregada por día UTC, métrica y origen de un consumo propio (llamadas y tokens de Claude, correos enviados, mensajes de WhatsApp); sin datos personales | `contadores` | estadística, log de uso | Claude, origen `asistente`, 2026-11-24: 4 llamadas |
+| Plataforma | Servicio externo cuyo consumo lee el Monitor: Railway, Anthropic, Meta, Supabase, Vercel o Brevo | `plataformas` | proveedor, servicio (como término oficial) | — |
 | Moneda de visualización | Moneda en que se muestran los montos (se guardan en COP) | `currency` | divisa | USD |
