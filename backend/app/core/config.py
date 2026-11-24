@@ -10,7 +10,7 @@ import secrets
 from typing import List
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Valores de ejemplo que han aparecido en el repositorio: son públicos, así que
@@ -90,11 +90,33 @@ class Settings(BaseSettings):
     WHATSAPP_MENSAJES_POR_DIA: int = Field(default=50)
     WHATSAPP_MENSAJES_TOTALES_DIA: int = Field(default=300)
 
+    # Monitor de consumos del Dueño (CHG-017, ADR-008). Todo es opcional: sin OWNER_EMAIL nadie es Dueño
+    # (el Monitor responde 404 a todos) y sin un token esa plataforma aparece «no disponible».
+    # Los tokens MONITOR_* son DISTINTOS de los de envío o escritura (WHATSAPP_TOKEN, BREVO_API_KEY,
+    # SUPABASE_KEY, ANTHROPIC_API_KEY) y se crean con el menor permiso que ofrezca cada plataforma.
+    # `repr=False`: ni el correo del Dueño ni los tokens salen en repr(settings) ni en trazas.
+    OWNER_EMAIL: str = Field(default="", repr=False)
+    MONITOR_RAILWAY_TOKEN: str = Field(default="", repr=False)
+    MONITOR_RAILWAY_PROJECT_ID: str = Field(default="", repr=False)
+    MONITOR_ANTHROPIC_ADMIN_KEY: str = Field(default="", repr=False)   # clave de administración (sk-ant-admin...)
+    MONITOR_META_TOKEN: str = Field(default="", repr=False)
+    MONITOR_META_WABA_ID: str = Field(default="", repr=False)
+    MONITOR_SUPABASE_TOKEN: str = Field(default="", repr=False)
+    MONITOR_VERCEL_TOKEN: str = Field(default="", repr=False)
+    MONITOR_VERCEL_TEAM_ID: str = Field(default="", repr=False)
+    MONITOR_BREVO_KEY: str = Field(default="", repr=False)
+
     # Environment
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=False)
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+
+    @field_validator("OWNER_EMAIL", mode="after")
+    @classmethod
+    def _normalizar_owner_email(cls, valor: str) -> str:
+        # Solo se normaliza (strip + minúsculas, como INV-014). Sin autocorrección: vacío = nadie es Dueño.
+        return (valor or "").strip().lower()
 
     @property
     def es_produccion(self) -> bool:

@@ -65,6 +65,8 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None = None
     currency: str = "USD"
+    # CHG-017 (CT-002): solo informa al usuario sobre sí mismo; nunca el correo del dueño. false por defecto.
+    es_dueno: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

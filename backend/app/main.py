@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import auth, users, plataapp, asistente, whatsapp
+from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor
 
 
 async def cleanup_unverified_loop():
@@ -99,6 +99,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(plataapp.router, prefix="/api/v1", tags=["finanzy"])
 app.include_router(asistente.router, prefix="/api/v1/asistente", tags=["asistente"])
 app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp"])
+app.include_router(monitor.router, prefix="/api/v1/monitor", tags=["monitor"])  # solo Dueño (CHG-017)
 
 @app.get("/")
 async def root():

@@ -43,6 +43,7 @@ reemplazó por Brevo.
 (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES`, `SUPABASE_URL`, `SUPABASE_KEY` (service_role),
 `SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`, `ANTHROPIC_API_KEY` (opcional, asistente),
 `ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`, y para WhatsApp (opcionales) `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_MENSAJES_POR_DIA`, `WHATSAPP_MENSAJES_TOTALES_DIA`.
+Monitor del Dueño (CHG-017, opcionales): `OWNER_EMAIL` (único correo que ve el Monitor; vacío = nadie), `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID`, `MONITOR_ANTHROPIC_ADMIN_KEY`, `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID`, `MONITOR_SUPABASE_TOKEN`, `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID`, `MONITOR_BREVO_KEY` (tokens propios de menor permiso, nunca los de escritura).
 
 **Vercel (frontend):** `BACKEND_URL` (URL pública de Railway, con `https://`). Root Directory = `frontend`.
 
@@ -147,6 +148,8 @@ encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. 
 **Asistente (`/asistente`)**: `POST chat` → pregunta en lenguaje natural; Claude consulta herramientas de solo lectura (CT-007)
 
 **WhatsApp (`/whatsapp`, CHG-014)**: `GET/POST webhook` (Meta, firma `X-Hub-Signature-256`, directo a Railway) y `GET/POST/DELETE enlace` (con sesión). Agente de IA aparte que solo crea transacciones y deshace/corrige las suyas (CT-009, ADR-007, guía en `docs/WHATSAPP.md`)
+
+**Monitor (`/monitor`, CHG-017, solo Dueño)**: `GET resumen` → consumos de Railway, Anthropic, Meta, Supabase, Vercel y Brevo + contadores propios de 30 días (CT-010, ADR-008). 404 para cualquiera que no sea el Dueño (`OWNER_EMAIL`); `GET /users/me` trae `es_dueno`.
 
 **Otros**: `GET /health`. `/docs` y `/openapi.json` están ocultos en producción.
 

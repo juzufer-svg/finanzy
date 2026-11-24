@@ -10,6 +10,7 @@ from app.schemas.auth import (
 from app.models.user import UserDB
 from app.models.whatsapp import WhatsappDB
 from app.api.sesion import usuario_de_sesion
+from app.api.dueno import es_correo_dueno
 from app.api.routes import auth as auth_routes
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
@@ -18,6 +19,16 @@ _NO_DISPONIBLE = "No se pudo guardar el cambio. Intenta de nuevo en unos minutos
 
 
 router = APIRouter()
+
+
+def _respuesta_usuario(user: dict) -> UserResponse:
+    """UserResponse con `es_dueno` calculado en el servidor (CHG-017, CT-002): nunca viene de la BD ni del
+    cliente, es false ante cualquier fallo y jamás incluye el correo del dueño."""
+    try:
+        dueno = es_correo_dueno(user.get("email"))
+    except Exception:
+        dueno = False
+    return UserResponse(**{**user, "es_dueno": dueno})
 
 
 @router.get("/me", response_model=UserResponse)
@@ -32,7 +43,7 @@ async def get_current_user_info(authorization: str = Header(...)):
             detail="User not found"
         )
     
-    return UserResponse(**user)
+    return _respuesta_usuario(user)
 
 
 @router.put("/me/currency", response_model=UserResponse)
@@ -68,7 +79,7 @@ async def update_user_currency(request: UpdateCurrencyRequest, authorization: st
             detail="User not found"
         )
     
-    return UserResponse(**updated_user)
+    return _respuesta_usuario(updated_user)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -88,7 +99,7 @@ async def update_profile(request: UpdateProfileRequest, authorization: str = Hea
     user = await UserDB.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
-    return UserResponse(**user)
+    return _respuesta_usuario(user)
 
 
 @router.post("/me/password", response_model=Token)
