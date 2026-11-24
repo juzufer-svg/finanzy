@@ -5,6 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 import httpx
 from app.core.config import settings
+from app.models import contadores
 
 # In-memory store: { email: { code, expires_at, attempts } }
 _pending_codes: dict[str, dict] = {}
@@ -173,6 +174,7 @@ def send_verification_email(to_email: str, code: str, purpose: str = "verify") -
             )
             if resp.status_code in (200, 201, 202):
                 print(f"[EMAIL] Sent via Brevo to {to_email} ({purpose})")
+                contadores.incrementar("brevo_correos_enviados", "general", 1)   # solo si Brevo aceptó (INV-036)
                 return True
             print(f"[EMAIL ERROR] Brevo responded {resp.status_code}: {resp.text}")
         except Exception as e:

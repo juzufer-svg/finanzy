@@ -30,6 +30,7 @@ from typing import Any, Optional
 import httpx
 
 from app.core.config import settings
+from app.models import contadores
 from app.models.plataapp import CategoriaDB, TransaccionDB
 from app.models.whatsapp import WhatsappDB
 from app.schemas.plataapp import MEDIOS_PAGO, MONTO_MAX
@@ -439,7 +440,7 @@ async def responder(usuario_id: str, texto: str, lote: str, ahora: Optional[date
         "messages": _historial(usuario_id) + [{"role": "user", "content": texto}],
     }
     try:
-        respuesta = await llamar_claude(payload)
+        respuesta = await llamar_claude(payload, origen="whatsapp")
     except AsistenteError as e:
         print(f"[whatsapp] Claude no respondió ({e.status})")
         return "⚠️ No pude procesar tu mensaje ahora (servicio de IA no disponible o sin saldo). No se registró nada; intenta en un rato."
@@ -487,4 +488,5 @@ async def enviar(telefono: str, texto: str) -> bool:
             detalle = ""
         print(f"[whatsapp] Meta respondió {resp.status_code} {detalle}")
         return False
+    contadores.incrementar("whatsapp_enviados", "general", 1)   # solo envíos aceptados por Meta (INV-036)
     return True

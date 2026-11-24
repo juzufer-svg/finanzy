@@ -27,6 +27,7 @@ from app.api.routes import auth as auth_routes  # noqa: E402
 from app.api.routes import asistente as asistente_routes  # noqa: E402
 from app.api.routes import whatsapp as whatsapp_routes  # noqa: E402
 from app.models import whatsapp as whatsapp_db  # noqa: E402
+from app.models import contadores as contadores_db  # noqa: E402
 from app.utils import whatsapp as whatsapp_utils  # noqa: E402
 from app.core import security  # noqa: E402
 from app.models import demo_db  # noqa: E402
@@ -59,6 +60,7 @@ def estado_limpio():
     demo_db.DemoMetaDB._metas.clear()
     demo_db.DemoRecurrenteDB._recurrentes.clear()
     whatsapp_db._Memoria.limpiar()
+    contadores_db._Memoria.limpiar()
     whatsapp_utils._codigos.clear()
     whatsapp_utils._memoria.clear()
     whatsapp_routes._avisado_limite.clear()

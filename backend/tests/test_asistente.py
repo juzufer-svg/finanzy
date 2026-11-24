@@ -23,7 +23,7 @@ def claude(monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-prueba")
     estado = {"guion": [], "payloads": []}
 
-    async def falsa(payload):
+    async def falsa(payload, origen="asistente"):
         estado["payloads"].append(json.loads(json.dumps(payload)))
         return estado["guion"].pop(0)
 
@@ -59,7 +59,7 @@ def test_sin_clave_responde_503_y_no_llama_a_claude(client, monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     llamado = []
 
-    async def falsa(payload):
+    async def falsa(payload, origen="asistente"):
         llamado.append(payload)
 
     monkeypatch.setattr(asistente, "llamar_claude", falsa)
@@ -193,7 +193,7 @@ def test_historial_se_normaliza(client, claude):
 
 
 def test_error_de_la_api_se_traduce(client, claude, monkeypatch):
-    async def falla(payload):
+    async def falla(payload, origen="asistente"):
         raise asistente.AsistenteError(503, "El asistente está ocupado. Intenta de nuevo en unos segundos.")
 
     monkeypatch.setattr(asistente, "llamar_claude", falla)

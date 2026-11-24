@@ -34,7 +34,7 @@ def meta(monkeypatch):
         estado["enviados"].append((telefono, texto))
         return True
 
-    async def claude(payload):
+    async def claude(payload, origen="asistente"):
         estado["payloads"].append(payload)
         if not estado["claude"]:
             raise AssertionError("Se llamó a Claude sin una respuesta preparada")

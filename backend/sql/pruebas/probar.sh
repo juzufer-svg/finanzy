@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) y WhatsApp (CHG-014) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -38,3 +38,16 @@ PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 04_comprobar_duplicados.sql
 run ../2026-11-23_whatsapp.sql
 run ../2026-11-23_whatsapp.sql
 PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 05_comprobar_whatsapp.sql
+# CHG-017: monitor de consumos (dos veces para comprobar que se puede repetir)
+run ../2026-11-24_monitor.sql
+run ../2026-11-24_monitor.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 06_comprobar_monitor.sql
+# Incremento atómico con dos sesiones simultáneas: contador de hoy en 10 + incrementos de 1 y de 2 = 13
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "select public.incrementar_contador(current_date, 'whatsapp_enviados', 'general', 10)" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select public.incrementar_contador(current_date, 'whatsapp_enviados', 'general', 1); select pg_sleep(1.5); commit;" > /dev/null &
+sleep 0.5   # la segunda sesión entra mientras la primera aún no confirmó: debe esperar y sumar, no pisar
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "select public.incrementar_contador(current_date, 'whatsapp_enviados', 'general', 2)" > /dev/null
+wait
+TOTAL=$(psql "$PGURL" -q -t -A -c "select cantidad from public.contadores_diarios where fecha = current_date and metrica = 'whatsapp_enviados' and origen = 'general'")
+if [ "$TOTAL" != "13" ]; then echo "ERROR: incremento simultáneo dio $TOTAL (esperado 13)"; exit 1; fi
+echo "OK: incremento atómico simultáneo = 13"

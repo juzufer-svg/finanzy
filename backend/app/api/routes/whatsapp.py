@@ -17,6 +17,7 @@ from fastapi.responses import PlainTextResponse
 from app.api.sesion import usuario_de_sesion
 from app.core.config import settings
 from app.core.rate_limit import SlidingWindow
+from app.models import contadores
 from app.models.whatsapp import WhatsappDB
 from app.utils import whatsapp
 
@@ -88,6 +89,8 @@ async def _procesar(mensaje: dict) -> None:
     # Idempotencia: Meta puede reenviar el mismo mensaje (INV-029)
     if not await WhatsappDB.marcar_procesado(wamid, usuario_id):
         return
+    if usuario_id:   # solo números enlazados (firma ya validada) y una vez por mensaje: no se infla con reenvíos ni desconocidos
+        contadores.incrementar("whatsapp_recibidos", "general", 1)
     mensaje["avisar_error"] = True
 
     # Código de enlace: lo único que acepta un número desconocido (nunca llega a la IA)
