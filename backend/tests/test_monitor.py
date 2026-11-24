@@ -494,6 +494,61 @@ def test_inv032_no_se_filtran_tokens_en_respuesta_ni_logs(client, sesiones, exte
     assert "backboard.railway.com" not in todo and "Authorization" not in todo   # sin URL ni cabeceras en logs
 
 
+def test_inv032_log_lleva_motivo_http_401_sin_token_ni_cuerpo(client, sesiones, externas, capsys, caplog):
+    cuerpo_error = "CUERPO-DE-ERROR-PRIVADO"
+    externas.por_host["backboard.railway.com"] = lambda r: httpx.Response(
+        401, json={"error": f"{cuerpo_error} {TOKENS['MONITOR_RAILWAY_TOKEN']}"})
+    with caplog.at_level("DEBUG"):
+        r = client.get(RUTA, headers=sesiones["dueno"])
+    salida = capsys.readouterr()
+    todo = r.text + salida.out + salida.err + caplog.text
+    assert "[monitor] railway: no disponible (_NoDisponible: http_401)" in salida.out
+    assert _datos(r, "railway") == {"estado": "no_disponible", "datos": None, "actualizado_en": None}
+    assert "http_401" not in r.text   # INV-032: el motivo no sale al cliente
+    assert cuerpo_error not in todo and TOKENS["MONITOR_RAILWAY_TOKEN"] not in todo
+
+
+def test_inv032_log_lleva_motivo_graphql_errors_sin_cuerpo(client, sesiones, externas, capsys, caplog):
+    mensaje = "MENSAJE-GRAPHQL-PRIVADO"
+    externas.por_host["backboard.railway.com"] = lambda r: httpx.Response(
+        200, json={"errors": [{"message": f"{mensaje} {TOKENS['MONITOR_RAILWAY_TOKEN']}"}]})
+    with caplog.at_level("DEBUG"):
+        r = client.get(RUTA, headers=sesiones["dueno"])
+    salida = capsys.readouterr()
+    todo = r.text + salida.out + salida.err + caplog.text
+    assert "[monitor] railway: no disponible (_NoDisponible: graphql_errors)" in salida.out
+    assert _datos(r, "railway")["estado"] == "no_disponible"
+    assert mensaje not in todo and TOKENS["MONITOR_RAILWAY_TOKEN"] not in todo
+
+
+@pytest.mark.parametrize("respuesta,motivo", [
+    (lambda r: httpx.Response(403), "http_403"),
+    (lambda r: httpx.Response(404), "http_404"),
+    (lambda r: httpx.Response(429), "http_429"),
+    (lambda r: httpx.Response(503), "http_5xx"),
+    (lambda r: httpx.Response(302, headers={"location": "https://otro.example/x"}), "redireccion"),
+    (lambda r: httpx.Response(200, text="no es json"), "json_invalido"),
+    (lambda r: httpx.Response(200, json=[1, 2]), "forma_inesperada"),
+    (lambda r: httpx.Response(200, json={"data": {"estimatedUsage": []}}), "sin_campos"),
+])
+def test_inv032_motivos_de_lista_cerrada_en_el_log(client, sesiones, externas, capsys, respuesta, motivo):
+    externas.por_host["backboard.railway.com"] = respuesta
+    client.get(RUTA, headers=sesiones["dueno"])
+    assert f"[monitor] railway: no disponible (_NoDisponible: {motivo})" in capsys.readouterr().out
+    assert motivo in mp.MOTIVOS
+
+
+def test_inv032_motivo_token_vacio_en_el_log(client, sesiones, externas, capsys, monkeypatch):
+    monkeypatch.setattr(settings, "MONITOR_RAILWAY_TOKEN", "")
+    client.get(RUTA, headers=sesiones["dueno"])
+    assert "[monitor] railway: no disponible (_NoDisponible: token_vacio)" in capsys.readouterr().out
+
+
+def test_nodisponible_ignora_motivos_fuera_de_la_lista():
+    assert mp._NoDisponible("texto libre con secreto").motivo is None
+    assert mp._NoDisponible().motivo is None
+
+
 def test_inv032_settings_no_expone_tokens_en_repr():
     texto = repr(settings) + str(settings)
     for nombre in (*TOKENS, *IDS, "OWNER_EMAIL"):

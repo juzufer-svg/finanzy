@@ -8,7 +8,8 @@ Un cliente por plataforma (Railway, Anthropic, Meta, Supabase, Vercel y Brevo). 
 - INV-035: caché en memoria de 60 s por plataforma (los fallos, 15 s).
 - INV-032: solo se devuelven campos de la lista blanca (números finitos no negativos, fechas ISO UTC con «Z»,
   cadenas de la lista). Cualquier error, token faltante o respuesta rara → `no_disponible`, SIN motivo; el log
-  solo lleva el nombre de la plataforma y el TIPO de la excepción (nunca URL, cabeceras, cuerpo ni mensaje).
+  lleva el nombre de la plataforma, el TIPO de la excepción y un motivo de lista cerrada (`MOTIVOS`), nunca
+  URL, cabeceras, cuerpo, mensaje ni token.
 - INV-033: solo lectura (GET; Railway usa GraphQL por POST pero solo con una consulta `query`).
 - Solo se usan los tokens MONITOR_*; nunca los de escritura (WHATSAPP_TOKEN, BREVO_API_KEY, SUPABASE_KEY,
   ANTHROPIC_API_KEY).
@@ -67,8 +68,31 @@ _reloj: Callable[[], float] = time.monotonic          # sustituible en las prueb
 _cache: dict[str, tuple[float, dict]] = {}            # plataforma → (expira, resultado)
 
 
+# Motivos de lista CERRADA para el log de diagnóstico (nunca salen al cliente, INV-032)
+MOTIVOS = frozenset({
+    "http_401", "http_403", "http_404", "http_429", "http_5xx", "http_otro", "redireccion", "cuerpo_grande",
+    "json_invalido", "graphql_errors", "forma_inesperada", "token_vacio", "id_invalido", "sin_campos",
+    "config_invalida",
+})
+
+
 class _NoDisponible(Exception):
-    """Interna: la plataforma no se puede consultar. Nunca sale al cliente ni al log con detalle."""
+    """Interna: la plataforma no se puede consultar. Nunca sale al cliente. Al log solo llega, como mucho,
+    un `motivo` de la lista cerrada `MOTIVOS` (nunca cuerpos, mensajes, URLs, cabeceras ni tokens)."""
+
+    def __init__(self, motivo: Optional[str] = None):
+        super().__init__()
+        self.motivo = motivo if motivo in MOTIVOS else None
+
+
+def _motivo_http(codigo: int) -> str:
+    if 300 <= codigo < 400:
+        return "redireccion"
+    if codigo in (401, 403, 404, 429):
+        return f"http_{codigo}"
+    if 500 <= codigo < 600:
+        return "http_5xx"
+    return "http_otro"
 
 
 def _no_disponible() -> dict:
@@ -136,14 +160,14 @@ def _num(valor: Any) -> Optional[float]:
 def _id_valido(valor: str) -> str:
     valor = (valor or "").strip()
     if not _RE_ID.match(valor):
-        raise _NoDisponible()
+        raise _NoDisponible("id_invalido")
     return valor
 
 
 def _token(valor: str) -> str:
     valor = (valor or "").strip()
     if not valor or any(c in valor for c in "\r\n"):
-        raise _NoDisponible()
+        raise _NoDisponible("token_vacio")
     return valor
 
 
@@ -152,19 +176,19 @@ async def _pedir(client: httpx.AsyncClient, metodo: str, url: str, **kwargs: Any
     → _NoDisponible. El cuerpo se lee por trozos y se corta al pasar el tope (también ya descomprimido)."""
     async with client.stream(metodo, url, **kwargs) as resp:
         if resp.status_code != 200:
-            raise _NoDisponible()
+            raise _NoDisponible(_motivo_http(resp.status_code))
         declarado = resp.headers.get("content-length", "")
         if declarado.isdigit() and int(declarado) > MAX_CUERPO:
-            raise _NoDisponible()
+            raise _NoDisponible("cuerpo_grande")
         cuerpo = bytearray()
         async for trozo in resp.aiter_bytes():
             cuerpo += trozo
             if len(cuerpo) > MAX_CUERPO:
-                raise _NoDisponible()
+                raise _NoDisponible("cuerpo_grande")
     try:
         return json.loads(bytes(cuerpo))
     except ValueError:
-        raise _NoDisponible()
+        raise _NoDisponible("json_invalido")
 
 
 def _inicio_de_mes(hoy: date) -> date:
@@ -192,11 +216,13 @@ async def _railway(client: httpx.AsyncClient) -> dict:
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"query": _CONSULTA_RAILWAY, "variables": {"p": proyecto}},
     )
-    if not isinstance(datos, dict) or datos.get("errors"):
-        raise _NoDisponible()
+    if not isinstance(datos, dict):
+        raise _NoDisponible("forma_inesperada")
+    if datos.get("errors"):
+        raise _NoDisponible("graphql_errors")
     filas = (datos.get("data") or {}).get("estimatedUsage")
     if not isinstance(filas, list):
-        raise _NoDisponible()
+        raise _NoDisponible("forma_inesperada")
     crudo: dict[str, Any] = {}
     for fila in filas:
         if not isinstance(fila, dict):
@@ -233,7 +259,7 @@ def _suma_decimal(resultados: list, clave: str) -> Optional[Decimal]:
 def _resultados(datos: Any) -> list:
     """Aplana data[].results[] de los informes de la API de administración de Anthropic."""
     if not isinstance(datos, dict) or not isinstance(datos.get("data"), list):
-        raise _NoDisponible()
+        raise _NoDisponible("forma_inesperada")
     salida: list = []
     for cubo in datos["data"]:
         if isinstance(cubo, dict) and isinstance(cubo.get("results"), list):
@@ -244,7 +270,7 @@ def _resultados(datos: Any) -> list:
 async def _anthropic(client: httpx.AsyncClient) -> dict:
     clave = _token(settings.MONITOR_ANTHROPIC_ADMIN_KEY)
     if not clave.startswith(_PREFIJO_ADMIN_ANTHROPIC):   # solo claves de administración de una organización
-        raise _NoDisponible()
+        raise _NoDisponible("config_invalida")
     hoy = _hoy()
     parametros = {"starting_at": f"{_inicio_de_mes(hoy).isoformat()}T00:00:00Z", "bucket_width": "1d", "limit": 31}
     cabeceras = {"x-api-key": clave, "anthropic-version": "2023-06-01"}
@@ -265,7 +291,16 @@ async def _anthropic(client: httpx.AsyncClient) -> dict:
             crudo.update(_costo_anthropic(_resultados(costo)))
         except Exception:
             pass
+    if not crudo:
+        _propagar_motivo(uso, costo)
     return crudo
+
+
+def _propagar_motivo(*resultados: Any) -> None:
+    """Si todo quedó vacío y alguna petición falló con motivo, ese motivo llega al log."""
+    for r in resultados:
+        if isinstance(r, _NoDisponible) and r.motivo:
+            raise _NoDisponible(r.motivo)
 
 
 def _tokens_anthropic(filas: list) -> dict:
@@ -306,7 +341,7 @@ async def _meta(client: httpx.AsyncClient) -> dict:
     waba = _id_valido(settings.MONITOR_META_WABA_ID)
     version = (settings.WHATSAPP_GRAPH_VERSION or "").strip()
     if not _RE_VERSION_GRAPH.match(version):
-        raise _NoDisponible()
+        raise _NoDisponible("config_invalida")
     hoy = _hoy()
     inicio = datetime(hoy.year, hoy.month, 1, tzinfo=timezone.utc)
     fin = datetime.now(timezone.utc)
@@ -318,14 +353,14 @@ async def _meta(client: httpx.AsyncClient) -> dict:
         headers={"Authorization": f"Bearer {token}"}, params={"fields": campos},
     )
     if not isinstance(datos, dict):
-        raise _NoDisponible()
+        raise _NoDisponible("forma_inesperada")
     analitica = datos.get("pricing_analytics")
     total = 0
     if analitica is not None:
         # Con datos: pricing_analytics.data[].data_points[].volume. Sin `pricing_analytics`: 0 facturables.
         bloques = analitica.get("data") if isinstance(analitica, dict) else None
         if not isinstance(bloques, list):
-            raise _NoDisponible()
+            raise _NoDisponible("forma_inesperada")
         for bloque in bloques:
             for punto in (bloque.get("data_points") if isinstance(bloque, dict) else None) or []:
                 valor = _num(punto.get("volume")) if isinstance(punto, dict) else None
@@ -339,7 +374,7 @@ async def _supabase(_client: httpx.AsyncClient) -> dict:
     tamaño de la BD (solo `database/query`, que ejecuta SQL con un token de cuenta completa; no se usa por
     seguridad, INV-033). Hasta confirmarlo con el Dueño, la plataforma queda «no disponible»."""
     _token(settings.MONITOR_SUPABASE_TOKEN)
-    raise _NoDisponible()
+    raise _NoDisponible("config_invalida")
 
 
 _PLANES_VERCEL = {"hobby": "gratuito", "pro": "pro"}
@@ -352,7 +387,7 @@ async def _vercel(client: httpx.AsyncClient) -> dict:
                          headers={"Authorization": f"Bearer {token}"})
     plan = ((datos.get("billing") or {}).get("plan") if isinstance(datos, dict) else None)
     if not isinstance(plan, str):
-        return {}
+        raise _NoDisponible("forma_inesperada")
     return {"plan": _PLANES_VERCEL.get(plan.lower(), "otro")}
 
 
@@ -380,6 +415,8 @@ async def _brevo(client: httpx.AsyncClient) -> dict:
         enviados = _num(reporte.get("requests"))
         if enviados is not None:
             crudo["enviados_hoy"] = enviados
+    if not crudo:
+        _propagar_motivo(cuenta, reporte)
     return crudo
 
 
@@ -395,7 +432,10 @@ async def _ejecutar(nombre: str) -> Optional[dict]:
     # Sin seguir redirecciones (INV-034); el plazo total lo impone `asyncio.wait_for` en `_consultar`
     async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_TOTAL), follow_redirects=False) as client:
         crudo = await _CLIENTES[nombre](client)
-    return filtrar(nombre, crudo)
+    datos = filtrar(nombre, crudo)
+    if datos is None:
+        raise _NoDisponible("sin_campos")
+    return datos
 
 
 async def _consultar(nombre: str) -> dict:
@@ -407,8 +447,11 @@ async def _consultar(nombre: str) -> dict:
     try:
         datos = await asyncio.wait_for(_ejecutar(nombre), timeout=TIMEOUT_TOTAL)
     except Exception as e:   # incluye TimeoutError; CancelledError sí se propaga
-        # Solo el nombre y el TIPO del error: nunca el mensaje, la URL, las cabeceras ni el token
-        print(f"[monitor] {nombre}: no disponible ({type(e).__name__})")
+        # Solo el nombre, el TIPO del error y, si lo hay, un motivo de lista cerrada: nunca el mensaje,
+        # la URL, las cabeceras, el cuerpo ni el token
+        motivo = getattr(e, "motivo", None) if isinstance(e, _NoDisponible) else None
+        detalle = f"{type(e).__name__}: {motivo}" if motivo else type(e).__name__
+        print(f"[monitor] {nombre}: no disponible ({detalle})")
         datos = None
     if datos:
         resultado = {"estado": "ok", "datos": datos, "actualizado_en": _iso_utc()}
