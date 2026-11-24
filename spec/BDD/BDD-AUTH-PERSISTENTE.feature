@@ -305,3 +305,49 @@ Característica: Bloqueos, códigos y límites de login persistentes
   Escenario: Pocas llamadas por operación
     Cuando se hace un inicio de sesión (con cuenta activa, con cuenta pendiente, con contraseña incorrecta y bloqueado), una verificación de código, un restablecimiento y un pedido de código
     Entonces el login usa como mucho 3 llamadas a la BD de estado (4 si la cuenta está pendiente y emite código; 2 si el correo está bloqueado), la verificación 2, el restablecimiento 3 y el pedido de código 2
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-040
+  # Prueba: tests/test_auth_estado.py::test_b1_las_filas_vencidas_no_cuentan_para_el_tope y ::test_b1_las_filas_vigentes_si_llenan_el_tope_y_se_recupera_al_vencer; 07_comprobar_auth_persistente.sql
+  Escenario: Las filas vencidas no cuentan para el tope de 500 000 y la tabla se recupera sola
+    Dado 500 001 eventos de límites de hace 3 días que nadie purgó
+    Cuando una persona legítima hace un intento de login
+    Entonces el límite por IP responde "ok" y no hay 429 para todos
+    Y con 500 001 eventos vigentes responde "lleno" (429) hasta que salen de la retención de 2 días
+    Y cerca del tope (450 000 vigentes o más) cada llamada libera un lote de 5 000 eventos vencidos sin esperar a nadie
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-037
+  # Prueba: tests/test_auth_persistente.py::test_i1_una_reserva_huerfana_no_impide_que_el_login_correcto_reinicie_la_serie; tests/test_auth_estado.py::test_i1_*; 07_comprobar_auth_persistente.sql
+  Escenario: Una reserva que nunca se resolvió no impide reiniciar la serie
+    Dado una reserva de login que no se resolvió (despliegue, plazo vencido o ejecutor lleno) y 11 segundos después
+    Cuando la persona inicia sesión correctamente
+    Entonces la serie se borra y hacen falta 5 fallos nuevos para bloquear el correo
+    Pero antes de 10 s (o a los 10 s exactos) la reserva sigue en vuelo y el login correcto no borra los fallos de otras peticiones
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-027 @INV-039
+  # Prueba: tests/test_auth_persistente.py::test_i2_si_falla_reiniciar_el_login_change_password_devuelve_exito y ::test_i2_si_falla_reiniciar_el_login_reset_password_devuelve_exito_y_el_codigo_queda_gastado
+  Escenario: Si falla solo el reinicio del bloqueo tras cambiar la contraseña, la respuesta es de éxito
+    Dado que la BD de estado falla únicamente en auth_login_reiniciar
+    Cuando la persona cambia su contraseña en el perfil o la restablece con un código
+    Entonces responde 200, la contraseña ya está cambiada y el código queda gastado, y solo se registra un aviso sin datos personales
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-039
+  # Prueba: tests/test_auth_persistente.py::test_i3_tabla_de_usuarios_lenta_responde_503_en_5s_y_no_bloquea_otras_peticiones y ::test_i6_*
+  Escenario: Una tabla de usuarios lenta o bcrypt no bloquean al resto de la aplicación
+    Dado que la tabla de usuarios tarda más de 4 s en responder
+    Cuando alguien inicia sesión mientras otra persona consulta /health
+    Entonces el login responde 503 en 5 s como máximo y /health responde de inmediato
+    Y la comprobación bcrypt (cuenta real, inexistente y cambio de contraseña) corre en un hilo y tarda lo mismo con cuenta real que inexistente
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-038
+  # Prueba: tests/test_auth_persistente.py::test_i4_la_purga_va_aparte_y_su_fallo_no_afecta_la_respuesta y ::test_i4_la_purga_se_intenta_una_vez_por_hora_por_proceso; probar.sh (concurrencia con purga)
+  Escenario: La purga va aparte de la emisión de códigos
+    Dado una purga grande o lenta en curso
+    Cuando se emiten códigos a la vez
+    Entonces las emisiones no esperan, no fallan ni se interbloquean, y si la purga falla solo se registra un aviso sin datos
+
+  @BDD-AUTH-PERSISTENTE @borde @INV-040
+  # Prueba: tests/test_correo.py::test_error_de_brevo_devuelve_false_y_registra_el_motivo, ::test_m1_excepcion_de_brevo_registra_solo_el_tipo y tests/test_auth_persistente.py::test_m4_si_get_by_id_falla_la_baja_sigue_y_deja_un_aviso_sin_datos
+  Escenario: Los registros no llevan datos personales
+    Cuando falla el envío de un correo por Brevo o la baja de cuenta no encuentra el correo
+    Entonces los registros llevan solo propósito, código de estado y tipo de excepción, sin correo, cuerpo de Brevo ni texto de la excepción
+
