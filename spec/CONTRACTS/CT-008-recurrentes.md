@@ -54,4 +54,4 @@ Omitir no toca ningún saldo y sigue usando solo el compare-and-set de la fecha.
 
 **PUT y `cuenta_id` (v1.1):** no enviar = conserva, `null` = quita, valor = reemplaza; cambiar a una cuenta archivada → 409; re-enviar la misma ya guardada no bloquea (incluso pausar/activar con la cuenta archivada). Con cuenta, el monto respeta el tope y los 2 decimales de INV-051 (422), también al crear.
 
-**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada.
+**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada. Con cuenta de dinero se conserva el mensaje de INV-051.

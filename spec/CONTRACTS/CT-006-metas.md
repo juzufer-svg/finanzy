@@ -23,4 +23,4 @@ crea con esa cuenta y su saldo baja dentro de la **misma transacción SQL** que 
 encontrada» si no es suya; 409 «Saldo insuficiente…» o cuenta de dinero archivada: no se registra el gasto ni se suma a la meta; 503 si la
 función SQL actualizada no está disponible (con cuenta nunca se usa el método anterior no atómico). Sin `cuenta_id` todo igual que antes.
 
-**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada.
+**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada. Con cuenta de dinero se conserva el mensaje de INV-051.

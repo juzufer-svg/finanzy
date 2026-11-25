@@ -1,6 +1,6 @@
 # CHG-029 — Alinear el tope de montos con `NUMERIC(12,2)` (BL-017)
 
-- **Estado:** en-implementación
+- **Estado:** escalado
 - **Fecha:** 2026-11-25 · **Solicitante:** dueño
 - **Riesgo:** alto · **Modo:** completo (dinero e invariante crítica)
 
@@ -53,7 +53,10 @@ Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador)
 | Fecha | Agente | Acción | Resultado / evidencia |
 |---|---|---|---|
 | 2026-11-25 | clasificador | Clasificar | riesgo alto, modo completo |
-| 2026-11-25 | coordinador | Ficha | espera aprobación |
+| 2026-11-25 | coordinador | Ficha | aprobada por el dueño |
+| 2026-11-25 | generador | T2-T4 | commit 8f1504e |
+| 2026-11-25 | revisor | Revisión | aprobado, observaciones menores |
+| 2026-11-25 | validador | Validación | bloqueado (H1): confirmar precisión de las columnas de montos en Supabase; `backend/sql/pruebas/01_base_como_produccion.sql` declara `numeric` sin precisión en `metas` |
 
 ## 8. Cierre
 - Decisiones:
