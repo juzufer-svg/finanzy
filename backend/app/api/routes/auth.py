@@ -25,6 +25,7 @@ from app.utils.email import generate_code, send_verification_email
 _TOO_MANY = "Demasiadas solicitudes. Espera unos minutos e intenta de nuevo."
 _LIMITED_MSG = "Ya enviamos varios códigos a este correo hoy. Revisa tu bandeja (y spam) o intenta mañana."
 _BLOQUEADO_MSG = "Demasiados intentos fallidos. Intenta de nuevo en 15 minutos."
+_SUSPENDIDA_MSG = "No fue posible iniciar sesión con esta cuenta. Contacta al administrador."   # CHG-023, INV-056
 PRESUPUESTO_REINICIO_SEG = 4.0
 
 
@@ -150,7 +151,7 @@ async def register(user_data: UserRegistration, request: Request, background_tas
 # ── Verify email ──────────────────────────────────────────────────────────────
 
 @router.post("/verify-email", response_model=Token)
-async def verify_email(data: VerifyEmailRequest, request: Request):
+async def verify_email(data: VerifyEmailRequest, request: Request, background_tasks: BackgroundTasks):
     """Verify email code and return JWT"""
     await limitar_ip_para_auth(request)
     email = data.email.lower()
@@ -164,7 +165,11 @@ async def verify_email(data: VerifyEmailRequest, request: Request):
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
+    if user.get("suspendida"):   # una cuenta suspendida no recibe sesión (INV-056)
+        raise HTTPException(status_code=403, detail=_SUSPENDIDA_MSG)
+
     await UserDB.activate(email)
+    background_tasks.add_task(UserDB.registrar_acceso, user["id"])   # tras responder, mejor esfuerzo (INV-061)
 
     access_token = create_access_token(
         data={"sub": user["id"], "sv": user.get("session_version", 0)},
@@ -223,6 +228,11 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
     if not acierto:
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
+    if user.get("suspendida"):
+        # Solo con la contraseña CORRECTA (un 401 con la incorrecta no revela el estado, INV-056/INV-009): sin token ni
+        # código; no cuenta como fallo (la reserva ya se resolvió como acierto)
+        raise HTTPException(status_code=403, detail=_SUSPENDIDA_MSG)
+
     if not user["is_active"]:
         # Cuenta sin verificar: enviar código nuevo (salvo que haya uno reciente o se llegó al límite)
         await _issue_code(email, "verify", background_tasks)
@@ -231,6 +241,7 @@ async def login(user_data: UserLogin, request: Request, background_tasks: Backgr
             message="Tu cuenta no está verificada. Revisa tu correo e ingresa el código que te enviamos.",
         )
 
+    background_tasks.add_task(UserDB.registrar_acceso, user["id"])   # tras responder, mejor esfuerzo (INV-061)
     access_token = create_access_token(
         data={"sub": user["id"], "sv": user.get("session_version", 0)},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),

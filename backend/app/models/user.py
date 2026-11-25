@@ -1,12 +1,16 @@
 """
 User model and database operations - Supabase
-Tabla: users(id, email, hashed_password, full_name, currency, is_active, session_version, created_at, updated_at)
+Tabla: users(id, email, hashed_password, full_name, currency, is_active, session_version, created_at, updated_at,
+suspendida, ultimo_acceso)
 """
 from typing import Optional
 import uuid
 from app.core import security
 from app.core.supabase import SupabaseDB
 from app.models import auth_estado
+
+
+PLAZO_REGISTRAR_ACCESO_SEG = 2.0   # plazo propio del último acceso (INV-061)
 
 
 def _map_user(row: dict) -> dict:
@@ -17,6 +21,7 @@ def _map_user(row: dict) -> dict:
         "hashed_password": row.get("hashed_password", ""),
         "currency": row.get("currency", "USD"),
         "is_active": row.get("is_active", False),
+        "suspendida": bool(row.get("suspendida", False)),   # CHG-023, INV-056: la cuenta suspendida no inicia ni conserva sesión
         "session_version": int(row.get("session_version") or 0),
     }
 
@@ -151,8 +156,8 @@ class UserDB:
     async def get_session_version(user_id: str) -> Optional[int]:
         """Versión de sesión vigente del usuario (INV-016).
 
-        Devuelve None si el usuario ya no existe o si su cuenta no está activa
-        (INV-017): un token de una cuenta desactivada deja de servir. Sin Supabase (modo demo local)
+        Devuelve None si el usuario ya no existe, si su cuenta no está activa (INV-017) o si está suspendida (INV-056,
+        CHG-023; la columna `suspendida` se lee en la MISMA consulta): un token de una cuenta desactivada deja de servir. Sin Supabase (modo demo local)
         devuelve 0. Los errores de Supabase se propagan: quien llama decide
         responder 503 en vez de cerrar la sesión por un fallo pasajero.
         """
@@ -161,14 +166,32 @@ class UserDB:
         client = SupabaseDB.get_client()
         result = (
             client.table(UserDB.TABLE_NAME)
-            .select("session_version,is_active")
+            .select("session_version,is_active,suspendida")
             .eq("id", user_id)
             .limit(1)
             .execute()
         )
-        if not result.data or not result.data[0].get("is_active"):
+        if not result.data or not result.data[0].get("is_active") or result.data[0].get("suspendida"):
             return None
         return int(result.data[0].get("session_version") or 0)
+
+    @staticmethod
+    async def registrar_acceso(user_id: str) -> bool:
+        """Último inicio de sesión (INV-061, CHG-023). MEJOR ESFUERZO y NUNCA lanza: se programa con `BackgroundTasks`, así
+        que corre tras responder el login. Una sola sentencia condicional de la BD (`registrar_acceso`, como mucho una
+        escritura por hora y usuario, con el reloj de la BD), fuera del event loop, con plazo PROPIO de 2 s. Un fallo, un
+        plazo vencido o una respuesta rara solo dejan un aviso sin datos personales. Devuelve si escribió."""
+        if not UserDB._is_supabase_available():
+            return False
+        auth_estado.iniciar_presupuesto(PLAZO_REGISTRAR_ACCESO_SEG)
+        try:
+            dato = await auth_estado.ejecutar(
+                "registrar_acceso",
+                lambda: auth_estado.cliente_estado().rpc("registrar_acceso", {"p_id": user_id}).execute().data)
+            return dato is True
+        except Exception as e:   # el mensaje puede traer datos: solo el tipo
+            print(f"[user] Aviso: no se pudo registrar el último acceso ({type(e).__name__})")
+            return False
 
     @staticmethod
     async def delete_by_id(user_id: str) -> bool:

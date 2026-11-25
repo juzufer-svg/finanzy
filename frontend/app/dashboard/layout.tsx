@@ -83,6 +83,13 @@ const IconMonitor = () => (
   </svg>
 )
 
+const IconUsers = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+  </svg>
+)
+
 const IconLogout = () => (
   <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -120,11 +127,13 @@ const menuItems = [
 
 // Solo para el Dueño (CHG-017): se añade al menú únicamente si `es_dueno` es true
 const monitorItem = { href: '/dashboard/monitor', label: 'Monitor', Icon: IconMonitor }
+// Solo para el Dueño (CHG-023, REQ-F-021): panel de administración de usuarios; misma condición que «Monitor»
+const usuariosItem = { href: '/dashboard/usuarios', label: 'Usuarios', Icon: IconUsers }
 
 /** Inicial del nombre (o del correo) para el avatar. */
 // Fuera de la barra inferior del celular: Perfil y Asistente se abren desde la barra superior;
 // Recurrentes y Categorías, desde el menú lateral (así caben 5 botones sin cortar textos)
-const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories', '/dashboard/monitor'])
+const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories', '/dashboard/monitor', '/dashboard/usuarios'])
 
 const initialOf = (user: { full_name?: string; email?: string } | null) =>
   (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()
@@ -209,7 +218,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
-  const items = esDueno ? [...menuItems, monitorItem] : menuItems
+  const items = esDueno ? [...menuItems, monitorItem, usuariosItem] : menuItems
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
   const currentSection = items.find(item => isActive(item.href))?.label ?? 'Inicio'
