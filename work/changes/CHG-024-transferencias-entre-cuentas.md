@@ -1,6 +1,6 @@
 # CHG-024 — Transferencias entre cuentas de dinero (fase b de CHG-019)
 
-- **Estado:** spec-pendiente (la especificación de la fase b ya estaba aprobada dentro de CHG-019; falta aprobar los ajustes de esta ficha)
+- **Estado:** en-implementación (ficha aprobada por el dueño el 2026-11-25)
 - **Fecha:** 2026-11-25 · **Solicitante:** dueño
 - **Riesgo:** alto · **Modo:** `completo` (dinero + migración + concurrencia). Clasificación heredada de CHG-019 §2; no se repite el clasificador.
 
@@ -42,6 +42,7 @@ REQ-F-020 CA-5 · INV-049 (y INV-046/047/048/050/051) · CT-012 §Transferencias
 | Fecha | Agente | Acción | Resultado |
 |---|---|---|---|
 | 2026-11-25 | coordinador | Ficha creada | Esperando aprobación del dueño |
+| 2026-11-25 | dueño | Aprueba la ficha y las 4 recomendaciones (Q1-Q4) | T5, T6 y T7 en paralelo (archivos distintos) |
 
 ## 7. Cierre
 Pendiente.
