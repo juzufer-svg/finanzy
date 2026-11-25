@@ -2,7 +2,7 @@
 
 ## Usuario
 
-Estados: `pendiente` (is_active = false), `activa` (is_active = true), `eliminada` (no existe)
+Estados: `pendiente` (is_active = false), `activa` (is_active = true), `suspendida` (CHG-023: `suspendida = true` sobre una cuenta activa; la limpieza de cuentas sin verificar no la toca), `eliminada` (no existe)
 
 ```
 (registro) ──▶ pendiente ──verificar código──▶ activa ──eliminar cuenta──▶ eliminada
@@ -18,6 +18,12 @@ Estados: `pendiente` (is_active = false), `activa` (is_active = true), `eliminad
 | pendiente | iniciar sesión | pendiente | Visitante | Credenciales válidas | No hay sesión; se envía código (INV-006) |
 | pendiente | limpieza | eliminada | Sistema | Creada hace > 1 hora | Borrado definitivo |
 | activa | eliminar cuenta | eliminada | Usuario | Confirma escribiendo su correo | Se borran todos sus datos (cascada) |
+| activa | suspender (CHG-023) | suspendida | Dueño (panel) | No es su propia cuenta; no ya suspendida (409) | `suspendida = true`, sube la versión de sesión, se desconecta WhatsApp, queda en el registro de acciones |
+| suspendida | reactivar (CHG-023) | activa | Dueño (panel) | Está suspendida (409 si no) | `suspendida = false`; las sesiones anteriores no reviven; queda en el registro |
+| suspendida | eliminar (panel) | eliminada | Dueño (panel) | Escribe el correo de la cuenta | Baja completa y registro |
+| activa / suspendida / pendiente | cerrar sesiones (CHG-023) | (mismo estado) | Dueño (panel) | No es su propia cuenta | Sube la versión de sesión; WhatsApp se desconecta |
+| pendiente | eliminar (panel) | eliminada | Dueño (panel) | Escribe el correo de la cuenta | Baja completa y registro (suspender una pendiente → 409) |
+| suspendida | iniciar sesión / verificar correo | suspendida | Visitante | — | 403 genérico solo con contraseña correcta; sin sesión ni código (INV-056) |
 
 ## Código de verificación
 
