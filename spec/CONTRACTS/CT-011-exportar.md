@@ -67,3 +67,5 @@ Orden de las filas: fecha ascendente, luego fecha de creación, luego id. Sin fi
 
 ## Compatibilidad
 Añadir columnas solo al final (como la 8). Cambiar el orden, quitar columnas, subir los topes (12 meses, 10 000 filas, 4 MB) o cambiar el separador exige nueva versión y ADR. El frontend depende del nombre de archivo de `Content-Disposition`, de `detail` como texto y del campo `codigo` solo como complemento.
+
+> Nota (cierre CHG-018): el 429 «Ya tienes una exportación en curso» también consume una de las 10 descargas por minuto del usuario (el contador se evalúa antes). No es un asunto de seguridad.

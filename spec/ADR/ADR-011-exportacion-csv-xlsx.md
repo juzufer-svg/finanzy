@@ -41,3 +41,6 @@ comentario del archivo («la API no usa … descargas»). No hay que cambiar có
 - Positivas: el dueño y los usuarios pueden llevarse sus datos y analizarlos en Excel; sin servicios nuevos ni costo; los errores de tamaño nunca llegan como un 413 opaco.
 - Negativas / deuda aceptada: una dependencia más que auditar y actualizar; tope de 10 000 filas **y** 4 MB por archivo (el CSV con apóstrofo visible en Excel); el CSV depende de la configuración regional de Excel (el xlsx es la salida segura); la paginación no es una instantánea (INV-044); sin importación.
 - Impacto en spec, código y pruebas: REQUIREMENTS §4 (se saca **solo exportar** de «Fuera»), REQ-F-019, CT-011, INV-042 a INV-045, REQ-N-019 a REQ-N-021 y REQ-N-026, `backend/tests/test_exportar.py`, `frontend/tests/exportar.test.mjs`, `frontend/e2e/exportar.mjs`, proxy de Next.js (`Content-Disposition`, `maxDuration`), `requirements*.txt`.
+
+## Riesgo aceptado (revisión del ciclo 3)
+Los separadores de línea poco comunes (`\v`, `\f`, `\x85`, `\u2028`, `\u2029`) y el tabulador o `|` como delimitador no se neutralizan en el CSV. Solo importan con lectores que parten con `str.splitlines()` o abren el archivo como TSV; con `csv.reader` («,» o «;»), que usan Excel y LibreOffice, no se reproducen. La defensa fuerte sigue siendo el `.xlsx`.

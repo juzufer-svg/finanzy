@@ -76,3 +76,9 @@ Pruebas nombradas: ver INV-042 a INV-045 en `spec/05-INVARIANTS.md` y `spec/BDD/
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente
+
+## Cierre de la revisión (2026-11-25)
+- Validador PASA y revisor APROBABLE (ciclo 3 acotado). Suite: 743 pasan; `pip-audit` limpio.
+- Se corrigieron de paso 3 pruebas de `backend/tests/test_contadores.py` (líneas 281, 327 y 396): usaban la fecha UTC y el código usa la fecha de Colombia (`contadores.hoy_colombia()`), por lo que fallaban entre las 7 p. m. y la medianoche de Colombia. No es un defecto de la aplicación.
+- Menores aplicados: liberación del usuario en `finally`; nota del 429 y riesgos aceptados en CT-011 y ADR-011.
+- Despliegue: sin SQL ni variables nuevas; se instala `openpyxl==3.1.5` desde `requirements.txt`.

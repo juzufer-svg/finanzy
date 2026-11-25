@@ -101,8 +101,10 @@ async def exportar_transacciones(
         return _error(503, _MSG_503)
 
     def terminado(_f) -> None:
-        _ranuras.release()
-        liberar_usuario()
+        try:
+            _ranuras.release()
+        finally:
+            liberar_usuario()   # el usuario nunca queda bloqueado aunque falle la liberación de la ranura
 
     futuro.add_done_callback(terminado)
     try:
