@@ -29,7 +29,6 @@ TOKENS = {
     "MONITOR_RAILWAY_TOKEN": "tok-railway-SECRETO-1",
     "MONITOR_ANTHROPIC_ADMIN_KEY": "sk-ant-admin-SECRETO-2",
     "MONITOR_META_TOKEN": "tok-meta-SECRETO-3",
-    "MONITOR_SUPABASE_TOKEN": "tok-supabase-SECRETO-4",
     "MONITOR_VERCEL_TOKEN": "tok-vercel-SECRETO-5",
     "MONITOR_BREVO_KEY": "tok-brevo-SECRETO-6",
 }

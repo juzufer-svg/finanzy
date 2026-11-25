@@ -626,7 +626,6 @@ def test_inv039_get_by_email_estricto_propaga_los_errores_y_get_by_email_los_tra
     with pytest.raises(ae.EstadoNoDisponible) as e:
         run(UserDB.get_by_email_estricto("a@example.com"))
     assert "a@example.com" not in str(e.value)
-    assert run(UserDB.get_by_email("a@example.com")) is None          # el actual se conserva para el resto
 
 
 def test_inv039_get_by_email_estricto_devuelve_usuario_o_none(monkeypatch):

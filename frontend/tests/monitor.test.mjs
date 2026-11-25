@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   TEXTO_NO_DISPONIBLE, PLATAFORMAS, formatBytes, formatNumero, formatUsd, formatFechaDia, formatInstante,
-  camposVisibles, notaPlataforma, NOTA_ESTIMADO_CONTADORES, estadoPlataforma, porcentajeUso, normalizarResumen, sumarDias, serieDias, diaDeInstante,
+  camposVisibles, notaPlataforma, NOTA_ESTIMADO_CONTADORES, estadoPlataforma, normalizarResumen, sumarDias, serieDias, diaDeInstante,
   total, alturasApiladas, resumenPlan, formatPorcentaje, LIMITES_PLAN,
 } from '../lib/monitor.ts'
 
@@ -79,7 +79,6 @@ test('Supabase: etiquetas de tamaño y límite en MB/GB', () => {
   const c = camposVisibles('supabase', { tamano_bd_bytes: 52428800, limite_bd_bytes: 524288000 })
   assert.deepEqual(c.map(x => [x.etiqueta, x.valor]), [['Tamaño de la BD', '50 MB'], ['Límite del plan', '500 MB']])
   assert.equal(camposVisibles('supabase', { tamano_bd_bytes: 2 * 1024 ** 3 })[0].valor, '2 GB')
-  assert.equal(porcentajeUso(52428800, 524288000), 10)
 })
 
 test('Anthropic estimado con contadores propios: etiquetas, US$ sin conversor y nota', () => {
@@ -106,13 +105,6 @@ test('estado de plataforma: ok solo con algún campo mostrable', () => {
   assert.equal(estadoPlataforma('brevo', { estado: 'ok', datos: { raro: 3 }, actualizado_en: null }), 'no_disponible')
   assert.equal(estadoPlataforma('brevo', { estado: 'no_disponible', datos: null, actualizado_en: null }), 'no_disponible')
   assert.equal(estadoPlataforma('brevo', undefined), 'no_disponible')
-})
-
-test('porcentaje de uso', () => {
-  assert.equal(porcentajeUso(50, 200), 25)
-  assert.equal(porcentajeUso(300, 200), 100)
-  assert.equal(porcentajeUso(1, 0), null)
-  assert.equal(porcentajeUso(undefined, 10), null)
 })
 
 test('sumar días cruza meses y años', () => {

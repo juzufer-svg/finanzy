@@ -72,9 +72,6 @@ def users(monkeypatch):
     """Almacén de usuarios en memoria que reemplaza a UserDB (Supabase)."""
     store: dict[str, dict] = {}
 
-    async def get_by_email(email):
-        return store.get(email.lower())
-
     async def get_by_email_estricto(email):   # lectura estricta (INV-039): aquí nunca falla; las pruebas la rompen a propósito
         return store.get(email.lower())
 
@@ -115,7 +112,7 @@ def users(monkeypatch):
         user["full_name"] = full_name
         return True
 
-    for name, fn in [("update_full_name", update_full_name), ("get_by_email", get_by_email), ("get_by_email_estricto", get_by_email_estricto), ("get_by_id", get_by_id), ("create", create),
+    for name, fn in [("update_full_name", update_full_name), ("get_by_email_estricto", get_by_email_estricto), ("get_by_id", get_by_id), ("create", create),
                      ("activate", activate), ("update_password", update_password),
                      ("get_session_version", get_session_version)]:
         monkeypatch.setattr(UserDB, name, staticmethod(fn))

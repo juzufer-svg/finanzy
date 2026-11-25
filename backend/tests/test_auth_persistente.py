@@ -21,7 +21,6 @@ import httpx
 import pytest
 
 from app.api.routes import auth as auth_routes
-from app.api.routes import users as users_routes
 from app.core import security
 from app.core.config import settings
 from app.main import app
