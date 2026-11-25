@@ -38,7 +38,7 @@ El tope por minuto aplica también a «ayuda» y a los mensajes que no son texto
 | `DELETE /whatsapp/enlace` | `{ "message": "WhatsApp desconectado" }` | — |
 
 ## Validación de lo que propone la IA (igual que CT-003)
-monto > 0 y ≤ 1e12 (2 decimales) · tipo `ingreso`/`gasto` · fecha `YYYY-MM-DD` entre hoy−366 días y mañana (si no,
+monto > 0 y ≤ 9 999 999 999,99 (se redondea a 2 decimales) · tipo `ingreso`/`gasto` · fecha `YYYY-MM-DD` entre hoy−366 días y mañana (si no,
 hoy) · categoría: solo una propia del mismo tipo, por nombre sin tildes ni mayúsculas (si no, sin categoría) ·
 medio de pago de la lista de INV-022 (si no, sin especificar) · descripción ≤ 255 · máximo 10 movimientos por
 mensaje; si uno es inválido no se guarda ninguno. Deshacer/corregir: solo el último mensaje que registró algo por

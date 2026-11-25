@@ -9,7 +9,7 @@ Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no e
 ```json
 {
   "categoria_id": "texto ≤ 64 — opcional ('' = sin categoría) — debe ser del usuario (INV-002)",
-  "monto": "número > 0 y ≤ 1e12 (INV-003)",
+  "monto": "número > 0, ≤ 9 999 999 999,99 y 2 decimales máx. (INV-003)",
   "descripcion": "texto ≤ 255 — opcional",
   "fecha": "YYYY-MM-DD (INV-005), entre 2026-01-01 y hoy + 365 días (día de Colombia) (INV-063)",
   "tipo": "ingreso | gasto (INV-004)",
@@ -38,3 +38,5 @@ existe, INV-046); **409** «Saldo insuficiente…» si la transacción dejaría 
 | `GET /transacciones/{id}` | 200 transacción | 404 |
 | `PUT /transacciones/{id}` | 200 transacción actualizada | 404 (transacción o categoría ajena); 422 igual que en `POST` **solo si la fecha cambia** respecto a la guardada (una edición que no la cambia no se rechaza por el rango) (INV-063) |
 | `DELETE /transacciones/{id}` | 200 `{ "message": "Transacción eliminada" }` | 404 |
+
+**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada.

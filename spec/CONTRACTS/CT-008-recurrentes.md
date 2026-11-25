@@ -11,7 +11,7 @@ Salida (recurrente): `{ "id", "usuario_id", "categoria_id", "tipo", "monto", "de
 {
   "categoria_id": "texto ≤ 64 — opcional ('' = sin categoría) — debe ser del usuario (INV-002)",
   "tipo": "ingreso | gasto (INV-004)",
-  "monto": "número > 0 y ≤ 1e12 (INV-003)",
+  "monto": "número > 0, ≤ 9 999 999 999,99 y 2 decimales máx. (INV-003)",
   "descripcion": "texto ≤ 255 — opcional",
   "medio_pago": "igual que en CT-003 — opcional (INV-022)",
   "cuenta_id": "uuid — opcional (CHG-019 fase c): cuenta de dinero del usuario; si es ajena, 404 «Cuenta no encontrada» al crear y al editar (INV-046)",
@@ -29,7 +29,7 @@ Salida (recurrente): `{ "id", "usuario_id", "categoria_id", "tipo", "monto", "de
 | `POST /recurrentes` | Cuerpo | 200 creada (no registra ninguna transacción) | 404 «Categoría no encontrada»; 422 |
 | `PUT /recurrentes/{id}` | Cuerpo; `proxima_fecha` **opcional** (sin ella la fecha no cambia: pausar, editar el monto) y, si se cambia, `proxima_fecha_vista` = la fecha actual que vio la persona | 200 actualizada | 404 «Recurrente no encontrada» / «Categoría no encontrada»; 409 «La próxima fecha cambió mientras editabas…» si `proxima_fecha_vista` no es la vigente (INV-026) |
 | `DELETE /recurrentes/{id}` | — | 200 `{ "message": "Recurrente eliminada" }` (las transacciones ya registradas se conservan) | 404 |
-| `POST /recurrentes/{id}/confirmar` | `{ "ocurrencia": "YYYY-MM-DD (la próxima fecha que vio la persona)", "monto": "opcional, > 0 y ≤ 1e12", "fecha": "opcional, YYYY-MM-DD" }` | 200 `{ "transaccion": <CT-003>, "recurrente": <recurrente con la nueva próxima fecha> }` | 404; 409 «La recurrente está pausada»; 409 «Esta fecha ya se registró u omitió…» (la ocurrencia ya no es la pendiente: doble toque u otra pestaña, INV-026); 503 genérico si falla la BD (en la fase c nada cambió: la fecha sigue pendiente; ya no es 500). **Hasta la fase (c)** (flujo actual: avanza la fecha y luego crea la transacción) si además falla devolverla, 500 que avisa que la fecha quedó omitida; ese caso **desaparece en la fase (c)** (ver abajo) |
+| `POST /recurrentes/{id}/confirmar` | `{ "ocurrencia": "YYYY-MM-DD (la próxima fecha que vio la persona)", "monto": "opcional, > 0, ≤ 9 999 999 999,99 y 2 decimales máx.", "fecha": "opcional, YYYY-MM-DD" }` | 200 `{ "transaccion": <CT-003>, "recurrente": <recurrente con la nueva próxima fecha> }` | 404; 409 «La recurrente está pausada»; 409 «Esta fecha ya se registró u omitió…» (la ocurrencia ya no es la pendiente: doble toque u otra pestaña, INV-026); 503 genérico si falla la BD (en la fase c nada cambió: la fecha sigue pendiente; ya no es 500). **Hasta la fase (c)** (flujo actual: avanza la fecha y luego crea la transacción) si además falla devolverla, 500 que avisa que la fecha quedó omitida; ese caso **desaparece en la fase (c)** (ver abajo) |
 | `POST /recurrentes/{id}/omitir` | `{ "ocurrencia": "YYYY-MM-DD" }` | 200 recurrente con la nueva próxima fecha (no registra nada) | 404; 409 (igual que confirmar) |
 
 La transacción confirmada usa la categoría, el tipo, la descripción y el medio de pago de la recurrente; el monto y
@@ -53,3 +53,5 @@ la próxima fecha no avanza** (INV-025, INV-026, INV-052). Doble toque simultán
 Omitir no toca ningún saldo y sigue usando solo el compare-and-set de la fecha.
 
 **PUT y `cuenta_id` (v1.1):** no enviar = conserva, `null` = quita, valor = reemplaza; cambiar a una cuenta archivada → 409; re-enviar la misma ya guardada no bloquea (incluso pausar/activar con la cuenta archivada). Con cuenta, el monto respeta el tope y los 2 decimales de INV-051 (422), también al crear.
+
+**Montos (INV-003, CHG-029):** si un monto supera 9 999 999 999,99 o tiene más de 2 decimales, la respuesta es 422 con el mensaje «El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)». En metas, el monto ahorrado admite 0 y un abono que lleve el acumulado sobre el tope responde igual y no cambia nada.

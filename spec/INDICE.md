@@ -8,7 +8,7 @@ Se actualiza al añadir o cambiar una invariante, contrato, caso de uso, ADR, BD
 ## Invariantes (`spec/05-INVARIANTS.md`, fila `| INV-NNN`)
 - INV-001: solo el dueño ve, edita o borra sus registros; ajeno o inexistente = 404.
 - INV-002: transacción y presupuesto solo usan categorías del mismo usuario.
-- INV-003: montos > 0 y ≤ 1e12; monto ahorrado ≥ 0.
+- INV-003: montos > 0, ≤ 9 999 999 999,99 y 2 decimales; monto ahorrado ≥ 0.
 - INV-004: tipo de transacción y categoría solo `ingreso` o `gasto`.
 - INV-005: fechas `YYYY-MM-DD` y meses `YYYY-MM`.
 - INV-006: cuenta pendiente de verificar nunca obtiene sesión con el login.
