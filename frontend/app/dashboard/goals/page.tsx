@@ -9,6 +9,8 @@ import PageHeader from '@/components/PageHeader'
 import { useRouter } from 'next/navigation'
 import { useCurrencyStore } from '@/store/currency'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import { useCuentas } from '@/lib/use-cuentas'
+import { opcionesSelector, cuerpoAbono, avisoSaldo, mensajeErrorCuenta, textoSaldo } from '@/lib/cuentas'
 
 interface Goal {
   id: string
@@ -27,6 +29,13 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
   const [descripcion, setDescripcion] = useState(`Abono a meta: ${goal.nombre}`)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Cuenta de origen (CHG-025, CT-006 v1.1): opcional; sin elegir no se envía `cuenta_id`
+  const [cuentaId, setCuentaId] = useState('')
+  const { cuentas, cargando: cargandoCuentas, error: errorCuentas, reintentar } = useCuentas()
+  const opciones = opcionesSelector(cuentas)
+  const cuentaSel = cuentas.find(c => c.id === cuentaId)
+  const montoNum = toBase(monto)
+  const aviso = avisoSaldo(cuentaSel, Number.isFinite(montoNum) ? montoNum : 0, fmt)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,15 +45,11 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
     setSaving(true)
     setError('')
     try {
-      await apiClient.post(`/api/v1/metas/${goal.id}/abonar`, {
-        monto: m,
-        descripcion,
-        fecha: today,
-      })
+      await apiClient.post(`/api/v1/metas/${goal.id}/abonar`, cuerpoAbono({ monto: m, descripcion, fecha: today, cuentaId }))
       onSaved()
       onClose()
     } catch (err: any) {
-      setError(apiErrorMessage(err, 'Error al registrar el abono'))
+      setError(mensajeErrorCuenta(err, 'Error al registrar el abono'))
     } finally {
       setSaving(false)
     }
@@ -80,7 +85,7 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
           </div>
         </div>
 
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">{error}</div>}
+        {error && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -102,6 +107,30 @@ function AbonarModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => vo
               onChange={e => setDescripcion(e.target.value)}
               className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none"
             />
+          </div>
+          <div>
+            <label htmlFor="goal-cuenta-origen" className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Cuenta de origen <span className="text-slate-400 font-normal">(opcional)</span>
+            </label>
+            <select id="goal-cuenta-origen" value={cuentaId} onChange={e => setCuentaId(e.target.value)} disabled={cargandoCuentas}
+              aria-describedby="goal-cuenta-ayuda"
+              className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 focus:outline-none">
+              <option value="">Sin cuenta</option>
+              {opciones.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <div id="goal-cuenta-ayuda" className="mt-1 space-y-1">
+              {errorCuentas ? (
+                <p role="alert" className="text-xs text-red-700">
+                  {errorCuentas}{' '}
+                  <button type="button" onClick={reintentar} className="font-semibold underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">Reintentar</button>
+                </p>
+              ) : !cargandoCuentas && opciones.length === 0 ? (
+                <p className="text-xs text-slate-500">Aún no tienes cuentas. Créalas en el menú «Cuentas».</p>
+              ) : cuentaSel ? (
+                <p className="text-xs text-slate-500">Saldo disponible: <strong>{textoSaldo(cuentaSel.saldo, fmt)}</strong></p>
+              ) : null}
+              {aviso && <p role="alert" className="text-xs text-amber-700">{aviso}</p>}
+            </div>
           </div>
           <p className="text-[11px] text-slate-400">
             💡 Se registrará como un gasto en la categoría <strong>Ahorro</strong> y se descontará de tu balance disponible.

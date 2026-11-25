@@ -124,6 +124,45 @@ export function cuentaIdParaPut(original: string | null | undefined, elegido: st
   return { cuenta_id: elegido || null }
 }
 
+/**
+ * Cuerpo de `POST /metas/{id}/abonar` (CT-006 v1.1): `cuenta_id` solo viaja si se eligió una cuenta de origen;
+ * sin cuenta el cuerpo es el de siempre.
+ */
+export function cuerpoAbono(d: { monto: number; descripcion: string; fecha: string; cuentaId: string }): {
+  monto: number; descripcion: string; fecha: string; cuenta_id?: string
+} {
+  const base = { monto: d.monto, descripcion: d.descripcion, fecha: d.fecha }
+  return d.cuentaId ? { ...base, cuenta_id: d.cuentaId } : base
+}
+
+/**
+ * Cuerpo de `POST /recurrentes/{id}/confirmar` (CT-008 v1.1): `cuenta_id` solo se envía si la persona lo cambió
+ * (no enviado = se usa la de la plantilla; `null` = sin cuenta). `monto` solo si se tocó.
+ */
+export function cuerpoConfirmar(d: {
+  ocurrencia: string; monto?: number; cuentaOriginal: string | null | undefined; cuentaElegida: string
+}): { ocurrencia: string; monto?: number; cuenta_id?: string | null } {
+  return {
+    ocurrencia: d.ocurrencia,
+    ...(d.monto !== undefined ? { monto: d.monto } : {}),
+    ...cuentaIdParaPut(d.cuentaOriginal, d.cuentaElegida),
+  }
+}
+
+/**
+ * Aviso (no bloquea: el servidor decide, INV-048) cuando el monto superaría el saldo de una cuenta que no es tarjeta
+ * de crédito. `monto` en COP; `fmt` formatea en la moneda de visualización. `null` si no hay nada que avisar.
+ */
+export function avisoSaldo(
+  cuenta: Pick<Cuenta, 'nombre' | 'tipo' | 'saldo'> | null | undefined,
+  monto: number,
+  fmt: (n: number) => string,
+): string | null {
+  if (!cuenta || cuenta.saldo === null || esTarjeta(cuenta.tipo) || !(monto > 0)) return null
+  if (monto <= cuenta.saldo) return null
+  return `Este monto supera el saldo de «${cuenta.nombre}» (${textoSaldo(cuenta.saldo, fmt)}). Si no alcanza, el servidor no registrará el abono.`
+}
+
 /** Monto con signo para mostrar un saldo (puede ser negativo en una tarjeta): «-$1.000». */
 export function textoSaldo(saldo: number | null, fmt: (n: number) => string): string {
   if (saldo === null) return '—'

@@ -142,3 +142,41 @@ test('mensajes de error: 409 y 422 con texto del servidor, 404, 503 y sin conexi
   assert.match(mensajeErrorCuenta(undefined, 'x'), /conexión/)
   assert.equal(mensajeErrorCuenta(err(500), 'No se pudo'), 'No se pudo')
 })
+
+// ---- Fase (c) · CHG-025 T10: abono con cuenta, recurrentes y confirmación ----
+import { cuerpoAbono, cuerpoConfirmar, avisoSaldo } from '../lib/cuentas.ts'
+
+test('abono: sin cuenta no se envía cuenta_id; con cuenta sí', () => {
+  const base = { monto: 50, descripcion: 'Abono', fecha: '2026-11-25' }
+  assert.deepEqual(cuerpoAbono({ ...base, cuentaId: '' }), base)
+  assert.ok(!('cuenta_id' in cuerpoAbono({ ...base, cuentaId: '' })))
+  assert.deepEqual(cuerpoAbono({ ...base, cuentaId: 'c1' }), { ...base, cuenta_id: 'c1' })
+})
+
+test('confirmar: cuenta_id solo si la persona la tocó; null = quitar', () => {
+  const b = { ocurrencia: '2026-11-25', cuentaOriginal: 'c1' }
+  assert.deepEqual(cuerpoConfirmar({ ...b, cuentaElegida: 'c1' }), { ocurrencia: '2026-11-25' })
+  assert.deepEqual(cuerpoConfirmar({ ...b, cuentaElegida: 'c2' }), { ocurrencia: '2026-11-25', cuenta_id: 'c2' })
+  assert.deepEqual(cuerpoConfirmar({ ...b, cuentaElegida: '' }), { ocurrencia: '2026-11-25', cuenta_id: null })
+  assert.deepEqual(cuerpoConfirmar({ ocurrencia: 'x', cuentaOriginal: null, cuentaElegida: '', monto: 9 }), { ocurrencia: 'x', monto: 9 })
+  assert.deepEqual(cuerpoConfirmar({ ocurrencia: 'x', cuentaOriginal: undefined, cuentaElegida: 'c3' }), { ocurrencia: 'x', cuenta_id: 'c3' })
+})
+
+test('aviso de saldo: solo si el monto supera el saldo y no es tarjeta; no bloquea', () => {
+  const ahorros = { nombre: 'Ahorros', tipo: 'ahorros_corriente', saldo: 100 }
+  assert.equal(avisoSaldo(ahorros, 100, fmt), null)
+  assert.equal(avisoSaldo(ahorros, 0, fmt), null)
+  assert.equal(avisoSaldo(undefined, 500, fmt), null)
+  assert.equal(avisoSaldo({ ...ahorros, saldo: null }, 500, fmt), null)
+  assert.equal(avisoSaldo({ ...ahorros, tipo: 'tarjeta_credito' }, 500, fmt), null)
+  assert.match(avisoSaldo(ahorros, 100.01, fmt), /supera el saldo de «Ahorros» \(\$100\)/)
+})
+
+test('abono/confirmar: mensajes de 409, 404, 422 y 503 con mensajeErrorCuenta', () => {
+  assert.equal(mensajeErrorCuenta(err(409, 'Saldo insuficiente'), 'x'), 'Saldo insuficiente')
+  assert.equal(mensajeErrorCuenta(err(409, 'La cuenta está archivada'), 'x'), 'La cuenta está archivada')
+  assert.equal(mensajeErrorCuenta(err(404, 'Cuenta no encontrada'), 'x'), 'Cuenta no encontrada')
+  assert.equal(mensajeErrorCuenta(err(422, 'Monto inválido'), 'x'), 'Monto inválido')
+  assert.match(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /no está disponible/)
+  assert.doesNotMatch(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /interno/)
+})

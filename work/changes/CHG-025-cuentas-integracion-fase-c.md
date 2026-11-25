@@ -29,7 +29,7 @@ Ninguna que bloquee: todo está especificado y aprobado en CHG-019. Si el genera
 |---|---|---|---|---|
 | T8 | Migración + `10_comprobar_cuentas_integracion.sql` + `probar.sh` + `PLATAAPP_SCHEMA.sql` | fase (b) hecha | hecha (pendiente de validar con T11) | 1 |
 | T9 | Backend: abono, recurrentes (`confirmar_recurrente` atómica), WhatsApp, asistente, exportación + `test_cuentas_integracion.py` | T8 | pendiente | 0 |
-| T10 | Frontend: metas, recurrentes, exportación (columna) y trazabilidad | contrato CT-012 (en paralelo con T9) | pendiente | 0 |
+| T10 | Frontend: metas, recurrentes, exportación (columna) y trazabilidad | contrato CT-012 (en paralelo con T9) | hecha (pendiente de validar con T11); la exportación no necesita cambio de UI (no lista columnas) | 1 |
 | T11 | Validador y revisor en paralelo (máx. 2 ciclos) | T8-T10 | pendiente | 0 |
 
 ## 6. Registro de ejecución

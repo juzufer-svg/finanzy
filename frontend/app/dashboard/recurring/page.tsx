@@ -18,6 +18,8 @@ import { MEDIOS_PAGO, MEDIO_POR_DEFECTO, medioPagoLabel } from '@/lib/payment-me
 import { FRECUENCIAS, frecuenciaTexto, localDate, cuandoTexto, totalMensualEstimado, type Recurrente } from '@/lib/recurrentes'
 import { shortDate } from '@/lib/month-stats'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import { useCuentas } from '@/lib/use-cuentas'
+import { opcionesSelector, nombreDeCuenta, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
 
 interface Category { id: string; nombre: string; tipo: string; icono?: string }
 
@@ -27,13 +29,14 @@ type FormState = {
   monto: string
   descripcion: string
   medio_pago: string
+  cuenta_id: string
   frecuencia: string
   proxima_fecha: string
   activa: boolean
 }
 
 const nuevoForm = (): FormState => ({
-  tipo: 'gasto', categoria_id: '', monto: '', descripcion: '', medio_pago: MEDIO_POR_DEFECTO,
+  tipo: 'gasto', categoria_id: '', monto: '', descripcion: '', medio_pago: MEDIO_POR_DEFECTO, cuenta_id: '',
   frecuencia: 'mensual', proxima_fecha: localDate(new Date()), activa: true,
 })
 
@@ -43,10 +46,13 @@ const IconRepeat = () => (
   </svg>
 )
 
-function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConflict }: {
+function RecurringForm({ initial, editing, categories, cuentas, errorCuentas, onReintentarCuentas, onCancel, onSaved, onConflict }: {
   initial: FormState
   editing: Recurrente | null
   categories: Category[]
+  cuentas: Cuenta[]
+  errorCuentas: string
+  onReintentarCuentas: () => void
   onCancel: () => void
   onSaved: () => void
   /** La próxima fecha cambió mientras se editaba: hay que recargar los datos. */
@@ -60,6 +66,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
   const [error, setError] = useState('')
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(p => ({ ...p, [k]: v }))
   const cats = categories.filter(c => c.tipo === form.tipo)
+  const opcionesCuenta = opcionesSelector(cuentas, editing?.cuenta_id)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,6 +79,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
       monto: toBase(form.monto, editing ? { base: editing.monto, text: montoInicial } : undefined),
       descripcion: form.descripcion.trim(),
       medio_pago: form.medio_pago || null,
+      cuenta_id: form.cuenta_id || null, // vacío = sin cuenta (CT-008 v1.1)
       // Al editar, la fecha solo se envía si la persona la cambió, junto con la que vio (INV-026):
       // así guardar el monto nunca hace retroceder una fecha que ya se registró desde pendientes.
       ...(!editing ? { proxima_fecha } : proxima_fecha !== editing.proxima_fecha ? { proxima_fecha, proxima_fecha_vista: editing.proxima_fecha } : {}),
@@ -81,7 +89,7 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
       else await apiClient.post('/api/v1/recurrentes', body)
       onSaved()
     } catch (err) {
-      const mensaje = apiErrorMessage(err, 'No se pudo guardar la recurrente.')
+      const mensaje = mensajeErrorCuenta(err, 'No se pudo guardar la recurrente.')
       // 409: la fecha cambió mientras se editaba; se avisa y se recarga con los datos vigentes
       if ((err as { response?: { status?: number } })?.response?.status === 409) onConflict(mensaje)
       else setError(mensaje)
@@ -153,6 +161,20 @@ function RecurringForm({ initial, editing, categories, onCancel, onSaved, onConf
             <option value="">Sin especificar</option>
           </select>
         </div>
+        <div>
+          <label htmlFor="rec-cuenta" className="label">Cuenta <span className="text-slate-400 font-normal">(opcional)</span></label>
+          <select id="rec-cuenta" value={form.cuenta_id} onChange={e => set('cuenta_id', e.target.value)} className="input-field" aria-describedby="rec-cuenta-ayuda">
+            <option value="">Sin cuenta</option>
+            {opcionesCuenta.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          <p id="rec-cuenta-ayuda" className="text-xs text-slate-500 mt-1">
+            {errorCuentas ? (
+              <span role="alert" className="text-red-700">{errorCuentas}{' '}
+                <button type="button" onClick={onReintentarCuentas} className="font-semibold underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">Reintentar</button>
+              </span>
+            ) : 'Al confirmar, el movimiento se registra en esta cuenta y mueve su saldo.'}
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
@@ -178,6 +200,7 @@ export default function RecurringPage() {
   const [form, setForm] = useState<{ editing: Recurrente | null; key: number } | null>(null)
   const [pendingKey, setPendingKey] = useState(0)
   const hoy = localDate(new Date())
+  const { cuentas, error: errorCuentas, reintentar: reintentarCuentas } = useCuentas()
 
   const fetchData = useCallback((isActive: () => boolean = () => true) => {
     return Promise.all([
@@ -210,7 +233,7 @@ export default function RecurringPage() {
   // Sin proxima_fecha: pausar o activar nunca cambia la fecha (INV-026)
   const cuerpo = (r: Recurrente, cambios: Partial<Recurrente> = {}) => ({
     tipo: r.tipo, categoria_id: r.categoria_id || '', monto: r.monto, descripcion: r.descripcion || '',
-    medio_pago: r.medio_pago ?? null, frecuencia: r.frecuencia, activa: r.activa,
+    medio_pago: r.medio_pago ?? null, cuenta_id: r.cuenta_id ?? null, frecuencia: r.frecuencia, activa: r.activa,
     ...cambios,
   })
 
@@ -220,7 +243,7 @@ export default function RecurringPage() {
       notify(r.activa ? 'Recurrente pausada' : 'Recurrente activada', 'success')
       refrescar()
     } catch (err) {
-      notify(apiErrorMessage(err, 'No se pudo cambiar el estado.'), 'error')
+      notify(mensajeErrorCuenta(err, 'No se pudo cambiar el estado.'), 'error')
       refrescar()
     }
   }
@@ -246,7 +269,7 @@ export default function RecurringPage() {
   const initialFor = (r: Recurrente | null): FormState => r
     ? {
         tipo: r.tipo === 'ingreso' ? 'ingreso' : 'gasto', categoria_id: r.categoria_id || '', monto: toInput(r.monto),
-        descripcion: r.descripcion || '', medio_pago: r.medio_pago ?? '', frecuencia: r.frecuencia,
+        descripcion: r.descripcion || '', medio_pago: r.medio_pago ?? '', cuenta_id: r.cuenta_id || '', frecuencia: r.frecuencia,
         proxima_fecha: r.proxima_fecha, activa: r.activa,
       }
     : nuevoForm()
@@ -275,6 +298,9 @@ export default function RecurringPage() {
           initial={initialFor(form.editing)}
           editing={form.editing}
           categories={categories}
+          cuentas={cuentas}
+          errorCuentas={errorCuentas}
+          onReintentarCuentas={reintentarCuentas}
           onCancel={() => setForm(null)}
           onConflict={mensaje => { notify(mensaje, 'error'); setForm(null); refrescar() }}
           onSaved={() => { notify(form.editing ? 'Recurrente actualizada' : 'Recurrente creada', 'success'); setForm(null); refrescar() }}
@@ -316,6 +342,7 @@ export default function RecurringPage() {
           <ul className="card divide-y divide-slate-100">
             {items.map(r => {
               const cat = categories.find(c => c.id === r.categoria_id)
+              const cuentaNombre = nombreDeCuenta(cuentas, r.cuenta_id)
               return (
                 <li key={r.id} className={`p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 group ${r.activa ? '' : 'opacity-60'}`}>
                   <span className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${r.tipo === 'ingreso' ? 'bg-emerald-50' : 'bg-red-50'}`} aria-hidden>
@@ -327,7 +354,7 @@ export default function RecurringPage() {
                       {!r.activa && <span className="badge-amber flex-shrink-0">Pausada</span>}
                     </div>
                     <p className="text-xs text-slate-500 truncate">
-                      {frecuenciaTexto(r.frecuencia, r.dia_ancla)} · {cat?.nombre ?? 'Sin categoría'}{r.medio_pago ? ` · ${medioPagoLabel(r.medio_pago)}` : ''}
+                      {frecuenciaTexto(r.frecuencia, r.dia_ancla)} · {cat?.nombre ?? 'Sin categoría'}{r.medio_pago ? ` · ${medioPagoLabel(r.medio_pago)}` : ''}{cuentaNombre ? ` · Cuenta: ${cuentaNombre}` : ''}
                     </p>
                     {r.activa && (
                       <p className="text-xs text-slate-400 mt-0.5">Próxima: {shortDate(r.proxima_fecha, true)} ({cuandoTexto(r.proxima_fecha, hoy).toLowerCase()})</p>

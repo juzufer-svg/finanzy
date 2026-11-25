@@ -16,6 +16,8 @@ export interface Recurrente {
   monto: number
   descripcion?: string | null
   medio_pago?: string | null
+  /** Cuenta de dinero (CT-008 v1.1); `null`/ausente = sin cuenta. */
+  cuenta_id?: string | null
   frecuencia: Frecuencia | string
   dia_ancla: number
   proxima_fecha: string

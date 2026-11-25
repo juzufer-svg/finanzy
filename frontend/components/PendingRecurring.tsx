@@ -13,6 +13,8 @@ import { useCurrencyStore } from '@/store/currency'
 import { cuandoTexto, localDate, type Recurrente } from '@/lib/recurrentes'
 import { shortDate } from '@/lib/month-stats'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import { useCuentas } from '@/lib/use-cuentas'
+import { opcionesSelector, cuerpoConfirmar, mensajeErrorCuenta } from '@/lib/cuentas'
 
 interface Category { id: string; nombre: string; icono?: string }
 
@@ -34,6 +36,9 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
   const [error, setError] = useState('')
   const [montos, setMontos] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  // Cuenta elegida por recurrente al confirmar; si no se toca, no se envía `cuenta_id` (CT-008 v1.1)
+  const [cuentasSel, setCuentasSel] = useState<Record<string, string>>({})
+  const { cuentas, error: errorCuentas, reintentar: reintentarCuentas } = useCuentas()
   const hoy = localDate(new Date())
 
   const fetchPending = useCallback((isActive: () => boolean = () => true) => {
@@ -46,6 +51,7 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
         setItems(pend.data)
         setCategories(cats.data)
         setMontos({})
+        setCuentasSel({})
         setError('')
       })
       .catch(err => {
@@ -79,12 +85,13 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
     }
     setBusy(r.id)
     try {
-      await apiClient.post(`/api/v1/recurrentes/${r.id}/confirmar`, { ocurrencia: r.proxima_fecha, ...(monto !== undefined ? { monto } : {}) })
+      const elegida = cuentasSel[r.id] ?? (r.cuenta_id || '')
+      await apiClient.post(`/api/v1/recurrentes/${r.id}/confirmar`, cuerpoConfirmar({ ocurrencia: r.proxima_fecha, monto, cuentaOriginal: r.cuenta_id, cuentaElegida: elegida }))
       notify(`${nombre(r)} registrado`, 'success')
       await fetchPending()
       onChanged?.(r.id)
     } catch (err) {
-      notify(apiErrorMessage(err, 'No se pudo registrar.'), 'error')
+      notify(mensajeErrorCuenta(err, 'No se pudo registrar.'), 'error')
       await fetchPending()
     } finally {
       setBusy(null)
@@ -150,6 +157,20 @@ export default function PendingRecurring({ onChanged, hideWhenEmpty = false, ref
                   <p className={`text-xs ${atrasada ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500'}`}>
                     {r.tipo === 'ingreso' ? 'Ingreso' : 'Gasto'} · {shortDate(r.proxima_fecha)} · {cuandoTexto(r.proxima_fecha, hoy)}
                   </p>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <label htmlFor={`pend-cuenta-${r.id}`} className="text-xs text-slate-500">Cuenta</label>
+                    <select id={`pend-cuenta-${r.id}`} value={cuentasSel[r.id] ?? (r.cuenta_id || '')}
+                      onChange={e => setCuentasSel(p => ({ ...p, [r.id]: e.target.value }))}
+                      className="input-field !py-1 !px-2 !text-xs !w-auto max-w-[11rem]">
+                      <option value="">Sin cuenta</option>
+                      {opcionesSelector(cuentas, r.cuenta_id).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                    {errorCuentas && (
+                      <button type="button" onClick={reintentarCuentas} role="alert" className="text-xs text-red-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
+                        {errorCuentas} Reintentar
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:flex-shrink-0">
