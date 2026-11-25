@@ -574,20 +574,30 @@ def sin_admin(monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_MODEL", "claude-haiku-5-5")
 
 
-def test_anthropic_sin_clave_usa_contadores_solo_asistente(client, sesiones, externas, sin_admin):
+def test_anthropic_sin_clave_suma_asistente_y_whatsapp(client, sesiones, externas, sin_admin):
     _contar("claude_llamadas", "asistente", 4)
-    _contar("claude_tokens_entrada", "asistente", 2_000_000)
-    _contar("claude_tokens_salida", "asistente", 400_000)
-    _contar("claude_llamadas", "whatsapp", 99)            # WhatsApp NO se suma
-    _contar("claude_tokens_entrada", "whatsapp", 9_000_000)
-    _contar("claude_tokens_salida", "whatsapp", 9_000_000)
+    _contar("claude_tokens_entrada", "asistente", 1_000_000)
+    _contar("claude_tokens_salida", "asistente", 200_000)
+    _contar("claude_llamadas", "whatsapp", 6)
+    _contar("claude_tokens_entrada", "whatsapp", 1_000_000)
+    _contar("claude_tokens_salida", "whatsapp", 200_000)
+    _contar("claude_llamadas", "general", 99)             # otros orígenes no se suman
     _contar("brevo_correos_enviados", "general", 7)
     r = client.get(RUTA, headers=sesiones["dueno"])
     # 2M × 0,10/M + 0,4M × 0,50/M = 0,20 + 0,20
     assert _datos(r, "anthropic")["datos"] == {
-        "llamadas_mes": 4, "tokens_entrada_mes": 2_000_000, "tokens_salida_mes": 400_000,
+        "llamadas_mes": 10, "llamadas_asistente_mes": 4, "llamadas_whatsapp_mes": 6,
+        "tokens_entrada_mes": 2_000_000, "tokens_salida_mes": 400_000,
         "costo_mes": 0.4, "moneda": "USD"}
     assert "api.anthropic.com" not in externas.hosts()
+
+
+def test_anthropic_un_origen_en_cero(client, sesiones, externas, sin_admin):
+    _contar("claude_llamadas", "whatsapp", 3)
+    _contar("claude_tokens_entrada", "whatsapp", 1_000_000)
+    datos = _datos(client.get(RUTA, headers=sesiones["dueno"]), "anthropic")["datos"]
+    assert datos["llamadas_mes"] == 3 and datos["llamadas_asistente_mes"] == 0 and datos["llamadas_whatsapp_mes"] == 3
+    assert datos["tokens_entrada_mes"] == 1_000_000 and abs(datos["costo_mes"] - 0.1) < 1e-9
 
 
 def test_anthropic_contadores_solo_cuentan_el_mes_utc_en_curso(client, sesiones, externas, sin_admin, monkeypatch):
@@ -614,7 +624,8 @@ def test_anthropic_modelo_desconocido_omite_costo(client, sesiones, externas, si
     _contar("claude_llamadas", "asistente", 2)
     _contar("claude_tokens_entrada", "asistente", 100)
     datos = _datos(client.get(RUTA, headers=sesiones["dueno"]), "anthropic")["datos"]
-    assert datos == {"llamadas_mes": 2, "tokens_entrada_mes": 100, "tokens_salida_mes": 0}   # sin costo_mes ni moneda
+    assert datos == {"llamadas_mes": 2, "llamadas_asistente_mes": 2, "llamadas_whatsapp_mes": 0,
+                     "tokens_entrada_mes": 100, "tokens_salida_mes": 0}   # sin costo_mes ni moneda
 
 
 def test_anthropic_sin_actividad_muestra_ceros_reales(client, sesiones, externas, sin_admin):
@@ -667,7 +678,8 @@ def test_anthropic_clave_de_admin_valida_prevalece_sobre_los_contadores(client, 
     r = client.get(RUTA, headers=sesiones["dueno"])
     datos = _datos(r, "anthropic")["datos"]
     assert datos == {"tokens_entrada_mes": 115, "tokens_salida_mes": 50, "costo_mes": 2.505, "moneda": "USD"}
-    assert "llamadas_mes" not in datos and "api.anthropic.com" in externas.hosts()
+    _contar("claude_llamadas", "whatsapp", 5)
+    assert "llamadas_mes" not in datos and "llamadas_whatsapp_mes" not in datos and "api.anthropic.com" in externas.hosts()
 
 
 def test_anthropic_clave_con_prefijo_equivocado_usa_contadores_sin_enviarla(client, sesiones, externas, monkeypatch):

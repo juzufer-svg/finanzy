@@ -83,11 +83,13 @@ test('Supabase: etiquetas de tamaño y límite en MB/GB', () => {
 })
 
 test('Anthropic estimado con contadores propios: etiquetas, US$ sin conversor y nota', () => {
-  const datos = { llamadas_mes: 1200, tokens_entrada_mes: 3500000, tokens_salida_mes: 40000, costo_mes: 0.37, moneda: 'USD', cuenta: 'x' }
+  const datos = { llamadas_mes: 1200, llamadas_asistente_mes: 1000, llamadas_whatsapp_mes: 200,
+    tokens_entrada_mes: 3500000, tokens_salida_mes: 40000, costo_mes: 0.37, moneda: 'USD', cuenta: 'x' }
   assert.deepEqual(camposVisibles('anthropic', datos).map(c => [c.etiqueta, c.valor]), [
-    ['Llamadas del chat (mes)', '1.200'], ['Tokens de entrada (mes)', '3.500.000'],
+    ['Llamadas (total)', '1.200'], ['Asistente IA (llamadas del mes)', '1.000'], ['WhatsApp (llamadas del mes)', '200'],
+    ['Tokens de entrada (mes)', '3.500.000'],
     ['Tokens de salida (mes)', '40.000'], ['Costo estimado del mes (US$)', 'US$ 0,37']])
-  assert.equal(notaPlataforma('anthropic', datos), 'Estimado a partir de los contadores propios (solo el chat; WhatsApp aparte)')
+  assert.equal(notaPlataforma('anthropic', datos), 'Estimado a partir de los contadores propios')
   assert.equal(NOTA_ESTIMADO_CONTADORES, notaPlataforma('anthropic', datos))
   // modelo desconocido: sin costo
   assert.deepEqual(camposVisibles('anthropic', { llamadas_mes: 1, tokens_entrada_mes: 2, tokens_salida_mes: 3 }).map(c => c.clave),
@@ -261,7 +263,9 @@ test('resumenPlan Vercel: plan desde los datos, sin barra', () => {
 
 test('resumenPlan Claude: plan de pago por uso, costo sin barra', () => {
   const r = resumenPlan('anthropic', { costo_mes: 1.5 }, [], null)
-  assert.equal(r.plan, 'Pago por uso (sin cuota gratuita)')
+  assert.equal(r.plan, 'API de Anthropic · pago por uso (no es una suscripción Pro)')
+  assert.equal(r.alcance, 'Solo el uso de Haiku que hace Finanzy: Asistente IA + WhatsApp. No incluye Claude Code, la consola ni otras claves')
+  assert.equal(resumenPlan('brevo', {}, [], null).alcance, undefined)
   assert.equal(r.limiteTexto, 'Frecuencia: 4.000 solicitudes por minuto en el nivel inicial; tope de gasto mensual US$500')
   assert.equal(r.usoTexto, 'US$ 1,50 (costo del mes)')
   assert.equal(r.porcentaje, null)

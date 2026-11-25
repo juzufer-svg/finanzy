@@ -166,6 +166,9 @@ function TarjetaPlataforma({ clave, nombre, plataforma, dias, hoy }: {
               </div>
             )}
           </dl>
+          {rp.alcance && (
+            <p className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700">{rp.alcance}</p>
+          )}
           {rp.nota && <p className="mt-3 text-xs text-slate-500">{rp.nota}</p>}
           <dl className="mt-3 space-y-2">
             {campos.map(c => (

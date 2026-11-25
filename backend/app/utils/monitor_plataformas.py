@@ -62,7 +62,7 @@ ESQUEMA: dict[str, dict[str, Any]] = {
     "railway": {"costo_estimado_mes": "num", "uso_cpu_vcpu_horas": "num", "uso_memoria_gb_horas": "num",
                 "creditos_saldo": "num", "moneda": ("USD",), "periodo_hasta": "fecha"},
     "anthropic": {"costo_mes": "num", "moneda": ("USD",), "tokens_entrada_mes": "num", "tokens_salida_mes": "num",
-                  "llamadas_mes": "num"},
+                  "llamadas_mes": "num", "llamadas_asistente_mes": "num", "llamadas_whatsapp_mes": "num"},
     "meta": {"conversaciones_periodo": "num", "periodo_desde": "fecha", "periodo_hasta": "fecha"},
     "supabase": {"tamano_bd_bytes": "num", "limite_bd_bytes": "num"},
     "vercel": {"plan": ("gratuito", "pro", "otro"), "ancho_banda_bytes": "num", "limite_ancho_banda_bytes": "num"},
@@ -352,16 +352,20 @@ def _costo_estimado(modelo: str, entrada: int, salida: int) -> Optional[float]:
 
 
 async def _anthropic_contadores() -> dict:
-    """Sin clave de administración: consumo del MES de Colombia (UTC−5) del chat del Asistente (origen `asistente`; el de
-    WhatsApp NO se suma) a partir de los contadores propios (INV-036). Es una ESTIMACIÓN. Si el contador falla
-    → no disponible (el error se propaga a `_consultar`)."""
+    """Sin clave de administración: consumo del MES de Colombia (UTC−5) del Asistente IA (origen `asistente`) MÁS
+    WhatsApp (origen `whatsapp`), a partir de los contadores propios (INV-036). Es una ESTIMACIÓN solo de la API de
+    Haiku que usa la app. Si el contador falla → no disponible (el error se propaga a `_consultar`)."""
     try:
-        total = await asyncio.to_thread(contadores.leer_mes_claude, "asistente")
+        asistente = await asyncio.to_thread(contadores.leer_mes_claude, "asistente")
+        whatsapp = await asyncio.to_thread(contadores.leer_mes_claude, "whatsapp")
     except Exception as e:
         raise _NoDisponible("forma_inesperada") from e
-    entrada, salida = total["claude_tokens_entrada"], total["claude_tokens_salida"]
+    entrada = asistente["claude_tokens_entrada"] + whatsapp["claude_tokens_entrada"]
+    salida = asistente["claude_tokens_salida"] + whatsapp["claude_tokens_salida"]
     crudo: dict[str, Any] = {
-        "llamadas_mes": total["claude_llamadas"], "tokens_entrada_mes": entrada, "tokens_salida_mes": salida,
+        "llamadas_mes": asistente["claude_llamadas"] + whatsapp["claude_llamadas"],
+        "llamadas_asistente_mes": asistente["claude_llamadas"], "llamadas_whatsapp_mes": whatsapp["claude_llamadas"],
+        "tokens_entrada_mes": entrada, "tokens_salida_mes": salida,
     }
     costo = _costo_estimado(settings.ANTHROPIC_MODEL, entrada, salida)
     if costo is not None:

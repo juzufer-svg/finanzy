@@ -61,10 +61,12 @@ const CAMPOS: Record<NombrePlataforma, CampoDef[]> = {
     { clave: 'uso_memoria_gb_horas', etiqueta: 'Memoria (GB-horas)', tipo: 'numero' },
     { clave: 'periodo_hasta', etiqueta: 'Período hasta', tipo: 'fecha' },
   ],
-  // Sin clave de administración el backend estima el mes con los contadores propios (solo el chat) y envía
+  // Sin clave de administración el backend estima el mes con los contadores propios (Asistente IA + WhatsApp) y envía
   // `llamadas_mes`; con ella, los datos son oficiales y se usan las etiquetas «oficiales».
   anthropic: [
-    { clave: 'llamadas_mes', etiqueta: 'Llamadas del chat (mes)', tipo: 'numero' },
+    { clave: 'llamadas_mes', etiqueta: 'Llamadas (total)', tipo: 'numero' },
+    { clave: 'llamadas_asistente_mes', etiqueta: 'Asistente IA (llamadas del mes)', tipo: 'numero' },
+    { clave: 'llamadas_whatsapp_mes', etiqueta: 'WhatsApp (llamadas del mes)', tipo: 'numero' },
     { clave: 'tokens_entrada_mes', etiqueta: 'Tokens de entrada (mes)', tipo: 'numero', etiquetaOficial: 'Tokens de entrada del mes' },
     { clave: 'tokens_salida_mes', etiqueta: 'Tokens de salida (mes)', tipo: 'numero', etiquetaOficial: 'Tokens de salida del mes' },
     { clave: 'costo_mes', etiqueta: 'Costo estimado del mes (US$)', tipo: 'usd', etiquetaOficial: 'Costo del mes' },
@@ -179,7 +181,7 @@ export function camposVisibles(nombre: NombrePlataforma, datos: Plataforma['dato
 }
 
 /** Nota de la tarjeta cuando los datos son una estimación con los contadores propios (no oficiales). */
-export const NOTA_ESTIMADO_CONTADORES = 'Estimado a partir de los contadores propios (solo el chat; WhatsApp aparte)'
+export const NOTA_ESTIMADO_CONTADORES = 'Estimado a partir de los contadores propios'
 
 export function notaPlataforma(nombre: NombrePlataforma, datos: Plataforma['datos']): string | null {
   return nombre === 'anthropic' && esObjeto(datos) && 'llamadas_mes' in datos ? NOTA_ESTIMADO_CONTADORES : null
@@ -333,8 +335,9 @@ export const LIMITES_PLAN = {
     limiteTexto: '1.000 mensajes de servicio al mes por número', limiteMensajes: 1000,
   },
   anthropic: {
-    plan: 'Pago por uso (sin cuota gratuita)',
+    plan: 'API de Anthropic · pago por uso (no es una suscripción Pro)',
     limiteTexto: 'Frecuencia: 4.000 solicitudes por minuto en el nivel inicial; tope de gasto mensual US$500',
+    alcance: 'Solo el uso de Haiku que hace Finanzy: Asistente IA + WhatsApp. No incluye Claude Code, la consola ni otras claves',
   },
 } as const
 
@@ -357,6 +360,8 @@ export interface ResumenPlan {
   etiquetaUso: string
   /** Nota extra de la tarjeta (p. ej. la pausa de Supabase); `null` si no hay. */
   nota: string | null
+  /** Línea de alcance bien visible de la tarjeta (solo Claude); ausente si no aplica. */
+  alcance?: string
 }
 
 /** Texto de un porcentaje: un decimal si es < 10 % («5,3 %»), entero si no; se trunca para no aparentar 80 % antes de tiempo. */
@@ -451,7 +456,7 @@ export function resumenPlan(
     }
     case 'anthropic': {
       const L = LIMITES_PLAN.anthropic
-      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Uso actual', nota: null }
+      const base = { plan: L.plan, limiteTexto: L.limiteTexto, etiquetaUso: 'Uso actual', nota: null, alcance: L.alcance }
       return esNumero(d.costo_mes) ? sinMedida(base, `${formatUsd(d.costo_mes)} (costo del mes)`) : sinMedida(base)
     }
   }
