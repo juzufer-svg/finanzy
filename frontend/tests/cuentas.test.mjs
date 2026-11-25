@@ -131,8 +131,12 @@ test('mensajes de error: 409 y 422 con texto del servidor, 404, 503 y sin conexi
   assert.match(mensajeErrorCuenta(err(404), 'x'), /ya no existe/)
   assert.equal(mensajeErrorCuenta(err(422, 'Elige un tipo válido'), 'x'), 'Elige un tipo válido')
   assert.equal(mensajeErrorCuenta(err(422, [{ msg: 'raro' }]), 'x'), 'Revisa los datos ingresados.')
-  assert.match(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /no está disponible/)
-  assert.doesNotMatch(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /interno/)
+  assert.match(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /^El servicio no está disponible/)
+  assert.doesNotMatch(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /interno|cuentas/)   // genérico: sirve a TransactionForm
+  // todo lo que no es 404/409/422 se delega en apiErrorMessage: un 401 conserva su texto y uno sin texto cae al respaldo
+  assert.equal(mensajeErrorCuenta(err(401, 'No autenticado'), 'x'), 'No autenticado')
+  assert.equal(mensajeErrorCuenta(err(401), 'No se pudo'), 'No se pudo')
+  assert.equal(mensajeErrorCuenta(err(403, 'Prohibido'), 'x'), 'Prohibido')
   assert.match(mensajeErrorCuenta(err(429), 'x'), /Demasiados/)
   assert.match(mensajeErrorCuenta(new Error('red'), 'x'), /conexión/)
   assert.match(mensajeErrorCuenta(undefined, 'x'), /conexión/)

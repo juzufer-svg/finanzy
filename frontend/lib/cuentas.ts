@@ -7,6 +7,8 @@
  * con `fmt/toInput/toBase`. El saldo lo calcula el servidor: aquí solo se lee y se muestra.
  */
 
+import { apiErrorMessage } from './api-error.ts'
+
 export type TipoCuenta = 'efectivo' | 'ahorros_corriente' | 'billetera_digital' | 'tarjeta_credito'
 
 export const TIPOS_CUENTA: { value: TipoCuenta; label: string; ayuda: string }[] = [
@@ -160,19 +162,17 @@ export function cambiosCuenta(
 }
 
 /**
- * Mensaje para el usuario a partir de un error de axios (o similar). 409 y 422 con texto del servidor lo muestran tal
- * cual (saldo insuficiente, cuenta archivada, nombre repetido, máximo de 20…); 404, 503 y sin conexión tienen texto propio.
+ * Mensaje para el usuario a partir de un error de axios (o similar). Solo 404, 409 y 422 con texto del servidor lo muestran
+ * (saldo insuficiente, cuenta archivada, nombre repetido, máximo de 20…); 503 tiene un texto GENÉRICO (también lo usa
+ * TransactionForm para transacciones sin cuenta) y todo lo demás (401, 429, sin conexión, 500…) se delega en
+ * `apiErrorMessage`, para que ningún estado quede sin manejar.
  */
 export function mensajeErrorCuenta(err: unknown, fallback: string): string {
   const e = err as { response?: { status?: number; data?: { detail?: unknown } } } | null | undefined
-  const response = e?.response
-  if (!response) return 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.'
-  const detail = response.data?.detail
-  const status = response.status
-  if (status === 503) return 'El servicio de cuentas no está disponible por ahora. No se guardó nada; intenta de nuevo en unos minutos.'
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  if (status === 503) return 'El servicio no está disponible por ahora. No se guardó nada; intenta de nuevo en unos minutos.'
   if (status === 404) return typeof detail === 'string' && detail ? detail : 'Esta cuenta ya no existe. Actualiza la página.'
-  if (status === 429) return 'Demasiados intentos. Espera unos minutos.'
-  if (typeof detail === 'string' && detail) return detail
-  if (Array.isArray(detail) && detail.length > 0) return 'Revisa los datos ingresados.'
-  return fallback
+  if ((status === 409 || status === 422) && typeof detail === 'string' && detail) return detail
+  return apiErrorMessage(err, fallback)
 }

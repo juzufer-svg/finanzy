@@ -9,7 +9,8 @@
 --    BEFORE con prefijo fz001_. Su PRIMER paso es bloquear (FOR UPDATE, ordenado por id) las cuentas implicadas, antes de
 --    que corra ninguna llave foránea (que son disparadores AFTER internos): así las escrituras simultáneas hacen cola
 --    sin subir bloqueos y no se interbloquean (un disparador AFTER dio 27 `deadlock detected` en el prototipo).
---  * Errores propios (SQLSTATE): FZ001 saldo negativo · FZ002 cuenta archivada · FZ003 tope de 20 cuentas por usuario.
+--  * Errores propios (SQLSTATE): FZ001 saldo negativo · FZ002 cuenta archivada · FZ003 tope de 20 cuentas por usuario ·
+--    FZ004 el tipo y el dueño de una cuenta existente no se pueden cambiar.
 --  * La llave foránea de cuenta_id es compuesta (cuenta_id, usuario_id) y ON DELETE NO ACTION (no RESTRICT): así borrar un
 --    usuario (REQ-F-013, cascada) no choca con sus cuentas ni con sus transacciones (INV-021).
 
@@ -46,8 +47,9 @@ do $$ begin
       check (cuenta_id is null or usuario_id is not null);
   end if;
 end $$;
--- Índice para el saldo (REQ-N-022): solo las transacciones con cuenta; INCLUDE evita leer la tabla
-create index if not exists idx_transacciones_cuenta on public.transacciones (cuenta_id) include (tipo, monto) where cuenta_id is not null;
+-- Índice para el saldo (REQ-N-022): solo las transacciones con cuenta; INCLUDE (tipo, monto, usuario_id) cubre también el
+-- filtro `t.usuario_id = c.usuario_id` de las consultas de saldo, así que no hace falta leer la tabla
+create index if not exists idx_transacciones_cuenta on public.transacciones (cuenta_id) include (tipo, monto, usuario_id) where cuenta_id is not null;
 
 -- 3. Saldo vigente de UNA cuenta. VOLATILE a propósito: debe ver lo confirmado por quien tenía el bloqueo antes
 -- (una función STABLE usaría la instantánea de la sentencia que la llama, tomada ANTES de esperar el bloqueo).
@@ -196,6 +198,25 @@ create trigger fz003_tope_cuentas
   before insert on public.cuentas
   for each row execute function public.fz003_tope_cuentas_fn();
 
+-- 7b. El tipo y el dueño de una cuenta existente no cambian nunca (FZ004): cambiar efectivo → tarjeta de crédito, o una
+-- tarjeta con saldo negativo → efectivo, burlaría la regla de saldo (INV-048). La API ya nunca los envía; esto cierra el UPDATE directo.
+create or replace function public.fz004_cuenta_inmutable_fn()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.tipo is distinct from old.tipo or new.usuario_id is distinct from old.usuario_id then
+    raise exception 'cuenta_inmutable' using errcode = 'FZ004', detail = old.id::text;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists fz004_cuenta_inmutable on public.cuentas;
+create trigger fz004_cuenta_inmutable
+  before update of tipo, usuario_id on public.cuentas
+  for each row execute function public.fz004_cuenta_inmutable_fn();
+
 -- 8. Solo el backend (service_role) usa la tabla y las funciones; RLS activado SIN políticas (INV-021)
 do $$
 declare f text;
@@ -204,7 +225,8 @@ declare f text;
     'public.cuentas_con_saldo(uuid)',
     'public.fz001_saldo_transacciones_fn()',
     'public.fz001_saldo_cuentas_fn()',
-    'public.fz003_tope_cuentas_fn()'];
+    'public.fz003_tope_cuentas_fn()',
+    'public.fz004_cuenta_inmutable_fn()'];
 begin
   alter table public.cuentas enable row level security;
   revoke all on public.cuentas from public;
@@ -231,7 +253,7 @@ begin
   end loop;
 end $$;
 
--- Comprobación: cuentas con rowsecurity = true; 3 disparadores; 0 transacciones con cuenta_id
+-- Comprobación: cuentas con rowsecurity = true; 4 disparadores; 0 transacciones con cuenta_id
 select tablename, rowsecurity from pg_tables where schemaname = 'public' and tablename = 'cuentas';
-select tgname from pg_trigger where tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas') and not tgisinternal order by 1;
+select tgname from pg_trigger where tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas', 'fz004_cuenta_inmutable') and not tgisinternal order by 1;
 select count(*) as transacciones_con_cuenta from public.transacciones where cuenta_id is not null;

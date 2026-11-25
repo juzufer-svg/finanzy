@@ -117,6 +117,29 @@ def test_sin_cuenta_deshacer_y_corregir_funcionan_igual_y_el_mensaje_queda_proce
     assert tw._webhook(client, [("wamid.fijo", tw.TEL_A, "deshacer")]).status_code == 200 and meta["claude"] == []
 
 
+@pytest.mark.parametrize("codigo, fragmento", [("FZ001", "saldo negativo"), ("FZ002", "archivada")])
+def test_m2_deshacer_a_medias_no_dice_no_cambie_nada_y_manda_a_revisar_la_app(client, meta, monkeypatch, codigo, fragmento):
+    """Si ya se borró algún movimiento del lote y otro lo rechaza la regla de cuentas (FZ001/FZ002), el lote quedó a medias."""
+    tw._enlazar(client, meta)
+    meta["claude"].append(tw.herramienta("registrar_movimientos", {"movimientos": [
+        {"tipo": "gasto", "monto": 1000, "fecha": "2026-11-23"}, {"tipo": "gasto", "monto": 2000, "fecha": "2026-11-23"}]}))
+    tw._msg(client, "dos gastos")
+    original, llamadas = modelos.TransaccionDB.eliminar, []
+
+    async def eliminar(tid, uid):
+        llamadas.append(tid)
+        if len(llamadas) == 2:
+            raise ErrorBD(codigo)
+        return await original(tid, uid)
+    monkeypatch.setattr(modelos.TransaccionDB, "eliminar", staticmethod(eliminar))
+    meta["claude"].append(tw.herramienta("deshacer_ultimo", {}))
+    tw._msg(client, "deshacer")
+    texto = meta["enviados"][-1][1]
+    assert "Deshice parte del lote" in texto and fragmento in texto and "revisa en la app" in texto.lower()
+    assert "No cambié nada" not in texto and codigo not in texto
+    assert len(tw._tx(client)) == 1                       # una se borró y la otra sigue
+
+
 def test_un_error_de_bd_que_no_es_de_cuentas_sigue_avisando_sin_detalles(client, meta, monkeypatch):
     tw._enlazar(client, meta)
     meta["claude"].append(tw.herramienta("registrar_movimientos", {"movimientos": [

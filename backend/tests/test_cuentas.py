@@ -5,6 +5,8 @@ atomicidad y la concurrencia reales se prueban en PostgreSQL (`backend/sql/prueb
 Las pruebas con `_ClienteFalso` comprueban la rama de Supabase (columnas reales, usuario de la sesión, traducción de errores).
 """
 import asyncio
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -603,3 +605,136 @@ def test_en_produccion_sin_supabase_las_cuentas_no_usan_la_memoria(monkeypatch):
     for operacion in (lambda: CuentaDB.listar("user-a"), lambda: CuentaDB.obtener_por_id(INEXISTENTE, "user-a")):
         with pytest.raises(EstadoNoDisponible):
             asyncio.run(operacion())
+
+
+# ───────────── I-1: ejecutor PROPIO y acotado de cuentas (ADR-009, BL-043) ─────────────
+
+def _huecos_cuentas():
+    from app.models import cuentas as cuentas_mod
+    return cuentas_mod._huecos._value
+
+
+def _esperar_huecos_cuentas(n, plazo=3.0):
+    fin = time.monotonic() + plazo
+    while _huecos_cuentas() != n and time.monotonic() < fin:
+        time.sleep(0.01)
+    return _huecos_cuentas()
+
+
+def _fuente_lenta(espera, hilos, falla=None):
+    def fuente(q):
+        hilos.append(threading.current_thread().name)
+        time.sleep(espera)
+        if falla:
+            raise falla
+        return [FILA_CUENTA] if q.tabla == "rpc:cuentas_con_saldo" else []
+    return fuente
+
+
+def test_i1_cuentas_usa_su_propio_ejecutor_de_4_hilos_y_no_los_de_auth_estado(client, monkeypatch):
+    from app.models import cuentas as cuentas_mod
+    hilos = []
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0, hilos))
+    assert cuentas_mod.MAX_HILOS_CUENTAS == 4 and cuentas_mod._ejecutor is not auth_estado._ejecutor
+    assert client.get(URL, headers=A).status_code == 200
+    assert hilos and all(h.startswith("cuentas") and "auth-estado" not in h for h in hilos)
+
+
+def test_i1_sin_hueco_503_inmediato_sin_encolar_ni_llamar_a_la_bd(client, monkeypatch):
+    from app.models import cuentas as cuentas_mod
+    hilos = []
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0, hilos))
+    tomados = 0
+    while cuentas_mod._huecos.acquire(blocking=False):
+        tomados += 1
+    try:
+        inicio = time.monotonic()
+        r = client.get(URL, headers=A)
+        assert r.status_code == 503 and r.json() == {"detail": MENSAJE_503}
+        assert time.monotonic() - inicio < 0.5 and hilos == []
+    finally:
+        for _ in range(tomados):
+            cuentas_mod._huecos.release()
+
+
+def test_i1_el_hueco_se_libera_tras_terminar_tras_excepcion_y_tras_cancelacion(monkeypatch):
+    base = _huecos_cuentas()
+    hilos = []
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0, hilos))
+    assert len(asyncio.run(CuentaDB.listar("user-a"))) == 1
+    assert _esperar_huecos_cuentas(base) == base                       # tras terminar
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0, hilos, RuntimeError("secreto")))
+    with pytest.raises(EstadoNoDisponible):
+        asyncio.run(CuentaDB.listar("user-a"))
+    assert _esperar_huecos_cuentas(base) == base                       # tras excepción
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0.5, hilos))
+
+    async def cancelar():
+        tarea = asyncio.create_task(CuentaDB.listar("user-a"))
+        await asyncio.sleep(0.1)
+        tarea.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tarea
+    asyncio.run(cancelar())
+    assert _esperar_huecos_cuentas(base) == base                       # tras cancelación (al terminar el hilo)
+
+
+def test_i1_con_la_bd_lenta_las_cuentas_no_dan_503_a_los_logins_de_otras_personas(client, users, monkeypatch):
+    """No interferencia: con las 4 llamadas de cuentas en vuelo (y varias más rechazadas), los 8 hilos de auth-estado siguen
+    libres y el login de OTRA persona responde 200."""
+    from app.models import cuentas as cuentas_mod
+    from app.models.user import UserDB
+    hilos = []
+    _con_supabase_falso(monkeypatch, _fuente_lenta(0.8, hilos))
+    monkeypatch.setattr(auth_estado, "_modo", lambda: "memoria")   # el login usa su almacén; cuentas usa el cliente falso
+    monkeypatch.setattr(cuentas_mod, "_modo", lambda: "bd")
+    asyncio.run(UserDB.create("otra@x.com", "Clave-123456", is_active=True))
+
+    async def tormenta():
+        return await asyncio.gather(*[CuentaDB.listar("user-a") for _ in range(12)], return_exceptions=True)
+    resultado = []
+    hilo = threading.Thread(target=lambda: resultado.extend(asyncio.run(tormenta())))
+    hilo.start()
+    time.sleep(0.2)
+    r = client.post("/api/v1/auth/login", json={"email": "otra@x.com", "password": "Clave-123456"})
+    assert r.status_code == 200 and r.json()["access_token"]
+    assert asyncio.run(auth_estado.ejecutar("sonda", lambda: "ok")) == "ok"   # los 8 hilos de auth-estado, libres
+    hilo.join()
+    assert sum(isinstance(x, EstadoNoDisponible) for x in resultado) == 8     # 4 corren, 8 sin hueco = 503
+    assert len(hilos) == 4 and all(h.startswith("cuentas") for h in hilos)
+    _esperar_huecos_cuentas(cuentas_mod.MAX_HILOS_CUENTAS)
+
+
+# ───────────── M-1 / FZ004: traducción de errores de la BD ─────────────
+
+def test_m1_monto_que_desborda_numeric_12_2_en_transaccion_sin_cuenta_es_422_no_503(client, monkeypatch, capsys):
+    """Entre 1e10 y 1e12 pasa INV-003 pero NUMERIC(12,2) lo rechaza (22003). BL-017 (alinear el tope global) sigue pendiente."""
+    def fuente(q):
+        if q.tabla == "transacciones" and (q.valor("insert") or q.valor("update")):
+            raise _ErrorPG("22003")
+        return [{"id": INEXISTENTE, "usuario_id": "user-a", "categoria_id": None, "monto": 5, "descripcion": "",
+                 "fecha": "2026-11-22", "tipo": "gasto", "medio_pago": None, "cuenta_id": None}]
+    _con_supabase_falso(monkeypatch, fuente)
+    r = _tx(client, None, 50_000_000_000)
+    assert r.status_code == 422 and r.json() == {"detail": "El monto es demasiado grande"}
+    r = client.put(f"/api/v1/transacciones/{INEXISTENTE}", headers=A, json={
+        "monto": 50_000_000_000, "fecha": "2026-11-22", "tipo": "gasto", "descripcion": ""})
+    assert r.status_code == 422 and "demasiado grande" in r.json()["detail"]
+    assert "secreto" not in r.text and "secreto" not in capsys.readouterr().out
+
+
+def test_fz004_cambiar_el_tipo_de_una_cuenta_en_la_bd_se_traduce_a_422_sin_detalles(client, monkeypatch):
+    def fuente(q):
+        if q.tabla == "cuentas" and q.valor("update"):
+            raise _ErrorPG("FZ004")
+        return [FILA_CUENTA] if q.tabla in ("cuentas", "rpc:cuentas_con_saldo") else []
+    _con_supabase_falso(monkeypatch, fuente)
+    r = client.put(f"{URL}/{INEXISTENTE}", json={"nombre": "Y"}, headers=A)
+    assert r.status_code == 422 and "tipo" in r.json()["detail"] and "secreto" not in r.text and "FZ004" not in r.text
+
+
+def test_inv051_el_saldo_sale_redondeado_a_2_decimales(client, monkeypatch):
+    fila = {**FILA_CUENTA, "saldo": 1234.5600000001, "saldo_inicial": "10.10"}
+    _con_supabase_falso(monkeypatch, lambda q: [fila] if q.tabla == "rpc:cuentas_con_saldo" else [])
+    c = client.get(URL, headers=A).json()[0]
+    assert c["saldo"] == 1234.56 and c["saldo_inicial"] == 10.1

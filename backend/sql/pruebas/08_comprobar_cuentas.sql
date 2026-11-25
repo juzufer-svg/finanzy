@@ -83,7 +83,7 @@ begin
   for r in select t.tgname, t.tgrelid::regclass::text as tabla, t.tgtype,
                   (select string_agg(a.attname, ',' order by a.attname) from unnest(t.tgattr::int2[]) k(n)
                      join pg_attribute a on a.attrelid = t.tgrelid and a.attnum = k.n) as columnas
-             from pg_trigger t where not t.tgisinternal and t.tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas') loop
+             from pg_trigger t where not t.tgisinternal and t.tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas', 'fz004_cuenta_inmutable') loop
     if r.tgtype & 3 <> 3 then raise exception '% debe ser BEFORE ... FOR EACH ROW (tgtype %)', r.tgname, r.tgtype; end if;
     if r.tgname = 'fz001_saldo_transacciones' and not (r.tabla = 'transacciones' and r.tgtype & 28 = 28 and r.columnas = 'cuenta_id,monto,tipo') then
       raise exception 'fz001_saldo_transacciones mal definido (% % %)', r.tabla, r.tgtype, r.columnas;
@@ -91,12 +91,19 @@ begin
     if r.tgname = 'fz001_saldo_cuentas' and not (r.tabla = 'cuentas' and r.tgtype & 28 = 16 and r.columnas = 'saldo_inicial') then
       raise exception 'fz001_saldo_cuentas mal definido (% % %)', r.tabla, r.tgtype, r.columnas;
     end if;
+    if r.tgname = 'fz004_cuenta_inmutable' and not (r.tabla = 'cuentas' and r.tgtype & 28 = 16 and r.columnas = 'tipo,usuario_id') then
+      raise exception 'fz004_cuenta_inmutable mal definido (% % %)', r.tabla, r.tgtype, r.columnas;
+    end if;
     if r.tgname = 'fz003_tope_cuentas' and not (r.tabla = 'cuentas' and r.tgtype & 28 = 4) then
       raise exception 'fz003_tope_cuentas mal definido (% %)', r.tabla, r.tgtype;
     end if;
   end loop;
-  select count(*) into n from pg_trigger where not tgisinternal and tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas');
-  if n <> 3 then raise exception 'se esperaban 3 disparadores fz001_/fz003_, hay %', n; end if;
+  select count(*) into n from pg_trigger where not tgisinternal and tgname in ('fz001_saldo_transacciones', 'fz001_saldo_cuentas', 'fz003_tope_cuentas', 'fz004_cuenta_inmutable');
+  if n <> 4 then raise exception 'se esperaban 4 disparadores fz001_/fz003_/fz004_, hay %', n; end if;
+  -- M-3: el índice del saldo cubre también el filtro por usuario_id (INCLUDE)
+  select count(*) into n from pg_indexes where schemaname = 'public' and indexname = 'idx_transacciones_cuenta'
+     and indexdef like '%INCLUDE (tipo, monto, usuario_id)%';
+  if n <> 1 then raise exception 'idx_transacciones_cuenta debe incluir tipo, monto y usuario_id'; end if;
   -- ningún otro disparador BEFORE de transacciones puede ejecutarse antes (el orden es por nombre)
   select count(*) into n from pg_trigger where tgrelid = 'public.transacciones'::regclass and not tgisinternal
      and tgtype & 2 = 2 and tgname collate "C" < 'fz001_saldo_transacciones';
@@ -217,6 +224,20 @@ begin
   update cuentas set archivada = false where id = ca;
   insert into transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values (u1, 1, current_date, 'ingreso', ca);
   raise notice 'OK: INV-050 archivada = congelada (alta, monto, tipo, baja, cambio de cuenta → FZ002 antes que FZ001); desarchivar permite operar';
+end $$;
+
+-- 3b. El tipo y el dueño de una cuenta existente no cambian (FZ004), ni siquiera por UPDATE directo (INV-048)
+do $$
+declare u1 uuid := '00000000-0000-4000-8000-000000001901'; u2 uuid := '00000000-0000-4000-8000-000000001902';
+  ce uuid := '00000000-0000-4000-8000-0000000019b1'; ct uuid := '00000000-0000-4000-8000-0000000019b2';
+begin
+  insert into cuentas(id, usuario_id, nombre, tipo, saldo_inicial) values (ce, u1, 'Inmutable efectivo', 'efectivo', 10), (ct, u1, 'Inmutable tarjeta', 'tarjeta_credito', -500);
+  perform pg_temp.debe_fallar(format($q$update cuentas set tipo = 'tarjeta_credito' where id = %L$q$, ce), 'FZ004', 'efectivo a tarjeta de crédito');
+  perform pg_temp.debe_fallar(format($q$update cuentas set tipo = 'efectivo' where id = %L$q$, ct), 'FZ004', 'tarjeta con saldo negativo a efectivo');
+  perform pg_temp.debe_fallar(format('update cuentas set usuario_id = %L where id = %L', u2, ce), 'FZ004', 'cambiar el dueño');
+  update cuentas set tipo = 'efectivo', nombre = 'Inmutable efectivo 2', archivada = true where id = ce;   -- mismo tipo: sí; nombre y archivada: sí
+  if (select tipo from cuentas where id = ct) <> 'tarjeta_credito' then raise exception 'el tipo no debía cambiar'; end if;
+  raise notice 'OK: INV-048 el tipo y el dueño de una cuenta no se pueden cambiar (FZ004); nombre y archivada sí';
 end $$;
 
 -- 4. Nombre único sin mayúsculas ni espacios, forma del nombre y tipo, tope de 20 cuentas (INV-050, INV-051)

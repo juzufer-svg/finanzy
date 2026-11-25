@@ -386,15 +386,19 @@ async def _deshacer(usuario_id: str, hoy: date, categorias: list[dict]) -> str:
     con_cuenta = [t for t in transacciones if t.get("cuenta_id")]
     if len(con_cuenta) > 1:
         return "No pude deshacerlo: varios de esos movimientos tienen cuenta de dinero. No borré nada; deshazlos desde la app."
+    borrados = 0
     for t in con_cuenta + [t for t in transacciones if not t.get("cuenta_id")]:
         try:
             await TransaccionDB.eliminar(str(t["id"]), usuario_id)
         except Exception as e:
-            motivo = motivo_whatsapp(e)
+            motivo = motivo_whatsapp(e, parcial=borrados > 0)
             if motivo is None:
                 raise
             print(f"[whatsapp] Deshacer rechazado por la regla de cuentas ({codigo_de(e)})")
+            if borrados:   # M-2: no afirmar «no cambié nada» si parte del lote ya se borró
+                return f"⚠️ Deshice parte del lote, pero no pude borrar todo: {motivo}"
             return f"No pude deshacerlo: {motivo}"
+        borrados += 1
         await WhatsappDB.quitar_registro(str(t["id"]), usuario_id)
     lineas = "\n".join(f"• {_linea({**t, 'monto': float(t['monto']), 'categoria': nombres.get(str(t.get('categoria_id')))}, hoy)}"
                        for t in transacciones)

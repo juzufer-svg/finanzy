@@ -18,6 +18,8 @@ MSG_NOMBRE = "Ya tienes una cuenta con ese nombre."
 MSG_NO_ENCONTRADA = "Cuenta no encontrada"
 MSG_CON_MOVIMIENTOS = "Esta cuenta tiene movimientos. Archívala en lugar de eliminarla."
 MSG_MONTO = "El monto de esta cuenta no cumple lo permitido."
+MSG_MONTO_GRANDE = "El monto es demasiado grande"
+MSG_INMUTABLE = "El tipo de una cuenta no se puede cambiar."
 
 
 def codigo_de(error: Exception) -> Optional[str]:
@@ -34,6 +36,10 @@ def traducir(error: Exception, al_eliminar_cuenta: bool = False) -> Optional[HTT
         return HTTPException(status_code=409, detail=MSG_ARCHIVADA)
     if codigo == "FZ003":
         return HTTPException(status_code=409, detail=MSG_TOPE)
+    if codigo == "FZ004":
+        return HTTPException(status_code=422, detail=MSG_INMUTABLE)
+    if codigo == "22003":   # NUMERIC(12,2) desbordado (p. ej. una transacción sin cuenta entre 1e10 y 1e12; BL-017 sigue pendiente)
+        return HTTPException(status_code=422, detail=MSG_MONTO_GRANDE)
     if codigo == "23505":
         return HTTPException(status_code=409, detail=MSG_NOMBRE)
     if codigo == "23503":
@@ -63,12 +69,24 @@ def relanzar_o_503(error: Exception):
     raise EstadoNoDisponible("falló la escritura de transacciones") from None
 
 
-MSG_WA_SALDO = ("dejaría la cuenta de dinero con saldo negativo (ya se usó ese dinero). "
-                "No cambié nada; revísalo en la app.")
-MSG_WA_ARCHIVADA = "la cuenta de dinero está archivada. No cambié nada; desarchívala en la app."
-MSG_WA_MONTO = "el monto no cumple lo permitido para la cuenta de dinero. No cambié nada."
+_WA_BASE = {
+    "FZ001": "dejaría la cuenta de dinero con saldo negativo (ya se usó ese dinero).",
+    "FZ002": "la cuenta de dinero está archivada.",
+    "23514": "el monto no cumple lo permitido para la cuenta de dinero.",
+    "22003": "el monto es demasiado grande.",
+}
+_WA_NADA = {"FZ001": " No cambié nada; revísalo en la app.", "FZ002": " No cambié nada; desarchívala en la app.",
+            "23514": " No cambié nada.", "22003": " No cambié nada."}
+MSG_WA_SALDO = _WA_BASE["FZ001"] + _WA_NADA["FZ001"]
+MSG_WA_ARCHIVADA = _WA_BASE["FZ002"] + _WA_NADA["FZ002"]
+MSG_WA_MONTO = _WA_BASE["23514"] + _WA_NADA["23514"]
+MSG_WA_MONTO_GRANDE = _WA_BASE["22003"] + _WA_NADA["22003"]
 
 
-def motivo_whatsapp(error: Exception) -> Optional[str]:
-    """Frase (sin datos de la BD) que explica por qué la regla de cuentas rechazó un cambio hecho por WhatsApp, o None."""
-    return {"FZ001": MSG_WA_SALDO, "FZ002": MSG_WA_ARCHIVADA, "23514": MSG_WA_MONTO}.get(codigo_de(error) or "")
+def motivo_whatsapp(error: Exception, parcial: bool = False) -> Optional[str]:
+    """Frase (sin datos de la BD) que explica por qué la regla de cuentas rechazó un cambio hecho por WhatsApp, o None.
+    Con `parcial=True` (ya se había borrado parte del lote) no dice «No cambié nada»: manda a revisar la app (M-2)."""
+    codigo = codigo_de(error) or ""
+    if codigo not in _WA_BASE:
+        return None
+    return _WA_BASE[codigo] + (" Revisa en la app lo que quedó." if parcial else _WA_NADA[codigo])

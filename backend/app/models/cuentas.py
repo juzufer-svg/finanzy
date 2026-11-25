@@ -3,15 +3,20 @@ Acceso a datos de las cuentas de dinero (CHG-019 fase a, ADR-009, INV-046 a INV-
 
 - Toda consulta filtra por el usuario de la sesión (INV-001, INV-046); el saldo NUNCA se guarda: sale de la función SQL
   `cuentas_con_saldo` (INV-047), UNA consulta agregada por listado (REQ-N-022).
-- Plazo real y fail-closed: las llamadas a Supabase corren en el ejecutor propio y acotado de `auth_estado` (cliente de 4 s,
-  presupuesto de 5 s por petición, 503 sin encolar). Cualquier fallo o respuesta inesperada = `EstadoNoDisponible` (503).
-  Solo los errores propios de la regla de negocio (SQLSTATE FZ001, FZ002, FZ003, 23505, 23503, 23514) se convierten en
+- Plazo real y fail-closed: las llamadas a Supabase corren en un ejecutor PROPIO y acotado de cuentas (4 hilos, `_huecos`;
+  ADR-009, BL-043), SEPARADO de los 8 hilos de `auth-estado`: con la BD lenta, las cuentas no pueden dejar sin hilos al login,
+  al registro ni al restablecimiento. Usa el mismo cliente dedicado (plazo de 4 s, sin reintentos), el presupuesto de 5 s por
+  petición y responde 503 inmediato, sin encolar, si no hay hueco. Cualquier fallo o respuesta inesperada = `EstadoNoDisponible`.
+  Solo los errores propios de la regla de negocio (SQLSTATE FZ001 a FZ004, 22003, 23505, 23503, 23514) se convierten en
   `ErrorBD`, que las rutas traducen a 409/404/422 sin exponer texto de la BD.
 - Privacidad: ningún aviso lleva el texto de la excepción (solo el nombre de la operación y el tipo).
 - Modo demo (solo sin Supabase y fuera de producción): `DemoCuentaDB`, con las mismas reglas. En producción sin Supabase,
   `EstadoNoDisponible`.
 """
+import asyncio
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -21,7 +26,12 @@ from app.models.demo_db import DemoCuentaDB, ErrorBD
 
 # Únicas columnas reales de `cuentas` (backend/sql/2026-11-25_cuentas.sql)
 COLUMNAS = "id,usuario_id,nombre,tipo,saldo_inicial,archivada,created_at"
-CODIGOS_NEGOCIO = ("FZ001", "FZ002", "FZ003", "23505", "23503", "23514")
+CODIGOS_NEGOCIO = ("FZ001", "FZ002", "FZ003", "FZ004", "22003", "23505", "23503", "23514")
+
+# Ejecutor PROPIO y acotado de cuentas (I-1): ni comparte los 8 hilos de `auth-estado` ni se encola.
+MAX_HILOS_CUENTAS = 4
+_huecos = threading.BoundedSemaphore(MAX_HILOS_CUENTAS)   # uno por hilo; se libera al terminar el HILO (aunque venza el plazo)
+_ejecutor = ThreadPoolExecutor(max_workers=MAX_HILOS_CUENTAS, thread_name_prefix="cuentas")
 
 
 def _modo() -> str:
@@ -29,7 +39,7 @@ def _modo() -> str:
 
 
 async def _llamar(operacion: str, fn):
-    """Corre `fn` (bloqueante) en el ejecutor acotado. Un error de la regla de negocio vuelve como valor y se relanza aquí
+    """Corre `fn` (bloqueante) en el ejecutor propio y acotado de cuentas. Un error de la regla de negocio vuelve como valor y se relanza aquí
     como `ErrorBD`; cualquier otro fallo es 503."""
     def corre():
         try:
@@ -39,7 +49,29 @@ async def _llamar(operacion: str, fn):
             if codigo in CODIGOS_NEGOCIO:
                 return ("bd", codigo)
             raise
-    estado, valor = await auth_estado.ejecutar(operacion, corre)
+    restante = auth_estado._restante()
+    if restante <= 0:
+        raise EstadoNoDisponible("presupuesto agotado")
+    if not _huecos.acquire(blocking=False):   # sin hueco: 503 inmediato, sin encolar
+        print(f"[cuentas] Aviso: ejecutor lleno ({operacion})")
+        raise EstadoNoDisponible("ejecutor de cuentas lleno")
+    try:
+        futuro = _ejecutor.submit(corre)
+    except BaseException:
+        _huecos.release()
+        raise EstadoNoDisponible("no se pudo ejecutar")
+    futuro.add_done_callback(lambda _f: _huecos.release())   # también ante excepción o cancelación
+    try:
+        estado, valor = await asyncio.wait_for(asyncio.wrap_future(futuro),
+                                               timeout=min(auth_estado.PLAZO_LLAMADA_SEG, restante))
+    except asyncio.TimeoutError:
+        print(f"[cuentas] Aviso: plazo vencido ({operacion})")
+        raise EstadoNoDisponible("plazo vencido")
+    except EstadoNoDisponible:
+        raise
+    except Exception as e:   # el mensaje del servidor puede traer datos: solo el tipo (la cancelación se propaga)
+        print(f"[cuentas] Aviso: falló {operacion} ({type(e).__name__})")
+        raise EstadoNoDisponible("falló la BD de cuentas")
     if estado == "bd":
         raise ErrorBD(valor)
     return valor
@@ -49,7 +81,7 @@ def _numero(valor: Any) -> float:
     if isinstance(valor, bool) or valor is None:
         raise EstadoNoDisponible("número inesperado")
     try:
-        return float(valor)
+        return round(float(valor), 2)   # el saldo se calcula en SQL con numeric; aquí solo se serializa con 2 decimales
     except (TypeError, ValueError):
         raise EstadoNoDisponible("número inesperado")
 
