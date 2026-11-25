@@ -1,6 +1,6 @@
 # CHG-029 — Alinear el tope de montos con `NUMERIC(12,2)` (BL-017)
 
-- **Estado:** escalado
+- **Estado:** listo-para-aprobar
 - **Fecha:** 2026-11-25 · **Solicitante:** dueño
 - **Riesgo:** alto · **Modo:** completo (dinero e invariante crítica)
 
@@ -61,6 +61,7 @@ Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador)
 | 2026-11-25 | revisor | Revisión | aprobado, observaciones menores |
 | 2026-11-25 | validador | Validación | bloqueado (H1): confirmar precisión de las columnas de montos en Supabase; `backend/sql/pruebas/01_base_como_produccion.sql` declara `numeric` sin precisión en `metas` |
 | 2026-11-25 | generador | T6 (resuelve H1 en el repo) | `probar.sh` completo en PostgreSQL 16 local: OK; reversión probada a mano; base de prueba corregida (`numeric` sin precisión) y aserción de `08_comprobar_cuentas.sql` sobre el tope en `transacciones` movida tras la migración. pytest: 2 fallos en `test_exportar.py` (sin cambios de Python en esta tarea). Pendiente: validar y que el dueño ejecute el SQL |
+| 2026-11-25 | validador y revisor | Ciclo 2 (migración) | aprobados |
 
 ## 8. Cierre
 - Decisiones:
