@@ -156,7 +156,7 @@ def test_inv043_csv_neutraliza_formulas(client):
         sembrar(descripcion=d, categoria_id=cat["id"], fecha=f"2026-11-{i + 1:02d}")
     r = pedir(client, desde="2026-11")
     filas = filas_csv(r)[1:]
-    assert [f[3] for f in filas] == ["'" + d for d in PELIGROSAS]
+    assert [f[3] for f in filas] == ["'" + d.replace("\r", "\r'") for d in PELIGROSAS]
     for f in filas:
         assert f[2] == "'=1+1"
         for texto in f[1:5] + f[6:]:   # ninguna celda de texto empieza por un carácter de fórmula
