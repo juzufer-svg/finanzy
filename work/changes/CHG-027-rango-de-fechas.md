@@ -36,3 +36,7 @@ Con reloj controlado (monkeypatch de `hoy_colombia`): bordes inferior y superior
 
 ## 7. Cierre
 Pendiente. Despliegue: push a `main` con aprobación; sin SQL ni variables nuevas.
+
+### Registro adicional (2026-11-25)
+- Validador (ciclo 1): BLOQUEA por 1 IMPORTANTE: un día que no existe (`2099-02-30`, `2025-02-30`, `2099-04-31`) evadía el rango. Corregido por el coordinador en `utils/rango_fechas.py::fecha_en_rango` (texto con forma AAAA-MM-DD y día imposible → fuera de rango) con 7 pruebas nuevas (`test_inv063_un_dia_que_no_existe_*`); suite completa 1053 passed, pyflakes limpio. Menores aceptados: sufijos como `2026-01-01Z` (ya pasaban antes; el rango se juzga por los 10 primeros caracteres); `fechaLocal()` usa la hora del navegador, sin riesgo real dentro de la ventana de 365 días.
+- **Despliegue (cierre):** sin SQL ni variables nuevas; push a `main` solo con aprobación del dueño. Estado: listo para aprobar.

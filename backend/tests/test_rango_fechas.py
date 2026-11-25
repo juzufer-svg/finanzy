@@ -58,6 +58,21 @@ def test_inv063_crear_transaccion_fechas_absurdas_se_rechazan(client, hoy, fecha
     assert r.status_code == 422 and MSG in r.text
 
 
+@pytest.mark.parametrize("fecha", ["2099-02-30", "2025-02-30", "2099-04-31", "2026-02-30"])
+def test_inv063_un_dia_que_no_existe_no_evade_el_rango_al_crear(client, hoy, fecha):
+    r = _crear(client, fecha)
+    assert r.status_code == 422 and MSG in r.text
+    assert client.get("/api/v1/transacciones", headers=A).json() == []
+
+
+def test_inv063_un_dia_que_no_existe_no_evade_el_rango_al_editar(client, hoy):
+    tx = _vieja()
+    for fecha in ("2099-02-30", "2025-02-30", "2099-04-31"):
+        r = _editar(client, tx, fecha=fecha)
+        assert r.status_code == 422 and MSG in r.text, fecha
+    assert str(client.get(f"/api/v1/transacciones/{tx['id']}", headers=A).json()["fecha"])[:10] == "2025-06-01"
+
+
 def test_inv063_la_fecha_con_hora_se_juzga_por_su_dia(client, hoy):
     assert _crear(client, "2026-01-01T00:00:00").status_code == 200
     assert _crear(client, "2025-12-31T23:59:59").status_code == 422
