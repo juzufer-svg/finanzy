@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.plataapp import FECHA_EXACTA, decimales_validos
+from app.utils.rango_fechas import validar_rango_fecha
 
 
 class TransferenciaCreate(BaseModel):
@@ -34,7 +35,7 @@ class TransferenciaCreate(BaseModel):
             date.fromisoformat(v)
         except ValueError:
             raise ValueError("La fecha no existe")
-        return v
+        return validar_rango_fecha(v)   # INV-063
 
     @field_validator("descripcion")
     @classmethod

@@ -39,6 +39,7 @@ from app.models.cuentas import CuentaDB
 from app.models.plataapp import CategoriaDB, TransaccionDB
 from app.models.whatsapp import WhatsappDB
 from app.schemas.plataapp import MEDIOS_PAGO, MONTO_MAX
+from app.utils.rango_fechas import MSG_FECHA_FUERA_DE_RANGO_WHATSAPP, fecha_en_rango
 from app.utils.asistente import AsistenteError, ZONA_COLOMBIA, llamar_claude
 
 MAX_TOKENS = 600
@@ -307,6 +308,10 @@ def _buscar_categoria(nombre: Any, tipo: str, categorias: list[dict]) -> Optiona
     return next((c for c in categorias if c.get("tipo") == tipo and _sin_tildes(c.get("nombre", "")) == clave), None)
 
 
+class FechaFueraDeRango(ValueError):
+    """La fecha propuesta es válida pero cae fuera del rango permitido (INV-063): se responde un mensaje fijo y no se registra."""
+
+
 def _validar_movimiento(m: Any, categorias: list[dict], hoy: date) -> dict:
     """Valida lo que propuso la IA con las reglas de la app (INV-003, INV-004, INV-005, INV-022)."""
     if not isinstance(m, dict):
@@ -327,6 +332,8 @@ def _validar_movimiento(m: Any, categorias: list[dict], hoy: date) -> dict:
         fecha = hoy
     if fecha > hoy + timedelta(days=1) or fecha < hoy - timedelta(days=366):
         fecha = hoy  # fechas absurdas no se aceptan: se usa hoy
+    if not fecha_en_rango(fecha):   # INV-063: antes de 2026-01-01 (lo demás ya cae en hoy): no se registra
+        raise FechaFueraDeRango(MSG_FECHA_FUERA_DE_RANGO_WHATSAPP)
     medio = m.get("medio_pago") or None
     if medio not in MEDIOS_PAGO:
         medio = None
@@ -396,6 +403,8 @@ async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list
     for m in movimientos[:MAX_MOVIMIENTOS]:
         try:
             validos.append(_validar_movimiento(m, categorias, hoy))
+        except FechaFueraDeRango:
+            return MSG_FECHA_FUERA_DE_RANGO_WHATSAPP
         except ValueError:
             return "No pude entender bien el monto. ¿Me lo repites? Ej.: «gasté 25 mil en mercado»."
     rechazo = _resolver_cuentas(validos, texto, cuentas)   # antes de guardar nada: si una cuenta no existe, no se registra ninguno
@@ -501,6 +510,8 @@ async def _corregir(usuario_id: str, entrada: dict, categorias: list[dict], hoy:
         base["categoria"] = ""   # la categoría anterior es de otro tipo
     try:
         v = _validar_movimiento({**base, **cambios}, categorias, hoy)
+    except FechaFueraDeRango:
+        return MSG_FECHA_FUERA_DE_RANGO_WHATSAPP
     except ValueError:
         return "No pude entender la corrección. ¿Me la repites con el monto?"
     try:

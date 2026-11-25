@@ -7,6 +7,8 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, Literal
 
+from app.utils.rango_fechas import validar_rango_fecha
+
 # Formatos aceptados
 MES_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")          # YYYY-MM
 FECHA_REGEX = r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"  # YYYY-MM-DD (admite hora después)
@@ -133,8 +135,8 @@ class CuentaResponse(BaseModel):
 
 
 # Transacciones
-class TransaccionCreate(BaseModel):
-    """Crear transacción"""
+class TransaccionBase(BaseModel):
+    """Campos de una transacción (sin la regla de rango de fechas: la aplican Create y, en la ruta, Update)"""
     categoria_id: str = Field("", max_length=64)
     # Decimal: la regla de 2 decimales de INV-051 (solo con cuenta de dinero) no puede depender de float
     monto: Decimal = Field(..., gt=0, le=MONTO_MAX)
@@ -155,6 +157,19 @@ class TransaccionCreate(BaseModel):
         if canonico is None:
             raise ValueError("cuenta_id debe ser un UUID")
         return canonico
+
+
+class TransaccionCreate(TransaccionBase):
+    """Crear transacción: la fecha debe estar en el rango permitido (INV-063)"""
+
+    @field_validator("fecha")
+    @classmethod
+    def _fecha_en_rango(cls, v: str) -> str:
+        return validar_rango_fecha(v)
+
+
+class TransaccionUpdate(TransaccionBase):
+    """Editar transacción: el rango de la fecha (INV-063) lo comprueba la ruta SOLO si la fecha cambia respecto a la guardada"""
 
 
 class TransaccionResponse(BaseModel):

@@ -6,7 +6,7 @@ pertenezca al usuario del token; si no, responde 404 (no se revela si existe).
 """
 from fastapi import APIRouter, HTTPException, Header, Path
 from app.schemas.plataapp import (
-    TransaccionCreate, TransaccionResponse, ResumenTransacciones,
+    TransaccionCreate, TransaccionUpdate, TransaccionResponse, ResumenTransacciones,
     CategoriaCreate, CategoriaUpdate, CategoriaResponse,
     PresupuestoCreate, PresupuestoResponse, PresupuestoUpdate,
     MetaCreate, MetaResponse, ActualizarMeta, AbonarMeta,
@@ -24,6 +24,7 @@ from app.api.cuentas_errores import (
 from app.models import auth_estado
 from app.models.auth_estado import EstadoNoDisponible
 from app.utils.recurrencia import siguiente_fecha
+from app.utils.rango_fechas import fecha_en_rango, mensaje_fuera_de_rango
 from datetime import date, datetime, timezone
 from app.api.sesion import usuario_de_sesion
 from typing import Optional
@@ -144,9 +145,12 @@ async def obtener_transaccion(transaccion_id: str, authorization: str = Header(.
 
 
 @router.put("/transacciones/{transaccion_id}", response_model=TransaccionResponse)
-async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCreate, authorization: str = Header(...)):
+async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionUpdate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     actual = _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
+    # INV-063: el rango solo se exige si la fecha CAMBIA; una transacción guardada con otra fecha se puede editar sin tocarla
+    if transaccion.fecha[:10] != str(actual.get("fecha"))[:10] and not fecha_en_rango(transaccion.fecha):
+        raise HTTPException(status_code=422, detail=mensaje_fuera_de_rango())
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
     datos = transaccion.model_dump()
     datos["monto"] = float(transaccion.monto)
@@ -564,6 +568,9 @@ async def confirmar_recurrente(recurrente_id: str, datos: ConfirmarRecurrente, a
         raise HTTPException(status_code=409, detail="La recurrente está pausada")
     if datos.ocurrencia != recurrente["proxima_fecha"]:
         raise HTTPException(status_code=409, detail=_OCURRENCIA_CAMBIADA)
+    # INV-063: la transacción tendrá la fecha indicada o, si no, la de la ocurrencia; fuera de rango → 422 y la fecha no avanza
+    if not fecha_en_rango(datos.fecha or datos.ocurrencia):
+        raise HTTPException(status_code=422, detail=mensaje_fuera_de_rango())
     # `cuenta_id` enviado (también null = sin cuenta) reemplaza la de la plantilla; no enviado = la de la plantilla
     cuenta_indicada = "cuenta_id" in datos.model_fields_set
     cuenta_id = datos.cuenta_id if cuenta_indicada else None
