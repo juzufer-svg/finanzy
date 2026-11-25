@@ -47,7 +47,7 @@ hay endpoints de diagnóstico (REQ-N-003, INV-012).
     clave de API distinta de la de envío, pero con permisos completos. El código solo la usa en GET de cuenta e informe.
   - **Anthropic:** con clave de administración de una organización (`sk-ant-admin...`) se usa la fuente oficial y
     prevalece; otra clave no se envía. Sin ella (el Dueño no la tiene), la tarjeta estima el MES de Colombia (UTC−5) en curso con
-    los contadores propios (INV-036), solo del origen `asistente` (WhatsApp aparte), y el costo con una tabla fija
+    los contadores propios (INV-036), sumando los orígenes `asistente` y `whatsapp` (solo la API de Haiku de la app; la tarjeta aclara que no es el plan Pro ni incluye Claude Code), y el costo con una tabla fija
     de precios por modelo (`claude-haiku-5-5`: US$ 0,10/M entrada y US$ 0,50/M salida; precios del 2026-11-24, a
     revisar si cambia el modelo o el precio). Modelo desconocido: se omite el costo. Es una estimación y se rotula así.
   - **Verificación manual antes de producción:** los formatos de respuesta de las seis APIs se simularon en pruebas,
