@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react'
 import apiClient from '@/lib/api-client'
-import { apiErrorMessage } from '@/components/DialogProvider'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
 import { useCurrencyStore } from '@/store/currency'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import { opcionesSelector, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
 
 interface TransactionFormProps {
   categories: any[]
+  /** Cuentas de dinero del usuario (CHG-019); el selector muestra solo las no archivadas. */
+  cuentas?: Cuenta[]
   onSuccess?: () => void
 }
 
-export default function TransactionForm({ categories, onSuccess }: TransactionFormProps) {
+export default function TransactionForm({ categories, cuentas = [], onSuccess }: TransactionFormProps) {
   const toBase = useCurrencyStore(s => s.toBase)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -24,7 +26,9 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
     fecha: todayStr,
     tipo: 'gasto',
     medio_pago: MEDIO_POR_DEFECTO as string,
+    cuenta_id: '',
   })
+  const opcionesCuenta = opcionesSelector(cuentas)
 
   // Botón flotante «+» del celular (CHG-012): llega con ?nueva=1, se muestra el formulario y se
   // enfoca el monto. Solo toca el DOM (sin cambiar estado) y quita el parámetro para que recargar no repita.
@@ -53,16 +57,17 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
         ...formData,
         monto: toBase(formData.monto), // escrito en la moneda elegida, se guarda en la base (CHG-013)
         medio_pago: formData.medio_pago || null,
+        cuenta_id: formData.cuenta_id || null, // vacío = sin cuenta (CT-003 v1.2)
       })
       const t2 = new Date()
       const t2str = `${t2.getFullYear()}-${String(t2.getMonth() + 1).padStart(2, '0')}-${String(t2.getDate()).padStart(2, '0')}`
-      // Se conservan el tipo y el medio de pago para registrar varios seguidos más rápido
+      // Se conservan el tipo, el medio de pago y la cuenta para registrar varios seguidos más rápido
       setFormData(prev => ({ ...prev, categoria_id: '', monto: '', descripcion: '', fecha: t2str }))
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2000)
       if (onSuccess) onSuccess()
     } catch (err) {
-      setError(apiErrorMessage(err, 'No se pudo guardar la transacción.'))
+      setError(mensajeErrorCuenta(err, 'No se pudo guardar la transacción.'))
     } finally {
       setLoading(false)
     }
@@ -149,6 +154,18 @@ export default function TransactionForm({ categories, onSuccess }: TransactionFo
             {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             <option value="">Sin especificar</option>
           </select>
+        </div>
+
+        {/* Cuenta de dinero (CHG-019): opcional; independiente del medio de pago */}
+        <div>
+          <label htmlFor="txf-cuenta" className="label">Cuenta <span className="text-slate-400 font-normal">(opcional)</span></label>
+          <select id="txf-cuenta" name="cuenta_id" value={formData.cuenta_id} onChange={handleChange} className="input-field" aria-describedby={opcionesCuenta.length === 0 ? 'txf-cuenta-ayuda' : undefined}>
+            <option value="">Sin cuenta</option>
+            {opcionesCuenta.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          {opcionesCuenta.length === 0 && (
+            <p id="txf-cuenta-ayuda" className="text-xs text-slate-500 mt-1">Aún no tienes cuentas. Créalas en el menú «Cuentas».</p>
+          )}
         </div>
 
         {/* Monto */}

@@ -18,7 +18,7 @@
   "created_at": "2026-11-24T15:00:00Z"
 }
 ```
-`saldo` lo **calcula** el servidor en cada consulta (INV-047): `saldo_inicial + ingresos − gastos + transferencias recibidas − enviadas`, incluyendo **todas** las transacciones y transferencias registradas con esa cuenta de dinero aunque su fecha sea futura (decisión del dueño); nunca se envía ni se guarda. Negativo = deuda (solo en `tarjeta_credito`).
+`saldo` lo **calcula** el servidor en cada consulta (INV-047): `saldo_inicial + ingresos − gastos + transferencias recibidas − enviadas`, incluyendo **todas** las transacciones y transferencias registradas con esa cuenta de dinero aunque su fecha sea futura (decisión del dueño); nunca se envía ni se guarda. Negativo = deuda (solo en `tarjeta_credito`). El saldo se calcula en SQL con `numeric` y se serializa con 2 decimales (número JSON); una cuenta puede superar el tope de 9 999 999 999,99 por acumulación: el tope aplica a cada movimiento y al saldo inicial, no al saldo resultante (INV-051).
 
 ## Cuentas de dinero (fase a)
 Los montos de entrada se leen con `Decimal` (INV-051): un número con más de 2 decimales (`12.345`, `0.001`) es 422.
@@ -46,7 +46,7 @@ No hay `PUT`: se elimina y se crea otra. Sin comisión. Una transferencia **no**
 Los errores de la regla de saldo vienen de la BD (SQLSTATE `FZ001` saldo negativo, `FZ002` cuenta de dinero archivada, `FZ003` tope de cuentas de dinero; los dos primeros se evalúan en un disparador `BEFORE` bajo el mismo bloqueo de las cuentas de dinero implicadas, ADR-009 punto 5) y el backend los traduce siempre a **409** con `detail` legible, por ejemplo:
 - «Saldo insuficiente: esto dejaría la cuenta «Efectivo» en negativo. Solo las tarjetas de crédito pueden quedar en negativo.»
 - «La cuenta «Ahorros» está archivada. Desarchívala para registrar movimientos.»
-Nunca se devuelve 500 ni el mensaje crudo de la BD, y un interbloqueo de la BD (`40P01`) no debería ocurrir (se prueba que son 0). La operación rechazada no guarda nada (INV-048).
+Otros errores de la BD tienen respuesta fija: `FZ004` (cambiar el tipo o el dueño de una cuenta existente, imposible por la API) y `23514` → **422**; `22003` (monto que desborda `NUMERIC(12,2)`, p. ej. una transacción sin cuenta entre 1e10 y 1e12; BL-017 pendiente) → **422** «El monto es demasiado grande». Nunca se devuelve 500 ni el mensaje crudo de la BD, y un interbloqueo de la BD (`40P01`) no debería ocurrir (se prueba que son 0). La operación rechazada no guarda nada (INV-048).
 
 ## Cambios aditivos en otros contratos (la compatibilidad se mantiene: el campo es opcional)
 - **CT-003 v1.2 (fase a):** `cuenta_id` en `POST/PUT /transacciones` y en la salida: «uuid ≤ 64 — opcional; `null`/ausente = sin cuenta; debe ser una cuenta de dinero del usuario». En `PUT`: no enviar = conservar, `null` = quitar, valor = reemplazar; un `PUT` que solo cambia `cuenta_id` valida el monto ya guardado (INV-051). 404 «Cuenta no encontrada» (no es suya); 409 por saldo o por cuenta de dinero archivada. Las transacciones anteriores salen con `cuenta_id: null` y no mueven ningún saldo.

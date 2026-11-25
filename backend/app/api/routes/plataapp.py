@@ -12,11 +12,13 @@ from app.schemas.plataapp import (
     MetaCreate, MetaResponse, ActualizarMeta, AbonarMeta,
     CopiarPresupuestos, CopiaPresupuestosResponse,
     RecurrenteCreate, RecurrenteUpdate, RecurrenteResponse, OcurrenciaRecurrente, ConfirmarRecurrente, ConfirmacionResponse,
-    MES_PATTERN,
+    MES_PATTERN, MSG_MONTO_CON_CUENTA, monto_valido_con_cuenta,
 )
 from app.models.plataapp import (
     TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, RecurrenteDB, AbonoAtomicoNoDisponible,
 )
+from app.models.cuentas import CuentaDB
+from app.api.cuentas_errores import relanzar_o_503 as relanzar_error_cuenta, MSG_NO_ENCONTRADA
 from app.utils.recurrencia import siguiente_fecha
 from datetime import date, datetime, timezone
 from app.api.sesion import usuario_de_sesion
@@ -43,6 +45,19 @@ async def _ensure_categoria_propia(categoria_id: Optional[str], usuario_id: str)
         return
     categoria = await CategoriaDB.obtener_por_id(categoria_id, usuario_id)
     _ensure_owner(categoria, usuario_id, "Categoría no encontrada")
+
+
+async def _ensure_cuenta_propia(cuenta_id: Optional[str], usuario_id: str) -> None:
+    """404 «Cuenta no encontrada» si la cuenta de dinero (si se envía) no existe o es de otro usuario (INV-046)."""
+    if not cuenta_id:
+        return
+    _ensure_owner(await CuentaDB.obtener_por_id(cuenta_id, usuario_id), usuario_id, MSG_NO_ENCONTRADA)
+
+
+def _ensure_monto_con_cuenta(monto) -> None:
+    """422 si el monto de una transacción CON cuenta de dinero pasa del tope o tiene más de 2 decimales (INV-051)."""
+    if not monto_valido_con_cuenta(monto):
+        raise HTTPException(status_code=422, detail=MSG_MONTO_CON_CUENTA)
 
 
 def _es_duplicado(error: Exception) -> bool:
@@ -84,15 +99,22 @@ def _porcentaje(meta: dict) -> float:
 async def crear_transaccion(transaccion: TransaccionCreate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
-    return await TransaccionDB.crear(
-        usuario_id=usuario_id,
-        categoria_id=transaccion.categoria_id,
-        monto=transaccion.monto,
-        descripcion=transaccion.descripcion,
-        fecha=transaccion.fecha,
-        tipo=transaccion.tipo,
-        medio_pago=transaccion.medio_pago,
-    )
+    if transaccion.cuenta_id:
+        _ensure_monto_con_cuenta(transaccion.monto)           # INV-051
+        await _ensure_cuenta_propia(transaccion.cuenta_id, usuario_id)   # INV-046
+    try:
+        return await TransaccionDB.crear(
+            usuario_id=usuario_id,
+            categoria_id=transaccion.categoria_id,
+            monto=float(transaccion.monto),
+            descripcion=transaccion.descripcion,
+            fecha=transaccion.fecha,
+            tipo=transaccion.tipo,
+            medio_pago=transaccion.medio_pago,
+            cuenta_id=transaccion.cuenta_id,
+        )
+    except Exception as e:
+        relanzar_error_cuenta(e)   # FZ001/FZ002 → 409, 23503 → 404; cualquier otro error sigue su camino
 
 
 @router.get("/transacciones", response_model=list[TransaccionResponse])
@@ -119,13 +141,29 @@ async def obtener_transaccion(transaccion_id: str, authorization: str = Header(.
 @router.put("/transacciones/{transaccion_id}", response_model=TransaccionResponse)
 async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCreate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
-    _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
+    actual = _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
     await _ensure_categoria_propia(transaccion.categoria_id, usuario_id)
     datos = transaccion.model_dump()
+    datos["monto"] = float(transaccion.monto)
     # Si el cliente no envía medio_pago, se conserva el que tenía (null explícito = quitarlo)
     if "medio_pago" not in transaccion.model_fields_set:
         datos.pop("medio_pago")
-    actualizada = await TransaccionDB.actualizar(transaccion_id, usuario_id, **datos)
+    # cuenta_id igual que medio_pago: no enviar = conservar, null = quitar, valor = reemplazar (CT-003 v1.2)
+    if "cuenta_id" in transaccion.model_fields_set:
+        cuenta_efectiva = transaccion.cuenta_id
+    else:
+        datos.pop("cuenta_id")
+        cuenta_efectiva = actual.get("cuenta_id")
+    if cuenta_efectiva:
+        # INV-051: con cuenta de dinero el monto debe cumplir el tope y los 2 decimales. Un PUT que solo cambia
+        # `cuenta_id` reenvía el monto ya guardado: se valida (leído con Decimal) ANTES de escribir.
+        _ensure_monto_con_cuenta(transaccion.monto)
+        if transaccion.cuenta_id:
+            await _ensure_cuenta_propia(transaccion.cuenta_id, usuario_id)   # INV-046
+    try:
+        actualizada = await TransaccionDB.actualizar(transaccion_id, usuario_id, **datos)
+    except Exception as e:
+        relanzar_error_cuenta(e)
     if not actualizada:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     return actualizada
@@ -135,7 +173,10 @@ async def actualizar_transaccion(transaccion_id: str, transaccion: TransaccionCr
 async def eliminar_transaccion(transaccion_id: str, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     _ensure_owner(await TransaccionDB.obtener_por_id(transaccion_id, usuario_id), usuario_id, "Transacción no encontrada")
-    await TransaccionDB.eliminar(transaccion_id, usuario_id)
+    try:
+        await TransaccionDB.eliminar(transaccion_id, usuario_id)
+    except Exception as e:
+        relanzar_error_cuenta(e)   # FZ001 (quitar un ingreso ya gastado) / FZ002 (cuenta archivada) → 409
     return {"message": "Transacción eliminada"}
 
 

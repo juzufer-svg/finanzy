@@ -29,6 +29,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.api.cuentas_errores import codigo_de, motivo_whatsapp
 from app.core.config import settings
 from app.models import contadores
 from app.models.plataapp import CategoriaDB, TransaccionDB
@@ -379,8 +380,25 @@ async def _deshacer(usuario_id: str, hoy: date, categorias: list[dict]) -> str:
     if not transacciones:
         return "No hay nada reciente registrado por WhatsApp para deshacer."
     nombres = {str(c["id"]): c["nombre"] for c in categorias}
-    for t in transacciones:
-        await TransaccionDB.eliminar(str(t["id"]), usuario_id)
+    # Si el usuario le asignó una cuenta de dinero desde la app, borrar un ingreso podría dejarla en negativo (FZ001) o estar
+    # archivada (FZ002). Para no dejar el lote a medias: con más de una cuenta no se intenta, y la de cuenta se borra PRIMERO
+    # (si la BD la rechaza, todavía no se borró nada).
+    con_cuenta = [t for t in transacciones if t.get("cuenta_id")]
+    if len(con_cuenta) > 1:
+        return "No pude deshacerlo: varios de esos movimientos tienen cuenta de dinero. No borré nada; deshazlos desde la app."
+    borrados = 0
+    for t in con_cuenta + [t for t in transacciones if not t.get("cuenta_id")]:
+        try:
+            await TransaccionDB.eliminar(str(t["id"]), usuario_id)
+        except Exception as e:
+            motivo = motivo_whatsapp(e, parcial=borrados > 0)
+            if motivo is None:
+                raise
+            print(f"[whatsapp] Deshacer rechazado por la regla de cuentas ({codigo_de(e)})")
+            if borrados:   # M-2: no afirmar «no cambié nada» si parte del lote ya se borró
+                return f"⚠️ Deshice parte del lote, pero no pude borrar todo: {motivo}"
+            return f"No pude deshacerlo: {motivo}"
+        borrados += 1
         await WhatsappDB.quitar_registro(str(t["id"]), usuario_id)
     lineas = "\n".join(f"• {_linea({**t, 'monto': float(t['monto']), 'categoria': nombres.get(str(t.get('categoria_id')))}, hoy)}"
                        for t in transacciones)
@@ -410,9 +428,16 @@ async def _corregir(usuario_id: str, entrada: dict, categorias: list[dict], hoy:
         v = _validar_movimiento({**base, **cambios}, categorias, hoy)
     except ValueError:
         return "No pude entender la corrección. ¿Me la repites con el monto?"
-    actualizada = await TransaccionDB.actualizar(str(actual["id"]), usuario_id, categoria_id=v["categoria_id"],
-                                                 monto=v["monto"], descripcion=v["descripcion"], fecha=v["fecha"],
-                                                 tipo=v["tipo"], medio_pago=v["medio_pago"])
+    try:
+        actualizada = await TransaccionDB.actualizar(str(actual["id"]), usuario_id, categoria_id=v["categoria_id"],
+                                                     monto=v["monto"], descripcion=v["descripcion"], fecha=v["fecha"],
+                                                     tipo=v["tipo"], medio_pago=v["medio_pago"])
+    except Exception as e:
+        motivo = motivo_whatsapp(e)   # solo la regla de cuentas (CHG-019); lo demás sigue como antes
+        if motivo is None:
+            raise
+        print(f"[whatsapp] Corrección rechazada por la regla de cuentas ({codigo_de(e)})")
+        return f"No pude corregirlo: {motivo}"
     if not actualizada:
         return "No encontré ese movimiento; quizá lo borraste desde la app."
     titulo = "Gasto" if v["tipo"] == "gasto" else "Ingreso"

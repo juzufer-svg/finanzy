@@ -50,3 +50,6 @@ nombró la cuenta de dinero. El backend la busca entre las **cuentas de dinero n
 y valida saldo y archivada con las mismas reglas de la app (INV-029, INV-048); si no se nombra, la transacción queda **sin cuenta**; si
 se nombra y no existe, está archivada o no alcanza el saldo, **no se registra nada** y la respuesta lo explica. A Claude se le envían
 solo los nombres de las cuentas de dinero no archivadas (sin ids ni saldos). WhatsApp **no** crea transferencias.
+
+## «Deshacer» y «corregir» con cuenta de dinero (CHG-019, fase a)
+Si un movimiento del lote tiene cuenta de dinero (asignada desde la app) y la BD rechaza el cambio, la respuesta por WhatsApp es un texto fijo y no se cambia nada: «No pude deshacerlo/corregirlo: dejaría la cuenta de dinero con saldo negativo…» (FZ001), «…la cuenta de dinero está archivada…» (FZ002) o «…el monto no cumple lo permitido…» (23514). Un lote con más de un movimiento en cuenta responde «No pude deshacerlo: varios de esos movimientos tienen cuenta de dinero…» y no borra nada. El webhook sigue respondiendo 200 y el mensaje queda marcado como procesado (INV-029).

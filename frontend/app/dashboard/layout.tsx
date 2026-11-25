@@ -26,6 +26,13 @@ const IconCreditCard = () => (
   </svg>
 )
 
+const IconWallet = () => (
+  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+  </svg>
+)
+
 const IconBudget = () => (
   <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -116,6 +123,7 @@ const subscribeNoop = () => () => {}
 const menuItems = [
   { href: '/dashboard', label: 'Inicio', Icon: IconDashboard },
   { href: '/dashboard/transactions', label: 'Transacciones', Icon: IconCreditCard },
+  { href: '/dashboard/cuentas', label: 'Cuentas', Icon: IconWallet },
   { href: '/dashboard/recurring', label: 'Recurrentes', Icon: IconRepeat },
   { href: '/dashboard/categories', label: 'Categorías', Icon: IconTag },
   { href: '/dashboard/budgets', label: 'Presupuestos', Icon: IconBudget },
@@ -132,8 +140,8 @@ const usuariosItem = { href: '/dashboard/usuarios', label: 'Usuarios', Icon: Ico
 
 /** Inicial del nombre (o del correo) para el avatar. */
 // Fuera de la barra inferior del celular: Perfil y Asistente se abren desde la barra superior;
-// Recurrentes y Categorías, desde el menú lateral (así caben 5 botones sin cortar textos)
-const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories', '/dashboard/monitor', '/dashboard/usuarios'])
+// Cuentas (CHG-019), Recurrentes y Categorías, desde el menú lateral (así caben 5 botones sin cortar textos)
+const BOTTOM_NAV_EXCLUDED = new Set(['/dashboard/profile', '/dashboard/assistant', '/dashboard/recurring', '/dashboard/categories', '/dashboard/cuentas', '/dashboard/monitor', '/dashboard/usuarios'])
 
 const initialOf = (user: { full_name?: string; email?: string } | null) =>
   (user?.full_name || user?.email || 'U').trim().charAt(0).toUpperCase()

@@ -242,7 +242,7 @@ Característica: Cuentas de dinero con saldo y transferencias
   # Prueba real: backend/sql/pruebas/08_comprobar_cuentas.sql
   Escenario: La migración no toca los datos existentes y se puede repetir
     Dado una base con transacciones y recurrentes
-    Cuando se ejecuta dos veces 2026-11-24_cuentas.sql
+    Cuando se ejecuta dos veces 2026-11-25_cuentas.sql
     Entonces el número de filas no cambia, todas tienen cuenta_id nulo y no hay errores
 
   @BDD-CUENTAS @invariante @INV-021

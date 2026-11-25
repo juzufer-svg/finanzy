@@ -62,6 +62,10 @@ el privilegio del Dueño de «solo lectura» a «acciones sobre otras cuentas»,
    barrera de seguridad (esa son la autorización fail-closed, la confirmación por correo y las funciones atómicas).
 10. **Último acceso (provisional).** `users.ultimo_acceso` lo escribe la función `registrar_acceso(id)` con el reloj de la BD y una
     sola sentencia condicional (como mucho una vez por hora por usuario: si ya se escribió hace menos de 1 h no toca la fila).
+    **Límite propio:** la escritura corre en un ejecutor propio de 2 hilos (`auth-acceso`) con un `BoundedSemaphore(2)` adquirido sin
+    bloquear; sin hueco se omite el guardado de ese acceso (mejor esfuerzo, aviso sin datos limitado) y el hueco se libera al terminar el
+    hilo. Así no compite con los 8 hilos de `auth_estado` (login, registro, restablecimiento). Se reutiliza el cliente dedicado de
+    `auth_estado` (plazo de 4 s, sin reintentos; es seguro entre hilos) y se impone el plazo propio de 2 s; no se duplica el cliente.
     Se invoca al emitir una sesión (login y `verify-email`) como **mejor esfuerzo y en segundo plano tras responder** (`BackgroundTasks`:
     la respuesta sale antes de escribir; decisión del dueño), con plazo propio de 2 s y fuera del event loop; su fallo, lentitud o respuesta
     rara no afecta la respuesta y solo deja un aviso sin datos. Significa «último inicio de sesión»: la sesión dura 7 días, así que

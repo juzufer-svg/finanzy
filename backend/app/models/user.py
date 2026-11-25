@@ -3,6 +3,9 @@ User model and database operations - Supabase
 Tabla: users(id, email, hashed_password, full_name, currency, is_active, session_version, created_at, updated_at,
 suspendida, ultimo_acceso)
 """
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 import uuid
 from app.core import security
@@ -11,6 +14,19 @@ from app.models import auth_estado
 
 
 PLAZO_REGISTRAR_ACCESO_SEG = 2.0   # plazo propio del último acceso (INV-061)
+MAX_ESCRITURAS_ACCESO = 2          # límite PROPIO e independiente de los 8 hilos de auth_estado (INV-061, ADR-012)
+
+_huecos_acceso = threading.BoundedSemaphore(MAX_ESCRITURAS_ACCESO)
+_ejecutor_acceso = ThreadPoolExecutor(max_workers=MAX_ESCRITURAS_ACCESO, thread_name_prefix="auth-acceso")
+_omitidos_acceso = 0
+
+
+def _avisar_omision_acceso() -> None:
+    """Cuenta las escrituras de último acceso omitidas por falta de hueco; avisa solo la 1.ª y luego cada 100 (sin datos)."""
+    global _omitidos_acceso
+    _omitidos_acceso += 1
+    if _omitidos_acceso == 1 or _omitidos_acceso % 100 == 0:
+        print(f"[user] Aviso: último acceso omitido por límite de escrituras simultáneas ({_omitidos_acceso} hasta ahora)")
 
 
 def _map_user(row: dict) -> dict:
@@ -183,13 +199,21 @@ class UserDB:
         plazo vencido o una respuesta rara solo dejan un aviso sin datos personales. Devuelve si escribió."""
         if not UserDB._is_supabase_available():
             return False
-        auth_estado.iniciar_presupuesto(PLAZO_REGISTRAR_ACCESO_SEG)
+        # Límite PROPIO (ADR-012): sin hueco se OMITE el guardado, sin esperar ni afectar al login ni a los 8 hilos de auth.
+        if not _huecos_acceso.acquire(blocking=False):
+            _avisar_omision_acceso()
+            return False
         try:
-            dato = await auth_estado.ejecutar(
-                "registrar_acceso",
+            futuro = _ejecutor_acceso.submit(
                 lambda: auth_estado.cliente_estado().rpc("registrar_acceso", {"p_id": user_id}).execute().data)
+        except BaseException:
+            _huecos_acceso.release()
+            return False
+        futuro.add_done_callback(lambda _f: _huecos_acceso.release())   # se libera al terminar el HILO (aunque venza el plazo)
+        try:
+            dato = await asyncio.wait_for(asyncio.wrap_future(futuro), timeout=PLAZO_REGISTRAR_ACCESO_SEG)
             return dato is True
-        except Exception as e:   # el mensaje puede traer datos: solo el tipo
+        except Exception as e:   # el mensaje puede traer datos: solo el tipo (cancelación no se captura: se propaga)
             print(f"[user] Aviso: no se pudo registrar el último acceso ({type(e).__name__})")
             return False
 

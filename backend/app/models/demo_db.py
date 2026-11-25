@@ -2,8 +2,33 @@
 In-memory demo database for testing without Supabase
 Use this when real Supabase credentials are not available
 """
+import threading
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional, Dict
 import uuid
+
+
+class ErrorBD(Exception):
+    """Equivalente en memoria al error de la BD real: lleva el SQLSTATE en `code` (FZ001 saldo negativo, FZ002 cuenta
+    archivada, FZ003 tope de cuentas, 23505 nombre repetido, 23503 llave foránea, 23514 CHECK). Sin texto de la BD."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _dec(valor) -> Decimal:
+    return valor if isinstance(valor, Decimal) else Decimal(str(valor))
+
+
+def _efecto(tipo: str, monto) -> Decimal:
+    """Efecto de una transacción sobre el saldo de su cuenta de dinero (igual que `cuenta_saldo_actual`)."""
+    if tipo == "ingreso":
+        return _dec(monto)
+    if tipo == "gasto":
+        return -_dec(monto)
+    return Decimal(0)
 
 
 class DemoTransaccionDB:
@@ -13,9 +38,12 @@ class DemoTransaccionDB:
     
     @staticmethod
     async def crear(usuario_id: str, categoria_id: str, monto: float,
-                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None) -> dict:
+                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None,
+                    cuenta_id: Optional[str] = None) -> dict:
         """Create transaction"""
         trans_id = str(uuid.uuid4())
+        # Las reglas de las cuentas de dinero (INV-046/048/050) se evalúan ANTES de guardar: nada queda a medias
+        DemoCuentaDB.validar_transaccion(usuario_id, None, {"cuenta_id": cuenta_id, "tipo": tipo, "monto": monto})
         transaccion = {
             "id": trans_id,
             "usuario_id": usuario_id,
@@ -25,6 +53,7 @@ class DemoTransaccionDB:
             "fecha": fecha,
             "tipo": tipo,
             "medio_pago": medio_pago,
+            "cuenta_id": cuenta_id,
         }
         DemoTransaccionDB._transacciones[trans_id] = transaccion
         return transaccion
@@ -49,20 +78,157 @@ class DemoTransaccionDB:
     async def actualizar(transaccion_id: str, **kwargs) -> dict:
         """Update transaction"""
         if transaccion_id in DemoTransaccionDB._transacciones:
-            allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo', 'medio_pago'}
-            for k, v in kwargs.items():
-                if k in allowed:
-                    DemoTransaccionDB._transacciones[transaccion_id][k] = v
-            return DemoTransaccionDB._transacciones[transaccion_id]
+            allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo', 'medio_pago', 'cuenta_id'}
+            actual = DemoTransaccionDB._transacciones[transaccion_id]
+            cambios = {k: v for k, v in kwargs.items() if k in allowed}
+            DemoCuentaDB.validar_transaccion(actual["usuario_id"], actual, {**actual, **cambios})  # antes de tocar nada
+            actual.update(cambios)
+            return actual
         return None
 
     @staticmethod
     async def eliminar(transaccion_id: str) -> bool:
         """Delete transaction"""
         if transaccion_id in DemoTransaccionDB._transacciones:
+            actual = DemoTransaccionDB._transacciones[transaccion_id]
+            DemoCuentaDB.validar_transaccion(actual["usuario_id"], actual, None)
             del DemoTransaccionDB._transacciones[transaccion_id]
             return True
         return False
+
+
+class DemoCuentaDB:
+    """Cuentas de dinero en memoria (CHG-019). SOLO existe sin Supabase y fuera de producción (`auth_estado._modo`).
+    Implementa las MISMAS reglas que los disparadores `fz001_*`/`fz003_*` de `backend/sql/2026-11-25_cuentas.sql`:
+    saldo derivado, FZ001 (saldo negativo salvo tarjeta), FZ002 (archivada = congelada), FZ003 (tope de 20),
+    nombre único sin distinguir mayúsculas ni espacios (23505) y propiedad de la cuenta (23503)."""
+
+    TOPE = 20
+    _cuentas: Dict[str, dict] = {}
+    _lock = threading.RLock()
+
+    @staticmethod
+    def _clave(nombre: str) -> str:
+        return str(nombre).strip().lower()
+
+    @staticmethod
+    def saldo(cuenta: dict) -> Decimal:
+        total = _dec(cuenta["saldo_inicial"])
+        for t in DemoTransaccionDB._transacciones.values():
+            if t.get("cuenta_id") == cuenta["id"] and t["usuario_id"] == cuenta["usuario_id"]:
+                total += _efecto(t["tipo"], t["monto"])
+        return total
+
+    @staticmethod
+    def _publica(cuenta: dict) -> dict:
+        return {
+            "id": cuenta["id"], "usuario_id": cuenta["usuario_id"], "nombre": cuenta["nombre"], "tipo": cuenta["tipo"],
+            "saldo_inicial": float(cuenta["saldo_inicial"]), "saldo": float(DemoCuentaDB.saldo(cuenta)),
+            "archivada": cuenta["archivada"], "created_at": cuenta["created_at"],
+        }
+
+    @staticmethod
+    def validar_transaccion(usuario_id: str, vieja: Optional[dict], nueva: Optional[dict]) -> None:
+        """Equivale a `fz001_saldo_transacciones` (INSERT: vieja=None; DELETE: nueva=None) más la llave foránea compuesta."""
+        with DemoCuentaDB._lock:
+            if vieja and nueva and _dec(nueva["monto"]) == _dec(vieja["monto"]) and nueva["tipo"] == vieja["tipo"] \
+                    and nueva.get("cuenta_id") == vieja.get("cuenta_id"):
+                return   # sin cambio real de monto, tipo ni cuenta
+            ids = sorted({f["cuenta_id"] for f in (vieja, nueva) if f and f.get("cuenta_id")})
+            if not ids:
+                return
+            propias = []
+            for cid in ids:
+                c = DemoCuentaDB._cuentas.get(cid)
+                if c and c["usuario_id"] == usuario_id:
+                    propias.append(c)
+            for c in propias:
+                if c["archivada"]:
+                    raise ErrorBD("FZ002")
+            for c in propias:
+                if c["tipo"] == "tarjeta_credito":
+                    continue
+                delta = Decimal(0)
+                if nueva and nueva.get("cuenta_id") == c["id"]:
+                    delta += _efecto(nueva["tipo"], nueva["monto"])
+                if vieja and vieja.get("cuenta_id") == c["id"]:
+                    delta -= _efecto(vieja["tipo"], vieja["monto"])
+                if delta < 0 and DemoCuentaDB.saldo(c) + delta < 0:
+                    raise ErrorBD("FZ001")
+            # Llave foránea compuesta (cuenta_id, usuario_id): una cuenta ajena o inexistente no se puede usar
+            if nueva and nueva.get("cuenta_id"):
+                c = DemoCuentaDB._cuentas.get(nueva["cuenta_id"])
+                if not c or c["usuario_id"] != usuario_id:
+                    raise ErrorBD("23503")
+
+    @staticmethod
+    async def crear(usuario_id: str, nombre: str, tipo: str, saldo_inicial: Decimal) -> dict:
+        with DemoCuentaDB._lock:
+            propias = [c for c in DemoCuentaDB._cuentas.values() if c["usuario_id"] == usuario_id]
+            if len(propias) >= DemoCuentaDB.TOPE:
+                raise ErrorBD("FZ003")
+            if any(DemoCuentaDB._clave(c["nombre"]) == DemoCuentaDB._clave(nombre) for c in propias):
+                raise ErrorBD("23505")
+            if saldo_inicial < 0 and tipo != "tarjeta_credito":
+                raise ErrorBD("23514")
+            cuenta = {
+                "id": str(uuid.uuid4()), "usuario_id": usuario_id, "nombre": nombre, "tipo": tipo,
+                "saldo_inicial": _dec(saldo_inicial), "archivada": False,
+                "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            DemoCuentaDB._cuentas[cuenta["id"]] = cuenta
+            return DemoCuentaDB._publica(cuenta)
+
+    @staticmethod
+    def _de(cuenta_id: str, usuario_id: str) -> Optional[dict]:
+        c = DemoCuentaDB._cuentas.get(cuenta_id)
+        return c if c and c["usuario_id"] == usuario_id else None
+
+    @staticmethod
+    async def obtener_por_id(cuenta_id: str, usuario_id: str) -> Optional[dict]:
+        with DemoCuentaDB._lock:
+            c = DemoCuentaDB._de(cuenta_id, usuario_id)
+            return dict(c, saldo_inicial=float(c["saldo_inicial"])) if c else None
+
+    @staticmethod
+    async def listar(usuario_id: str) -> list:
+        with DemoCuentaDB._lock:
+            propias = [c for c in DemoCuentaDB._cuentas.values() if c["usuario_id"] == usuario_id]
+            propias.sort(key=lambda c: (c["nombre"].lower(), c["id"]))
+            return [DemoCuentaDB._publica(c) for c in propias]
+
+    @staticmethod
+    async def actualizar(cuenta_id: str, usuario_id: str, cambios: dict) -> Optional[dict]:
+        with DemoCuentaDB._lock:
+            c = DemoCuentaDB._de(cuenta_id, usuario_id)
+            if c is None:
+                return None
+            if "nombre" in cambios and any(
+                    o["id"] != c["id"] and o["usuario_id"] == usuario_id
+                    and DemoCuentaDB._clave(o["nombre"]) == DemoCuentaDB._clave(cambios["nombre"])
+                    for o in DemoCuentaDB._cuentas.values()):
+                raise ErrorBD("23505")
+            if "saldo_inicial" in cambios:
+                nuevo = _dec(cambios["saldo_inicial"])
+                if nuevo < 0 and c["tipo"] != "tarjeta_credito":
+                    raise ErrorBD("23514")
+                if nuevo < c["saldo_inicial"] and c["tipo"] != "tarjeta_credito" \
+                        and DemoCuentaDB.saldo(c) + (nuevo - c["saldo_inicial"]) < 0:
+                    raise ErrorBD("FZ001")
+            for k, v in cambios.items():
+                c[k] = _dec(v) if k == "saldo_inicial" else v
+            return DemoCuentaDB._publica(c)
+
+    @staticmethod
+    async def eliminar(cuenta_id: str, usuario_id: str) -> bool:
+        with DemoCuentaDB._lock:
+            c = DemoCuentaDB._de(cuenta_id, usuario_id)
+            if c is None:
+                return False
+            if any(t.get("cuenta_id") == cuenta_id for t in DemoTransaccionDB._transacciones.values()):
+                raise ErrorBD("23503")   # NO ACTION: con movimientos no se elimina (INV-050)
+            del DemoCuentaDB._cuentas[cuenta_id]
+            return True
 
 
 class DemoCategoriaDB:
