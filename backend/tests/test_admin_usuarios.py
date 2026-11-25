@@ -137,7 +137,7 @@ def test_inv053_sin_sesion_recibe_404(client, panel):
     assert _sin_date(_pet(client, "GET", "/usuarios", {"Authorization": "Bearer basura"})) == _sin_date(client.get("/api/v1/no-existe"))
 
 
-@pytest.mark.parametrize("valor", ["", "   "])
+@pytest.mark.parametrize("valor", ["", None])
 def test_inv053_sin_owner_email_responde_404_y_no_mira_la_sesion(client, panel, monkeypatch, valor):
     vistos = []
 
@@ -793,8 +793,7 @@ def test_inv059_la_auditoria_solo_se_lee_con_get_y_no_hay_rutas_para_editarla(cl
         for ruta in ("/auditoria/1", "/auditoria/1/editar"):
             assert _pet(client, metodo, ruta, panel.dueno).status_code == 404
     assert len(admin_db._Memoria.auditoria) == 1
-    rutas = {r.path for r in app.routes}
-    assert not any("auditoria" in r for r in rutas)   # todo pasa por el despachador: ninguna ruta propia de edición
+    assert [r.path for r in admin_routes.router.routes] == ["/{ruta:path}"]   # todo pasa por el despachador: sin rutas de edición
 
 
 def test_inv059_auditoria_paginada_de_25_en_orden_descendente(client, panel):

@@ -71,8 +71,8 @@ Las de la fila 1 a 7 vienen del encargo del coordinador; las 8 a 16 las propone 
 | Tarea | Alcance | Depende de | Estado |
 |---|---|---|---|
 | T1 | SQL: `2026-11-25_admin_usuarios.sql` + `pruebas/11_comprobar_admin_usuarios.sql` + línea en `probar.sh` (INV-062 y la atomicidad de INV-056/057/058/059/061) | spec aprobada | **hecha** (2026-11-25; ver §7) |
-| T2 | Backend: `models/admin_usuarios.py` (RPC con `auth_estado.ejecutar`), `api/routes/admin_usuarios.py` (despachador ASGI, `_confirmar_dueno`, límites, lista blanca), registro en `main.py` y `tests/test_admin_usuarios.py` | T1 | pendiente |
-| T3 | Login/sesión: `suspendida` en `UserDB._map_user`/`get_session_version`, 401 en `usuario_de_sesion`, 403 en `login` y `verify-email`, `registrar_acceso` best-effort y `tests/test_admin_suspension.py` | T1 | pendiente |
+| T2 | Backend: `models/admin_usuarios.py` (RPC con `auth_estado.ejecutar`), `schemas/admin_usuarios.py`, `api/routes/admin_usuarios.py` (despachador ASGI, `_confirmar_dueno`, límites, lista blanca), registro en `main.py` y `tests/test_admin_usuarios.py` | T1 | **hecha** (2026-11-25) |
+| T3 | Login/sesión: `suspendida` en `UserDB._map_user`/`get_session_version`, 401 en `usuario_de_sesion`, 403 en `login` y `verify-email`, `registrar_acceso` best-effort y `tests/test_admin_suspension.py` | T1 | **hecha** (2026-11-25) |
 | T4 | Frontend: `app/dashboard/usuarios/page.tsx` (lista, búsqueda, detalle, diálogos con `useDialog`, confirmación escribiendo el correo, pestaña «Registro», `ErrorState`, «no encontrada» ante 404), enlace «Usuarios» por `es_dueno`, `lib/usuarios.ts` y `frontend/tests/usuarios.test.mjs` | T2 (contrato CT-013) | **hecha** (2026-11-25; ver §7) |
 | T5 | Validación (suite una vez, `pip-audit`, SQL contra PostgreSQL real, scripts de abuso: 404 byte a byte, 422 a no-Dueño, inyección en `q`) y revisión independiente **en paralelo**; trazabilidad y notas de despliegue; aprobación del dueño | T1-T4 | pendiente |
 
@@ -84,6 +84,7 @@ Las de la fila 1 a 7 vienen del encargo del coordinador; las 8 a 16 las propone 
 | 2026-11-25 | generador | Parte A (spec): contraseña del Dueño para eliminar, `ultimo_acceso` en segundo plano, 404 de subruta inexistente sin `no-store`, cuerpo de DELETE con tope real de 2 KB (413/422) y borrado > 5 s, zona horaria de `created_at`, `confirmar_correo` 3 a 255, tope de auditoría con try-lock, banco de pruebas de REQ-N-027, `whatsapp_mensajes`/`whatsapp_registros` en INV-058, P1/P2 registradas | REQ-F-021, INV-053/056/058/059/061/062, CT-013, ADR-012 (punto 12), UC-017, BDD, NFR |
 | 2026-11-25 | generador | T1: migración `backend/sql/2026-11-25_admin_usuarios.sql`, `pruebas/11_comprobar_admin_usuarios.sql` y bloque de concurrencia en `probar.sh` | ver informe de la tarea |
 | 2026-11-25 | generador | T4: `app/dashboard/usuarios/page.tsx`, enlace «Usuarios» en `layout.tsx` (solo `es_dueno`), `lib/usuarios.ts`, `tests/usuarios.test.mjs`; verificado con Playwright (respuestas simuladas, dueño y no dueño). El filtro por estado es solo de la página cargada (CT-013 no filtra por estado) y la lista solo trae `transacciones` (WhatsApp y demás conteos, en el detalle) | LISTO_PARA_VALIDAR |
+| 2026-11-25 | generador | T2+T3 (backend): panel `/admin/*` con despachador ASGI, modelo RPC con modo demo, esquemas, `suspendida` en sesión/login/verify-email, `ultimo_acceso` en segundo plano; `test_admin_usuarios.py` y `test_admin_suspension.py` (93 nombres de INV/BDD presentes); ajustados 3 conteos de llamadas a la BD en `test_auth_persistente.py` (+1 `registrar_acceso`) | ver informe de la tarea |
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente

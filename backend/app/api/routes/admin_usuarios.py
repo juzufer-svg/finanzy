@@ -25,7 +25,6 @@ from app.api.dueno import es_correo_dueno
 from app.api.routes import auth as auth_routes
 from app.api.routes.monitor import _confirmar_dueno
 from app.core.rate_limit import SlidingWindow
-from app.core.security import verify_password
 from app.models import admin_usuarios as admin_db
 from app.models import auth_estado
 from app.models.auth_estado import EstadoNoDisponible

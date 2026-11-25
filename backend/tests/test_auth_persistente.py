@@ -130,6 +130,8 @@ class BDFalsa:
             return ae._mem_borrar(a["p_clave_correo"])
         if n == "auth_purgar":
             return ae._mem_purgar(ae._ahora())
+        if n == "registrar_acceso":   # CHG-023, INV-061: el último acceso se escribe en segundo plano tras responder el login
+            return True
         raise AssertionError(f"función SQL desconocida: {n}")
 
 
@@ -853,7 +855,7 @@ def test_req_n017_llamadas_a_la_bd_por_operacion(client, users, bd, sent_emails,
         return respuesta, len(bd.llamadas)
 
     r, n = contar(lambda: _login(client, n=1))
-    assert r.status_code == 200 and n == 3                         # límite IP + reservar + resolver
+    assert r.status_code == 200 and n == 4                         # límite IP + reservar + resolver + último acceso (segundo plano)
     r, n = contar(lambda: _login(client, clave="mala", n=2))
     assert r.status_code == 401 and n == 3
     r, n = contar(lambda: _login(client, "pend@example.com", CLAVE, 3))
@@ -865,7 +867,7 @@ def test_req_n017_llamadas_a_la_bd_por_operacion(client, users, bd, sent_emails,
     reloj.avanzar(seconds=61)                                      # pasó el espacio de 60 s del código que emitió el login
     asyncio.run(ae.codigo_emitir("pend@example.com", "verify", "123456"))
     r, n = contar(lambda: _post(client, "verify-email", {"email": "pend@example.com", "code": "123456"}, 31))
-    assert r.status_code == 200 and n == 2                         # límite IP + verificar
+    assert r.status_code == 200 and n == 3                         # límite IP + verificar + último acceso (segundo plano)
     reloj.avanzar(seconds=61)
     asyncio.run(ae.codigo_emitir("pend@example.com", "reset", "654321"))
     r, n = contar(lambda: _post(client, "reset-password", {"email": "pend@example.com", "code": "654321", "new_password": "NuevaClave1"}, 32))
@@ -923,7 +925,7 @@ def test_i3_la_lectura_estricta_usa_el_cliente_dedicado_y_devuelve_el_usuario(bd
     from fastapi.testclient import TestClient
     r = _login(TestClient(app), n=1)
     assert r.status_code == 200 and "access_token" in r.json()
-    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver"]
+    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver", "registrar_acceso"]
     assert bd.hilos_usuarios and bd.hilos_usuarios[0].startswith("auth-estado")
 
 
@@ -1054,7 +1056,8 @@ def test_ia_el_login_dispara_la_purga_en_segundo_plano_sin_pedir_ningun_codigo(c
     _alta(users)
     ae._intento_purga["ultimo"] = None
     assert _login(client, n=1).status_code == 200
-    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver", "auth_purgar"]   # DESPUÉS
+    assert bd.nombres == ["auth_limite_registrar", "auth_login_reservar", "auth_login_resolver", "registrar_acceso",
+                          "auth_purgar"]   # DESPUÉS
     assert not any(n == "auth_codigo_emitir" for n in bd.nombres)
     assert _login(client, clave="mala", n=2).status_code == 401                      # también con un 401
     assert bd.nombres.count("auth_purgar") == 1                                      # una vez por hora y proceso
