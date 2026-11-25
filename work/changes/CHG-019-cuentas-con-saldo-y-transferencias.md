@@ -64,7 +64,7 @@ Preguntas que **requieren** respuesta del dueño: ninguna. La 9 (transacciones d
 | T3 | Frontend: página «Cuentas», selector «Cuenta (opcional)» en `TransactionForm`, saldos en la moneda de visualización, accesibilidad | T2 | **hecha (2026-11-25)**, pendiente de validación | 1 |
 | T4 | Validación + revisión independiente de la fase (a) + trazabilidad; despliegue (SQL antes) | T1-T3 | pendiente | 0 |
 | **Fase (b)** | | | | |
-| T5 | Migración `2026-11-24_transferencias.sql` (tabla, llaves compuestas, CHECK, disparador `fz001_saldo_transferencias` con bloqueo ordenado por id) + `09_comprobar_transferencias.sql` + concurrencia (20 transferencias simultáneas; 20 A→B y 20 B→A sin interbloqueos) | fase (a) hecha | pendiente | 0 |
+| T5 | Migración `2026-11-25_transferencias.sql` (tabla, llaves compuestas, CHECK, disparador `fz001_saldo_transferencias` con bloqueo ordenado por id) + `09_comprobar_transferencias.sql` + concurrencia (20 transferencias simultáneas; 20 A→B y 20 B→A sin interbloqueos) | fase (a) hecha | pendiente | 0 |
 | T6 | Backend `/transferencias` + `backend/tests/test_transferencias.py` (incluye «no cuenta como ingreso ni gasto») | T5 | pendiente | 0 |
 | T7 | Frontend: formulario de transferencia y su aparición en la lista de movimientos; validación + revisión + despliegue | T6 | pendiente | 0 |
 | **Fase (c)** | | | | |
