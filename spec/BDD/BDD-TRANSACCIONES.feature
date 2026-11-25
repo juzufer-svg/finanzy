@@ -5,7 +5,7 @@ Característica: Transacciones y resumen
 
   @BDD-TRANSACCIONES @invariante @INV-003
   Escenario: Montos inválidos se rechazan
-    Dado un monto 0, negativo o mayor a 1e12
+    Dado un monto 0, negativo o mayor a 9999999999.99
     Cuando se registra la transacción
     Entonces se rechaza con 422
     # Prueba: backend/tests/test_validaciones.py::test_inv003_montos_fuera_de_rango_se_rechazan

@@ -14,10 +14,10 @@ Auth persistente (CHG-020), exportar (CHG-018), cuentas con saldo, transferencia
 - Regla: el SQL se ejecuta ANTES del push que lo usa.
 
 ## Cambio en curso
-- Ninguno: CHG-028 (ahorro de tokens, mapa de contexto, modelos por complejidad y limpieza) está desplegado. Su ficha sigue en `work/changes/` y debe archivarse en `work/archivo/` al empezar la próxima sesión.
+- Ninguno: CHG-028 (ahorro de tokens, mapa de contexto, modelos por complejidad y limpieza) está desplegado y su ficha archivada.
 
 ## Fichas
-Solo CHG-028 (ya desplegada) sigue en `work/changes/`; archivarla. Todas las demás están en `work/archivo/` y sus BL están marcados como desplegados en `work/BACKLOG.md`.
+`work/changes/` está vacía: todas las fichas están en `work/archivo/` y sus BL marcados como desplegados en `work/BACKLOG.md`.
 
 ## Pendientes abiertos (`work/BACKLOG.md`)
 BL-005 (RLS con Security Advisor), BL-008 (columna `metas.estado`), BL-016 (cerrar PR #2), BL-017 (tope de montos 1e12), BL-019 (columna `mes_año`), BL-032 (asistente en la moneda elegida), BL-036, BL-040 (limitadores en memoria), BL-044 (tope por usuario en cuentas), BL-048 (modo demo sin Supabase en producción).
@@ -26,4 +26,4 @@ BL-005 (RLS con Security Advisor), BL-008 (columna `metas.estado`), BL-016 (cerr
 BL-044 (4 hilos de cuentas compartidos), BL-040 (limitadores del asistente, WhatsApp y Monitor en memoria), BL-048 (rutas de finanzas caen a modo demo si no hay Supabase).
 
 ## Siguiente paso sugerido
-1. Archivar la ficha CHG-028 (git mv a `work/archivo/`). 2. Elegir el siguiente BL (BL-017 o BL-048 son los de menor riesgo). 3. Abrir una sesión nueva leyendo solo este archivo y `docs/MAPA.md`.
+1. Elegir el siguiente BL (BL-017 o BL-048 son los de menor riesgo). 2. Abrir una sesión nueva leyendo solo este archivo y `docs/MAPA.md`.
