@@ -88,3 +88,9 @@ Las de la fila 1 a 7 vienen del encargo del coordinador; las 8 a 16 las propone 
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente
+
+## Cierre de la revisión (2026-11-25)
+- Validador PASA (888 pruebas, pip-audit, pyflakes, frontend 81/81, SQL contra PostgreSQL real, barrido de abuso 11/11) y revisor APROBADO, sin bloqueantes.
+- Columnas del SQL verificadas contra la base real de Supabase (users, whatsapp_enlaces, whatsapp_mensajes, whatsapp_registros, categorias, transacciones, presupuestos, metas, recurrentes).
+- Menores aceptados: redacción de INV-054 corregida («antes de cualquier escritura o auditoría»); `registrar_acceso` comparte el ejecutor de 8 hilos con el login (mejora futura: semáforo propio); tiempos de un no-Dueño con sesión válida (igual que el Monitor); paso 07 de `probar.sh` muy lento en un entorno de pruebas (preexistente, no es de CHG-023).
+- Despliegue: ejecutar `backend/sql/2026-11-25_admin_usuarios.sql` COMPLETO en Supabase ANTES del push a `main` (sin la migración, `get_session_version` falla y todas las sesiones dan 503). Sin variables nuevas.
