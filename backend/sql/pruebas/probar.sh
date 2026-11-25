@@ -546,3 +546,64 @@ sql "delete from public.users where email like 'ci\_k%@x.test'" > /dev/null
 esperar "limpieza por cascada: recurrentes con cuenta restantes" "$(sql "select count(*) from public.recurrentes where cuenta_id is not null")" 0
 esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
 echo "OK: concurrencia real de la integración de las cuentas con metas y recurrentes"
+
+# CHG-029 (INV-003): montos como NUMERIC(12,2). Al final, como en el despliegue: sobre la base con todo lo anterior.
+MIG=../2026-11-25_montos_numeric_12_2.sql
+M1='00000000-0000-4000-8000-0000000029a1'; MC='00000000-0000-4000-8000-0000000029c1'
+MT='00000000-0000-4000-8000-0000000029d1'; MP='00000000-0000-4000-8000-0000000029e1'; MM='00000000-0000-4000-8000-0000000029f1'
+TIPOS() { sql "select string_agg(format_type(atttypid, atttypmod), ',' order by attrelid::regclass::text, attname) from pg_attribute where (attrelid::regclass::text, attname::text) in (('transacciones','monto'),('presupuestos','limite_mensual'),('metas','monto_objetivo'),('metas','monto_actual'))"; }
+DISPARADOR() { sql "select pg_get_triggerdef(oid) || ' ' || tgenabled::text from pg_trigger where tgname = 'fz001_saldo_transacciones'"; }
+# huella de los valores (sin ceros finales) y de las marcas de actualización: la migración no debe cambiar nada
+HUELLA() { sql "select md5(coalesce(string_agg(x, ';' order by x), '')) from (select 't' || id || ':' || trim_scale(monto) from public.transacciones union all select 'p' || id || ':' || trim_scale(limite_mensual) from public.presupuestos union all select 'm' || id || ':' || trim_scale(monto_objetivo) || '/' || trim_scale(monto_actual) from public.metas) q(x)"; }
+ANTES='numeric,numeric,numeric,numeric'; DESPUES='numeric(12,2),numeric(12,2),numeric(12,2),numeric(12,2)'
+esperar "tipos antes de migrar (como producción)" "$(TIPOS)" "$ANTES"
+sql "insert into public.users(id, email) values ('$M1','mon_k1@x.test')" > /dev/null
+nueva_cuenta "$MC" "$M1" "Montos" 1000
+sql "insert into public.transacciones(id, usuario_id, monto, fecha, tipo) values ('$MT','$M1',1.5,current_date,'gasto'); insert into public.presupuestos(id, usuario_id, limite_mensual, mes_ano) values ('$MP','$M1',100,'2026-11'); insert into public.metas(id, usuario_id, nombre, monto_objetivo, monto_actual) values ('$MM','$M1','Montos',100,0)" > /dev/null
+DEF="$(DISPARADOR)"
+# Un dato inválido en cualquiera de las 4 columnas (sobre el tope, 3 decimales, NaN) aborta sin cambiar nada
+for caso in "transacciones monto $MT 10000000000" "transacciones monto $MT 1.005" "presupuestos limite_mensual $MP 9999999999.991" "metas monto_objetivo $MM NaN" "metas monto_actual $MM 10000000000.00" "metas monto_actual $MM 0.001"; do
+  read -r tabla col id valor <<< "$caso"
+  previo="$(sql "select $col from public.$tabla where id = '$id'")"
+  sql "update public.$tabla set $col = '$valor' where id = '$id'" > /dev/null
+  h="$(HUELLA)"
+  if psql "$PGURL" -q -v ON_ERROR_STOP=1 -f $MIG > "$TMP/mig" 2>&1; then echo "ERROR: la migración debía abortar ($tabla.$col = $valor)"; exit 1; fi
+  grep -q "montos_invalidos.*$tabla.$col: 1" "$TMP/mig" || { echo "ERROR: aborto inesperado ($tabla.$col = $valor)"; cat "$TMP/mig"; exit 1; }
+  esperar "aborto con $tabla.$col = $valor: tipos, datos y disparador sin cambios" "$(TIPOS)|$(HUELLA)|$(DISPARADOR)" "$ANTES|$h|$DEF"
+  sql "update public.$tabla set $col = $previo where id = '$id'" > /dev/null
+done
+# Con una tabla ocupada no espera indefinidamente: lock_timeout (55P03) y nada cambia
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; lock table public.transacciones in row exclusive mode; select pg_sleep(8); commit;" > /dev/null &
+sleep 0.7
+if psql "$PGURL" -q -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -f $MIG > "$TMP/mig" 2>&1; then echo "ERROR: la migración debía rendirse por lock_timeout"; exit 1; fi
+grep -q "55P03" "$TMP/mig" || { echo "ERROR: se esperaba 55P03"; cat "$TMP/mig"; exit 1; }
+wait
+esperar "lock_timeout: tipos y disparador sin cambios" "$(TIPOS)|$(DISPARADOR)" "$ANTES|$DEF"
+# El diagnóstico (solo lectura) detecta el disparador (el índice de cuenta se reconstruye solo)
+PGOPTIONS="-c default_transaction_read_only=on" psql "$PGURL" -q -t -A -v ON_ERROR_STOP=1 -f ../2026-11-25_montos_numeric_12_2_diagnostico.sql > "$TMP/diag"
+esperar "diagnóstico: dependencias que no son valor por defecto" "$(grep '^dependencia' "$TMP/diag" | grep -v -E 'default value|\|index ' | cut -d'|' -f2,3)" "transacciones.monto|trigger fz001_saldo_transacciones on table transacciones"
+esperar "diagnóstico: columnas con inválidos" "$(grep '^invalidos' "$TMP/diag" | grep -c -v '|0$' || true)" 0
+# Aplicar dos veces (idempotente)
+H="$(HUELLA)"; U="$(sql "select string_agg(id || ':' || coalesce(updated_at::text, ''), ';' order by id) from public.transacciones")"
+run $MIG
+esperar "migración: tipos" "$(TIPOS)" "$DESPUES"
+NODO="$(sql "select string_agg(relfilenode::text, ',' order by relname) from pg_class where relname in ('metas','presupuestos','transacciones')")"
+run $MIG
+esperar "segunda pasada: tipos, datos y disparador" "$(TIPOS)|$(HUELLA)|$(DISPARADOR)" "$DESPUES|$H|$DEF"
+esperar "segunda pasada: no reescribe las tablas" "$(sql "select string_agg(relfilenode::text, ',' order by relname) from pg_class where relname in ('metas','presupuestos','transacciones')")" "$NODO"
+esperar "migración: updated_at intacto" "$(sql "select string_agg(id || ':' || coalesce(updated_at::text, ''), ';' order by id) from public.transacciones")" "$U"
+# La regla de saldo sigue activa tras recrear el disparador, también al editar el monto
+sql "insert into public.transacciones(id, usuario_id, monto, fecha, tipo, cuenta_id) values ('00000000-0000-4000-8000-0000000029d2','$M1',100,current_date,'gasto','$MC')" > /dev/null
+esperar "tras migrar: editar el monto por encima del saldo" "$(sqle "update public.transacciones set monto = 1000.01 where id = '00000000-0000-4000-8000-0000000029d2'")" "ERROR:  FZ001"
+esperar "tras migrar: ingreso sobre el tope con cuenta" "$(sqle "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$M1', 10000000000, current_date, 'ingreso', '$MC')")" "ERROR:  22003"
+# INV-003: abono cuyo acumulado pasa del tope -> 22003 y no cambia nada (ni meta, ni gasto, ni saldo, ni categoría), con y sin cuenta
+sql "update public.metas set monto_actual = 9999999999.00 where id = '$MM'; delete from public.categorias where usuario_id = '$M1'" > /dev/null
+ESTADO_ABONO() { sql "select (select monto_actual from public.metas where id = '$MM') || '/' || (select count(*) from public.transacciones where usuario_id = '$M1') || '/' || public.cuenta_saldo_actual('$MC') || '/' || (select count(*) from public.categorias where usuario_id = '$M1')"; }
+E0="$(ESTADO_ABONO)"
+esperar "abono sobre el tope sin cuenta" "$(sqle "select 'ok' from public.abonar_meta('$MM', '$M1', 1.00, current_date, 'Abono', null)")" "ERROR:  22003"
+esperar "abono sobre el tope sin cuenta: sin cambios" "$(ESTADO_ABONO)" "$E0"
+esperar "abono sobre el tope con cuenta" "$(sqle "select 'ok' from public.abonar_meta('$MM', '$M1', 1.00, current_date, 'Abono', '$MC')")" "ERROR:  22003"
+esperar "abono sobre el tope con cuenta: sin cambios" "$(ESTADO_ABONO)" "$E0"
+esperar "abono que llega justo al tope" "$(sqle "select monto_actual from public.abonar_meta('$MM', '$M1', 0.99, current_date, 'Abono', '$MC')")" "9999999999.99"
+sql "delete from public.users where id = '$M1'" > /dev/null
+echo "OK: montos NUMERIC(12,2)"

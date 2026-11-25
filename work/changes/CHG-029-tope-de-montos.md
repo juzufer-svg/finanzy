@@ -11,8 +11,10 @@
 Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador).
 
 ## 3. Análisis
-- **Alcance:** transacciones (con y sin cuenta), presupuestos, metas (objetivo, ahorrado, abono), recurrentes (plantilla y confirmar) y WhatsApp.
-- **Fuera de alcance:** SQL y datos existentes (todas esas columnas ya son `NUMERIC(12,2)`, no puede haber valores mayores ni con más decimales); cuentas y transferencias (ya cumplen INV-051).
+- **Alcance:** transacciones (con y sin cuenta), presupuestos, metas (objetivo, ahorrado, abono), recurrentes (plantilla y confirmar), WhatsApp y migración SQL (`transacciones.monto`, `presupuestos.limite_mensual`, `metas.monto_objetivo` y `metas.monto_actual` a `NUMERIC(12,2)`).
+- **Fuera de alcance:** modificar datos existentes; cuentas y transferencias (ya cumplen INV-051; `saldo_inicial`, `transferencias.monto` y `recurrentes.monto` ya son `NUMERIC(12,2)`).
+- **Corrección (2026-11-25):** la premisa «todas las columnas ya son `NUMERIC(12,2)`» era falsa. Verificado en producción (solo lectura): las 4 columnas citadas arriba son `numeric` sin precisión; 0 filas sobre 9 999 999 999,99 y 0 con más de 2 decimales (84/1/2 filas).
+- **Orden de despliegue:** 1) `backend/sql/2026-11-25_montos_numeric_12_2_diagnostico.sql` (solo lectura); 2) `backend/sql/2026-11-25_montos_numeric_12_2.sql` en el SQL Editor y revisar su comprobación; 3) push a `main`. La migración es compatible con el backend actual.
 - **Actores y permisos:** sin cambios.
 - **Reglas:** endurece INV-003 (no la debilita: no exige ADR nuevo).
 - **Riesgos:**
@@ -47,6 +49,7 @@ Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador)
 | T2 | `schemas/plataapp.py` (tope único), acumulado del abono en rutas; pruebas `test_inv003_tope_en_cada_entrada`, `test_inv003_maximo_dos_decimales`, `test_inv003_limites_aceptados`, `test_inv003_abono_acumulado_422_sin_cambios` | T1 | pendiente | 0 |
 | T3 | `utils/whatsapp.py`; prueba `test_inv003_whatsapp_respeta_tope` | T2 | pendiente | 0 |
 | T4 | `frontend/lib/api-error.ts` y su prueba (según P2) | T1 | pendiente | 0 |
+| T6 | Migración SQL, diagnóstico y pruebas en PostgreSQL local | H1 | hecha (sin aplicar en Supabase) | 1 |
 | T5 | Trazabilidad, `BACKLOG.md`, `ESTADO.md` | T2-T4 | pendiente | 0 |
 
 ## 7. Registro de ejecución
@@ -57,6 +60,7 @@ Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador)
 | 2026-11-25 | generador | T2-T4 | commit 8f1504e |
 | 2026-11-25 | revisor | Revisión | aprobado, observaciones menores |
 | 2026-11-25 | validador | Validación | bloqueado (H1): confirmar precisión de las columnas de montos en Supabase; `backend/sql/pruebas/01_base_como_produccion.sql` declara `numeric` sin precisión en `metas` |
+| 2026-11-25 | generador | T6 (resuelve H1 en el repo) | `probar.sh` completo en PostgreSQL 16 local: OK; reversión probada a mano; base de prueba corregida (`numeric` sin precisión) y aserción de `08_comprobar_cuentas.sql` sobre el tope en `transacciones` movida tras la migración. pytest: 2 fallos en `test_exportar.py` (sin cambios de Python en esta tarea). Pendiente: validar y que el dueño ejecute el SQL |
 
 ## 8. Cierre
 - Decisiones:

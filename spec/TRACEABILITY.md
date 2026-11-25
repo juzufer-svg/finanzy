@@ -49,7 +49,7 @@ Rutas relativas a la raíz del repositorio. `be/` = `backend/app/`, `fe/` = `fro
 |---|---|
 | INV-001 | `test_propiedad.py::test_inv001_*`, `test_endurecimiento.py::test_toda_consulta_por_id_en_supabase_filtra_tambien_por_usuario`, `::test_modo_demo_no_borra_ni_edita_registros_de_otro_usuario` |
 | INV-002 | `test_propiedad.py::test_inv002_no_se_puede_usar_una_categoria_ajena` |
-| INV-003 | `test_validaciones.py::test_inv003_*`, `test_whatsapp.py::test_inv003_whatsapp_respeta_tope`, `frontend/tests/rango-fechas.test.mjs` (mensaje del tope, CHG-029) |
+| INV-003 | `test_validaciones.py::test_inv003_*`, `test_whatsapp.py::test_inv003_whatsapp_respeta_tope`, `frontend/tests/rango-fechas.test.mjs` (mensaje del tope, CHG-029) · BD: `backend/sql/2026-11-25_montos_numeric_12_2.sql` (preparada, **sin aplicar en Supabase**; diagnóstico `..._diagnostico.sql`), `backend/sql/pruebas/probar.sh` sección CHG-029 (aborto con dato inválido, `lock_timeout`, idempotencia, regla de saldo, abono sobre el tope con y sin cuenta) |
 | INV-004 | `test_validaciones.py::test_inv004_tipo_debe_ser_ingreso_o_gasto` |
 | INV-005 | `test_validaciones.py::test_inv005_*` |
 | INV-006 | `test_auth.py::test_inv006_cuenta_pendiente_no_obtiene_sesion` |

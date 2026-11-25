@@ -191,8 +191,8 @@ begin
   perform pg_temp.debe_fallar(format($q$insert into cuentas(usuario_id, nombre, tipo, saldo_inicial) values (%L, 'Sobre el tope', 'ahorros_corriente', 10000000000)$q$, u1), '22003', 'saldo inicial 10 000 000 000');
   perform pg_temp.debe_fallar(format($q$insert into cuentas(usuario_id, nombre, tipo, saldo_inicial) values (%L, 'Deuda enorme', 'tarjeta_credito', -10000000000)$q$, u1), '22003', 'deuda inicial de 10 000 000 000');
   insert into cuentas(usuario_id, nombre, tipo, saldo_inicial) values (u1, 'Deuda tope', 'tarjeta_credito', -9999999999.99);
-  perform pg_temp.debe_fallar(format($q$insert into transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values (%L, 10000000000, current_date, 'ingreso', %L)$q$, u1, c1), '22003', 'ingreso sobre el tope con cuenta');
-  raise notice 'OK: INV-051 9 999 999 999,99 se acepta y 10 000 000 000 se rechaza (saldo inicial y transacciones)';
+  -- El tope en transacciones.monto se comprueba en probar.sh tras la migración de CHG-029 (en producción esa columna no tenía precisión)
+  raise notice 'OK: INV-051 9 999 999 999,99 se acepta y 10 000 000 000 se rechaza (saldo inicial)';
 
   -- INV-046: la BD rechaza la cuenta de otro usuario al crear y al editar (llave compuesta)
   perform pg_temp.debe_fallar(format($q$insert into transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values (%L, 1, current_date, 'ingreso', %L)$q$, u1, cx), '23503', 'transacción con cuenta ajena');
