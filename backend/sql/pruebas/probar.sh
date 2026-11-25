@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) estado de autenticación persistente (CHG-020) y panel de administración de usuarios (CHG-023), cuentas de dinero (CHG-019 a) y transferencias entre cuentas (CHG-024) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) estado de autenticación persistente (CHG-020) y panel de administración de usuarios (CHG-023), cuentas de dinero (CHG-019 a) transferencias entre cuentas (CHG-024) y su integración con metas y recurrentes (CHG-025) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -445,3 +445,104 @@ sql "delete from public.users where email like 'trf\_k%@x.test'" > /dev/null
 esperar "limpieza por cascada: transferencias restantes" "$(sql "select count(*) from public.transferencias")" 0
 esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
 echo "OK: concurrencia real de las transferencias entre cuentas"
+
+# CHG-025 (fase c de CHG-019): integración de las cuentas con metas y recurrentes (dos veces para comprobar que se puede repetir).
+# Se parte de la función de abono anterior (como en producción) para comprobar que la migración la reemplaza sin dejar dos firmas.
+run ../2026-11-22_abonar_meta_atomico.sql
+run ../2026-11-25_cuentas_integracion.sql
+run ../2026-11-25_cuentas_integracion.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 10_comprobar_cuentas_integracion.sql
+I1='00000000-0000-4000-8000-0000000025c0'
+sql "insert into public.users(id, email) values ('$I1','ci_k1@x.test')" > /dev/null
+ABONO() { echo "select 'ok' from public.abonar_meta('$1', '$I1', 100, current_date, 'Abono', '$2')"; }
+CONF() { echo "select 'ok' from public.confirmar_recurrente('$I1', '$1', '2026-12-05', '2027-01-05', null, null, null, false)"; }
+nueva_meta() { sql "insert into public.metas(id, usuario_id, nombre, monto_objetivo) values ('$1','$I1','$2',100000)" > /dev/null; }
+nueva_rec() { sql "insert into public.recurrentes(id, usuario_id, tipo, monto, descripcion, frecuencia, dia_ancla, proxima_fecha, cuenta_id) values ('$1','$I1','gasto',100,'Rec','mensual',5,'2026-12-05',$([ -n "${2:-}" ] && echo "'$2'" || echo null))" > /dev/null; }
+
+# ADR-009 punto 13: 2 confirmaciones simultáneas de la MISMA ocurrencia -> exactamente 1 transacción, 1 ocurrencia_cambiada (P0001)
+CC='00000000-0000-4000-8000-0000000025c1'; RC1='00000000-0000-4000-8000-0000000025c2'
+nueva_cuenta "$CC" "$I1" "Conf A" 1000
+nueva_rec "$RC1" "$CC"
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.recurrentes where id = '$RC1' for update" 2 "$(CONF $RC1)"
+esperar "2 confirmaciones simultáneas de la misma ocurrencia: confirmadas" "$(cuenta ok)" 1
+esperar "2 confirmaciones simultáneas: rechazadas ocurrencia_cambiada (P0001)" "$(cuenta 'ERROR:  P0001')" 1
+esperar "2 confirmaciones simultáneas: transacciones, fecha y saldo" "$(sql "select (select count(*) from public.transacciones where cuenta_id = '$CC') || '/' || (select proxima_fecha from public.recurrentes where id = '$RC1') || '/' || public.cuenta_saldo_actual('$CC')")" "1/2027-01-05/900.00"
+# lo mismo con 12 sesiones y SIN bloqueador previo (3 rondas)
+for ronda in 1 2 3; do
+  RR="00000000-0000-4000-8000-0000000025c$((2 + ronda))"
+  nueva_rec "$RR" "$CC"
+  rm -f "$TMP"/r.*
+  a_la_vez_e 12 "$(CONF $RR)"
+  esperar "ronda $ronda de 12 confirmaciones simultáneas sin bloqueador: confirmadas" "$(cuenta ok)" 1
+  esperar "ronda $ronda de 12 confirmaciones simultáneas: P0001" "$(cuenta 'ERROR:  P0001')" 11
+  esperar "ronda $ronda de 12 confirmaciones simultáneas: transacciones" "$(sql "select count(*) from public.transacciones where cuenta_id = '$CC' and descripcion = 'Rec'")" "$((1 + ronda))"
+done
+
+# INV-048/052: 12 abonos simultáneos de 100 a una meta desde una cuenta con saldo 500 -> exactamente 5 guardados, 7 FZ001, 0 interbloqueos,
+# y la meta suma SOLO lo que se descontó
+CB='00000000-0000-4000-8000-0000000025d1'; MB='00000000-0000-4000-8000-0000000025d2'
+nueva_cuenta "$CB" "$I1" "Abono A" 500
+nueva_meta "$MB" "Abonos"
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.cuentas where id = '$CB' for update" 12 "$(ABONO $MB $CB)"
+esperar "12 abonos simultáneos de 100 sobre 500: guardados" "$(cuenta ok)" 5
+esperar "12 abonos simultáneos: rechazos FZ001" "$(cuenta 'ERROR:  FZ001')" 7
+esperar "12 abonos simultáneos: interbloqueos 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "12 abonos simultáneos: meta, saldo y transacciones" "$(sql "select (select monto_actual from public.metas where id = '$MB') || '/' || public.cuenta_saldo_actual('$CB') || '/' || (select count(*) from public.transacciones where cuenta_id = '$CB')")" "500/0.00/5"
+# lo mismo SIN bloqueador previo (3 rondas) y con metas distintas
+for ronda in 1 2 3; do
+  RB="00000000-0000-4000-8000-0000000025d$((2 + ronda * 2))"; RM="00000000-0000-4000-8000-0000000025d$((3 + ronda * 2))"
+  nueva_cuenta "$RB" "$I1" "Abono ronda $ronda" 500
+  nueva_meta "$RM" "Abonos ronda $ronda"
+  rm -f "$TMP"/r.*
+  a_la_vez_e 12 "$(ABONO $RM $RB)"
+  esperar "ronda $ronda de abonos sin bloqueador: guardados" "$(cuenta ok)" 5
+  esperar "ronda $ronda de abonos sin bloqueador: FZ001" "$(cuenta 'ERROR:  FZ001')" 7
+  esperar "ronda $ronda de abonos sin bloqueador: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+  esperar "ronda $ronda de abonos sin bloqueador: meta" "$(sql "select monto_actual from public.metas where id = '$RM'")" 500
+done
+
+# Abonos + confirmaciones (recurrentes distintas) + gastos sueltos a la vez sobre la MISMA cuenta con saldo para 10 de 30:
+# exactamente 10 pasan, 20 FZ001, 0 interbloqueos; cada recurrente con la fecha movida tiene su transacción y las rechazadas no la movieron
+CM='00000000-0000-4000-8000-0000000025e1'; MM='00000000-0000-4000-8000-0000000025e2'
+nueva_cuenta "$CM" "$I1" "Mezcla" 1000
+nueva_meta "$MM" "Mezcla"
+RECS=()
+for k in 1 2 3 4 5 6 7 8; do R="00000000-0000-4000-8000-0000000025e$(printf %x $((2 + k)))"; RECS+=("$R"); nueva_rec "$R" "$CM"; done
+rm -f "$TMP"/r.*
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.cuentas where id = '$CM' for update; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+for n in $(seq 1 30); do
+  if [ "$n" -le 12 ]; then S="$(ABONO $MM $CM)"
+  elif [ "$n" -le 20 ]; then S="$(CONF "${RECS[$((n - 13))]}")"
+  else S="insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$I1', 100, current_date, 'gasto', '$CM') returning 'ok'"; fi
+  sqle "$S" > "$TMP/r.$n" &
+done
+wait
+esperar "abonos + confirmaciones + gastos sobre 1000: guardados" "$(cuenta ok)" 10
+esperar "abonos + confirmaciones + gastos: FZ001" "$(cuenta 'ERROR:  FZ001')" 20
+esperar "abonos + confirmaciones + gastos: interbloqueos 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "abonos + confirmaciones + gastos: saldo final" "$(sql "select public.cuenta_saldo_actual('$CM')")" 0.00
+esperar "abonos + confirmaciones: recurrentes con la fecha movida = transacciones de recurrentes" "$(sql "select (select count(*) from public.recurrentes where cuenta_id = '$CM' and proxima_fecha <> '2026-12-05') = (select count(*) from public.transacciones where cuenta_id = '$CM' and descripcion = 'Rec')")" t
+esperar "abonos + confirmaciones: la meta suma lo abonado" "$(sql "select (select monto_actual from public.metas where id = '$MM') = 100 * (select count(*) from public.transacciones where cuenta_id = '$CM' and descripcion = 'Abono')")" t
+
+# Dos usuarios distintos no se bloquean entre sí al confirmar
+CU='00000000-0000-4000-8000-0000000025f1'; RU='00000000-0000-4000-8000-0000000025f2'
+I2='00000000-0000-4000-8000-0000000025c9'
+sql "insert into public.users(id, email) values ('$I2','ci_k2@x.test')" > /dev/null
+sql "insert into public.recurrentes(id, usuario_id, tipo, monto, descripcion, frecuencia, dia_ancla, proxima_fecha) values ('$RU','$I2','gasto',10,'Rec','mensual',5,'2026-12-05')" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.recurrentes where id = '$RC1' for update; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.5
+T0=$(date +%s%N)
+sql "select 'ok' from public.confirmar_recurrente('$I2', '$RU', '2026-12-05', '2027-01-05', null, null, null, false)" > /dev/null
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: un usuario esperó a otro al confirmar ($MS ms)"; exit 1; fi
+echo "OK: dos usuarios distintos no se bloquean al confirmar ($MS ms)"
+wait
+
+# Limpieza: borrar los usuarios borra sus cuentas, metas, recurrentes y transacciones (cascada) sin FZ001/FZ002 ni interbloqueos
+sql "delete from public.users where email like 'ci\_k%@x.test'" > /dev/null
+esperar "limpieza por cascada: recurrentes con cuenta restantes" "$(sql "select count(*) from public.recurrentes where cuenta_id is not null")" 0
+esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
+echo "OK: concurrencia real de la integración de las cuentas con metas y recurrentes"
