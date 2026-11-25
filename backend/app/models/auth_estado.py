@@ -49,7 +49,6 @@ TOPE_FILAS_TOTAL = 1_500_000       # tope DURO sobre TODAS las filas (vencidas +
                                    # Con el 90 % (1 350 000) también libera el lote grande de 5 000
 LOTE_PURGA_PEQUENO = 200           # lote que auth_limite_registrar libera SIEMPRE (con bloqueo «try»), pida códigos o no (I-A)
 LOTE_PURGA_LIMITE = 5_000
-LOTE_PURGA = 10_000                # filas por tabla y por llamada a auth_purgar (por lotes, I-4)
 RESERVA_CADUCA_SEG = 10            # una reserva sin resolver tras 10 s ya no está «en vuelo» (I-1). Es un margen, no un tope
                                    # duro: el presupuesto de 5 s cubre las llamadas a la BD, no todo el tiempo de la petición
                                    # (bcrypt, otras escrituras); una resolución que llega pasados 10 s se trata como tardía

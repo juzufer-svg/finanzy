@@ -101,7 +101,6 @@ class Settings(BaseSettings):
     MONITOR_ANTHROPIC_ADMIN_KEY: str = Field(default="", repr=False)   # clave de administración (sk-ant-admin...)
     MONITOR_META_TOKEN: str = Field(default="", repr=False)
     MONITOR_META_WABA_ID: str = Field(default="", repr=False)
-    MONITOR_SUPABASE_TOKEN: str = Field(default="", repr=False)
     MONITOR_VERCEL_TOKEN: str = Field(default="", repr=False)
     MONITOR_VERCEL_TEAM_ID: str = Field(default="", repr=False)
     MONITOR_BREVO_KEY: str = Field(default="", repr=False)

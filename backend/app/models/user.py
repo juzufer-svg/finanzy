@@ -36,24 +36,8 @@ class UserDB:
         return bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
 
     @staticmethod
-    async def get_by_email(email: str) -> Optional[dict]:
-        if not UserDB._is_supabase_available():
-            return None
-        try:
-            client = SupabaseDB.get_client()
-            result = client.table(UserDB.TABLE_NAME)\
-                .select("*")\
-                .eq("email", email.lower())\
-                .limit(1)\
-                .execute()
-            return _map_user(result.data[0]) if result.data else None
-        except Exception as e:
-            print(f"[UserDB.get_by_email] {e}")
-            return None
-
-    @staticmethod
     async def get_by_email_estricto(email: str) -> Optional[dict]:
-        """Como `get_by_email`, pero los errores de la BD se PROPAGAN (CHG-020, INV-039): un fallo de lectura no se
+        """Lee un usuario por correo; los errores de la BD se PROPAGAN (CHG-020, INV-039): un fallo de lectura no se
         confunde con «la cuenta no existe». Devuelve None solo si de verdad no hay usuario (o no hay Supabase, modo
         demo). Las rutas de autenticación lo usan para responder 503 en vez de 401/200 ante un fallo.
 

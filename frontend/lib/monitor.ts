@@ -193,12 +193,6 @@ export function estadoPlataforma(nombre: NombrePlataforma, p: Plataforma | null 
   return camposVisibles(nombre, p.datos).length > 0 ? 'ok' : 'no_disponible'
 }
 
-/** Porcentaje (0-100, entero) de `usado` sobre `limite`; `null` si no se puede calcular. */
-export function porcentajeUso(usado: unknown, limite: unknown): number | null {
-  if (!esNumero(usado) || !esNumero(limite) || limite <= 0) return null
-  return Math.min(100, Math.round((usado / limite) * 100))
-}
-
 const CERO_CLAUDE: ConteoClaude = { llamadas: 0, tokens_entrada: 0, tokens_salida: 0 }
 
 function conteoClaude(v: unknown): ConteoClaude {

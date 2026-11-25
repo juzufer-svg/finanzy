@@ -99,7 +99,6 @@ Regla comprobable: `datos` es un objeto **plano** (sin anidar) cuyas **claves** 
 | `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID` | Railway: token y id del proyecto |
 | `MONITOR_ANTHROPIC_ADMIN_KEY` | Anthropic: clave de **administración** (opcional; debe empezar por `sk-ant-admin`; si falta o no empieza así, no se envía y se usan los contadores propios) |
 | `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID` | Meta: token y id de la cuenta de WhatsApp Business. La versión de Graph reutiliza `WHATSAPP_GRAPH_VERSION` |
-| `MONITOR_SUPABASE_TOKEN` | Supabase: reservado, **sin uso** (el tamaño se lee con el cliente existente) |
 | `MONITOR_SUPABASE_LIMITE_BD_BYTES` | Supabase: límite de la BD en bytes para la barra de uso (opcional; por defecto 524288000 = 500 MB) |
 | `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID` | Vercel: token e id del equipo |
 | `MONITOR_BREVO_KEY` | Brevo: clave de API (Brevo no ofrece claves de solo lectura: es de **acceso completo**, ver ADR-008) |
