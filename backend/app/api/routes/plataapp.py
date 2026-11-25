@@ -479,6 +479,8 @@ async def crear_recurrente(datos: RecurrenteCreate, authorization: str = Header(
     usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(datos.categoria_id, usuario_id)  # INV-002
     await _ensure_cuenta_de_recurrente(datos.cuenta_id, usuario_id)  # INV-046 (404 si es ajena, 409 si está archivada)
+    if datos.cuenta_id:
+        _ensure_monto_con_cuenta(datos.monto)  # INV-051: tope y 2 decimales como en las transacciones (422)
     primera = _fecha(datos.proxima_fecha)
     fila = {**datos.model_dump(), "dia_ancla": primera.day}
     if fila.get("cuenta_id") is None:
@@ -498,6 +500,9 @@ async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteUpdate, aut
         cambios.pop("cuenta_id")
     elif datos.cuenta_id != actual.get("cuenta_id"):   # re-enviar la misma cuenta (aunque esté archivada) no bloquea editar
         await _ensure_cuenta_de_recurrente(datos.cuenta_id, usuario_id)
+    cuenta_resultante = cambios["cuenta_id"] if "cuenta_id" in cambios else actual.get("cuenta_id")
+    if cuenta_resultante:
+        _ensure_monto_con_cuenta(datos.monto)  # INV-051: la recurrente que queda CON cuenta respeta el tope (422)
     esperada = None
     if datos.proxima_fecha is not None and datos.proxima_fecha != actual["proxima_fecha"]:
         nueva = _fecha(datos.proxima_fecha)

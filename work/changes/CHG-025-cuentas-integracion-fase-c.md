@@ -1,6 +1,6 @@
 # CHG-025 — Integración de las cuentas con metas, recurrentes, WhatsApp, asistente y exportación (fase c de CHG-019)
 
-- **Estado:** en-implementación (spec de la fase c aprobada por el dueño en CHG-019; el 2026-11-25 pidió implementarla completa: «implementar todo ese ajuste completo que quede full todo esta parte de la fase C»)
+- **Estado:** listo para aprobar (correcciones del ciclo 1 aplicadas; falta la aprobación final del dueño) · antes: en-implementación (spec de la fase c aprobada por el dueño en CHG-019; el 2026-11-25 pidió implementarla completa: «implementar todo ese ajuste completo que quede full todo esta parte de la fase C»)
 - **Fecha:** 2026-11-25 · **Solicitante:** dueño
 - **Riesgo:** alto · **Modo:** `completo` (dinero, función SQL atómica nueva que reemplaza el flujo de confirmar recurrentes). Clasificación heredada de CHG-019.
 
@@ -30,7 +30,7 @@ Ninguna que bloquee: todo está especificado y aprobado en CHG-019. Si el genera
 | T8 | Migración + `10_comprobar_cuentas_integracion.sql` + `probar.sh` + `PLATAAPP_SCHEMA.sql` | fase (b) hecha | hecha (pendiente de validar con T11) | 1 |
 | T9 | Backend: abono, recurrentes (`confirmar_recurrente` atómica), WhatsApp, asistente, exportación + `test_cuentas_integracion.py` | T8 | hecha (pendiente de validar con T11) | 1 |
 | T10 | Frontend: metas, recurrentes, exportación (columna) y trazabilidad | contrato CT-012 (en paralelo con T9) | hecha (pendiente de validar con T11); la exportación no necesita cambio de UI (no lista columnas) | 1 |
-| T11 | Validador y revisor en paralelo (máx. 2 ciclos) | T8-T10 | pendiente | 0 |
+| T11 | Validador y revisor en paralelo (máx. 2 ciclos) | T8-T10 | hecha (ciclo 1: validador PASA, revisor APROBABLE con correcciones; correcciones aplicadas) | 1 |
 
 ## 6. Registro de ejecución
 | Fecha | Agente | Acción | Resultado |
@@ -39,4 +39,11 @@ Ninguna que bloquee: todo está especificado y aprobado en CHG-019. Si el genera
 | 2026-11-25 | generador | T9 backend: abono con cuenta, recurrentes con cuenta y confirmar por función SQL atómica, WhatsApp, asistente, exportación | `test_cuentas_integracion.py` (19 pruebas) y suite completa 999 pasan; sin commit |
 
 ## 7. Cierre
-Pendiente. Despliegue (cuando llegue): SQL en Supabase ANTES del backend; sin variables nuevas; push a `main` solo con aprobación del dueño.
+Sin variables de entorno nuevas. Push a `main` solo con aprobación del dueño.
+
+**ORDEN DE DESPLIEGUE (obligatorio):**
+1. (a) Ejecutar en Supabase el SQL `backend/sql/2026-11-25_cuentas_integracion.sql`. No re-ejecutar después `2026-11-22_abonar_meta_atomico.sql` (marcado OBSOLETO: recrearía la firma de 5 parámetros y la llamada sería ambigua, PGRST203).
+2. (b) Esperar a que Railway (backend) esté arriba con el código nuevo.
+3. (c) Recién entonces Vercel (frontend).
+
+Por qué: si el frontend sale antes, un abono o una confirmación con cuenta se registraría SIN cuenta y sin aviso; si el backend sale antes que el SQL, confirmar recurrentes da 503 a todos.

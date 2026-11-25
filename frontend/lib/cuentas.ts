@@ -215,3 +215,16 @@ export function mensajeErrorCuenta(err: unknown, fallback: string): string {
   if ((status === 409 || status === 422) && typeof detail === 'string' && detail) return detail
   return apiErrorMessage(err, fallback)
 }
+
+/** ¿Es un 409 de la regla de cuentas (cuenta archivada o saldo insuficiente) y no el de «la fecha cambió»? Se reconoce por el texto fijo del servidor. */
+export function esConflictoDeCuenta(err: unknown): boolean {
+  const e = err as { response?: { status?: number; data?: { detail?: unknown } } } | null | undefined
+  const detail = e?.response?.data?.detail
+  return e?.response?.status === 409 && typeof detail === 'string' && /^(La cuenta está archivada|Saldo insuficiente)/.test(detail)
+}
+
+/** Solo el 409 de la próxima fecha (INV-026) recarga la lista; el de cuenta conserva lo escrito y muestra el mensaje. */
+export function esConflictoDeFecha(err: unknown): boolean {
+  const e = err as { response?: { status?: number } } | null | undefined
+  return e?.response?.status === 409 && !esConflictoDeCuenta(err)
+}

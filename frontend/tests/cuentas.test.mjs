@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   TIPOS_CUENTA, TOPE_COP, NOMBRE_CUENTA_MAX, tipoLabel, estadoLabel, normalizarCuenta, normalizarCuentas, separarCuentas,
   nombreVisible, opcionesSelector, nombreDeCuenta, cuentaIdParaPut, textoSaldo, notaDeuda, validarCuenta, cambiosCuenta,
-  mensajeErrorCuenta,
+  mensajeErrorCuenta, esConflictoDeCuenta, esConflictoDeFecha,
 } from '../lib/cuentas.ts'
 
 const fmt = n => `$${n}`
@@ -179,4 +179,16 @@ test('abono/confirmar: mensajes de 409, 404, 422 y 503 con mensajeErrorCuenta', 
   assert.equal(mensajeErrorCuenta(err(422, 'Monto inválido'), 'x'), 'Monto inválido')
   assert.match(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /no está disponible/)
   assert.doesNotMatch(mensajeErrorCuenta(err(503, 'texto interno'), 'x'), /interno/)
+})
+
+test('recurrentes: el 409 de cuenta archivada o saldo no es «la fecha cambió»', () => {
+  const fecha = 'La próxima fecha cambió mientras editabas (se registró u omitió una). Recarga e intenta de nuevo.'
+  assert.equal(esConflictoDeFecha(err(409, fecha)), true)
+  assert.equal(esConflictoDeCuenta(err(409, fecha)), false)
+  for (const d of ['La cuenta está archivada. Desarchívala para registrar movimientos.', 'Saldo insuficiente en la cuenta: esto la dejaría en negativo.']) {
+    assert.equal(esConflictoDeCuenta(err(409, d)), true)
+    assert.equal(esConflictoDeFecha(err(409, d)), false)
+  }
+  assert.equal(esConflictoDeFecha(err(422, 'x')), false)
+  assert.equal(esConflictoDeFecha(undefined), false)
 })

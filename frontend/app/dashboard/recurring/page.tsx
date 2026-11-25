@@ -19,7 +19,7 @@ import { FRECUENCIAS, frecuenciaTexto, localDate, cuandoTexto, totalMensualEstim
 import { shortDate } from '@/lib/month-stats'
 import MoneyPrefix from '@/components/MoneyPrefix'
 import { useCuentas } from '@/lib/use-cuentas'
-import { opcionesSelector, nombreDeCuenta, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
+import { opcionesSelector, nombreDeCuenta, mensajeErrorCuenta, esConflictoDeFecha, type Cuenta } from '@/lib/cuentas'
 
 interface Category { id: string; nombre: string; tipo: string; icono?: string }
 
@@ -90,8 +90,8 @@ function RecurringForm({ initial, editing, categories, cuentas, errorCuentas, on
       onSaved()
     } catch (err) {
       const mensaje = mensajeErrorCuenta(err, 'No se pudo guardar la recurrente.')
-      // 409: la fecha cambió mientras se editaba; se avisa y se recarga con los datos vigentes
-      if ((err as { response?: { status?: number } })?.response?.status === 409) onConflict(mensaje)
+      // 409 de fecha: cambió mientras se editaba; se avisa y se recarga. 409 de cuenta (archivada, saldo): se muestra y se conserva lo escrito
+      if (esConflictoDeFecha(err)) onConflict(mensaje)
       else setError(mensaje)
     } finally {
       setSaving(false)

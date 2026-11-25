@@ -365,14 +365,14 @@ def _resolver_cuentas(validos: list[dict], texto: str, cuentas: Optional[list[di
 
 def _motivo_registro(error: Exception, nombre: Optional[str]) -> Optional[str]:
     """Mensaje fijo si la regla de cuentas rechazó el registro de un movimiento CON cuenta (FZ001 saldo, FZ002 archivada)."""
-    codigo = codigo_de(error)
     if not nombre:
         return None
+    codigo = codigo_de(error)
     if codigo == "FZ001":
         return MSG_CUENTA_SIN_SALDO.format(nombre=nombre)
     if codigo == "FZ002":
         return MSG_CUENTA_ARCHIVADA.format(nombre=nombre)
-    return None
+    return motivo_whatsapp(error)   # 23514/22003 (monto fuera de lo permitido con cuenta): mensaje fijo, no «error del servidor»
 
 
 def _linea(t: dict, hoy: date) -> str:

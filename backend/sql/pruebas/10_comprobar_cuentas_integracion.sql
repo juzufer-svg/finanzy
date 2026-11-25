@@ -213,6 +213,8 @@ begin
   -- plantilla sin cuenta + cuenta indicada
   select * into t from public.confirmar_recurrente(u1, rsin, '2026-12-05', '2027-01-05', null, null, c2, true);
   if t.cuenta_id is distinct from c2 then raise exception 'la cuenta indicada sobre plantilla sin cuenta no se respetó'; end if;
+  -- plantilla sin descripción (rsin no la tiene): la transacción queda con cadena vacía, como en el flujo anterior
+  if t.descripcion is distinct from '' then raise exception 'descripción vacía debía copiarse como cadena vacía (%)', t.descripcion; end if;
   -- cuenta indicada ajena: 23503 y la fecha NO avanza
   perform pg_temp.debe_fallar(format('select * from public.confirmar_recurrente(%L, %L, ''2027-01-05'', ''2027-02-05'', null, null, %L, true)', u1, rsin, cajena), '23503', 'confirmar con cuenta ajena');
   select proxima_fecha into f from recurrentes where id = rsin;

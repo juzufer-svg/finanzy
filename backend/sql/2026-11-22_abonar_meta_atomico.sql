@@ -1,3 +1,5 @@
+-- OBSOLETO: no re-ejecutar después de 2026-11-25_cuentas_integracion.sql (recrearía la firma de 5 parámetros
+-- y la llamada sería ambigua, PGRST203).
 -- CHG-004 · INV-008 — Abono a una meta en una sola transacción de PostgreSQL
 -- Ejecutar en Supabase → SQL Editor. Se puede ejecutar antes o después de desplegar el backend:
 -- mientras la función no exista, el backend usa el método anterior (no se rompe nada).

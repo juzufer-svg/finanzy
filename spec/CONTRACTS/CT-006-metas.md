@@ -11,7 +11,7 @@ Salida: `{ "id", "usuario_id", "nombre", "monto_objetivo", "monto_actual", "fech
 | `GET /metas` | — | 200 lista con porcentaje | — |
 | `PUT /metas/{id}` | Campos opcionales: `nombre`, `monto_objetivo` (> 0), `monto_actual` (≥ 0), `fecha_objetivo` | 200 actualizada | 404 "Meta no encontrada" |
 | `DELETE /metas/{id}` | — | 200 `{ "message": "Meta eliminada" }` | 404 |
-| `POST /metas/{id}/abonar` | `{ "monto": "> 0 y ≤ 1e12", "descripcion": "≤ 255 (opcional)", "fecha": "YYYY-MM-DD" }` | 200 meta actualizada | 404 "Meta no encontrada" (no se crea ningún gasto, INV-008); 500 "No se pudo registrar el abono" (se revierte el gasto) |
+| `POST /metas/{id}/abonar` | `{ "monto": "> 0 y ≤ 1e12", "descripcion": "≤ 255 (opcional)", "fecha": "YYYY-MM-DD" }` | 200 meta actualizada | 404 "Meta no encontrada" (no se crea ningún gasto, INV-008); 500 "No se pudo registrar el abono" (se revierte el gasto; con `cuenta_id`, si falla la BD: 503 genérico y nada cambia) |
 
 ## Efectos del abono (WF-002)
 1. Valida la meta (INV-008). 2. Busca o crea la categoría "Ahorro" (🐷, gasto). 3. Crea la transacción de gasto.

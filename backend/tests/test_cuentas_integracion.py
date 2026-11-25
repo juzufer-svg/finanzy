@@ -176,6 +176,29 @@ def test_inv052_abono_con_cuenta_usa_la_funcion_del_ejecutor_de_cuentas_y_traduc
 
 # ───────────── Recurrentes con cuenta (INV-046, INV-052) ─────────────
 
+def test_inv051_recurrente_con_cuenta_valida_el_tope_al_crear_y_editar_422(client):
+    efectivo = _cuenta(client, "Efectivo", "efectivo", 1000)
+    for monto in (10_000_000_000, 5.123):
+        r = client.post("/api/v1/recurrentes", json={"tipo": "gasto", "monto": monto, "frecuencia": "mensual",
+                                                     "proxima_fecha": "2026-11-05", "cuenta_id": efectivo["id"]}, headers=A)
+        assert r.status_code == 422, r.text
+    assert client.get("/api/v1/recurrentes", headers=A).json() == []
+    # Sin cuenta el monto grande sigue permitido (comportamiento anterior)
+    sin = _recurrente(client, monto=10_000_000_000)
+    base = {"tipo": "gasto", "descripcion": "Arriendo", "frecuencia": "mensual"}
+    # Editar para quedar CON cuenta: 422 y no cambia nada
+    r = client.put(f"/api/v1/recurrentes/{sin['id']}", json={**base, "monto": 10_000_000_000, "cuenta_id": efectivo["id"]}, headers=A)
+    assert r.status_code == 422, r.text
+    assert client.get("/api/v1/recurrentes", headers=A).json()[0].get("cuenta_id") is None
+    # Editar el monto de una que YA tiene cuenta (sin reenviar cuenta_id) también valida
+    con = _recurrente(client, cuenta_id=efectivo["id"])
+    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 5.123}, headers=A).status_code == 422
+    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 7.5}, headers=A).status_code == 200
+    # Quitar la cuenta permite el monto grande
+    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 10_000_000_000, "cuenta_id": None}, headers=A).status_code == 200
+
+
+
 def test_inv046_recurrente_con_cuenta_ajena_404_crear_editar_y_confirmar(client):
     ajena = _cuenta(client, "Secreta", "efectivo", 50000, h=B)
     # Crear con la cuenta de B: 404 y no se guarda nada
@@ -248,8 +271,9 @@ def test_inv052_recurrente_con_cuenta_archivada_o_sin_saldo_no_avanza(client):
     # Una recurrente de ingreso en una cuenta archivada tampoco se registra
     assert client.put(f"/api/v1/cuentas/{efectivo['id']}", json={"archivada": False}, headers=A).status_code == 200
     # Con cuenta, el monto de la plantilla también respeta el tope y los 2 decimales (INV-051)
-    rec2 = _recurrente(client, monto=10.123, cuenta_id=efectivo["id"])
-    assert _confirmar(client, rec2).status_code == 422 and _fecha_de(client, rec2) == "2026-11-05"
+    # (crear con cuenta ya lo rechaza; se parte de una plantilla guardada sin cuenta y se confirma con cuenta)
+    rec2 = _recurrente(client, monto=10.123)
+    assert _confirmar(client, rec2, cuenta_id=efectivo["id"]).status_code == 422 and _fecha_de(client, rec2) == "2026-11-05"
 
 
 def _fuente_recurrente(registro, rpc):
@@ -492,6 +516,25 @@ def test_inv052_whatsapp_cuenta_inexistente_o_sin_saldo_no_registra(client, meta
     finally:
         modelos.TransaccionDB.crear = original
     assert _texto_enviado(meta).startswith("No registré nada: la cuenta «Efectivo» está archivada") and tw._tx(client) == []
+
+
+def test_whatsapp_monto_fuera_de_lo_permitido_con_cuenta_da_mensaje_fijo_claro(client, meta):
+    """23514 y 22003 con cuenta nombrada: mensaje fijo (no «error del servidor») y sin datos de la BD."""
+    tw._enlazar(client, meta)
+    _cuenta(client, "Efectivo", "efectivo", 10000)
+    original = modelos.TransaccionDB.crear
+    try:
+        for codigo, fragmento in (("23514", "monto no cumple"), ("22003", "demasiado grande")):
+            async def rota(*_a, _c=codigo, **_k):
+                raise ErrorBD(_c)
+            modelos.TransaccionDB.crear = staticmethod(rota)
+            _registrar(meta, _gasto(1000, cuenta="Efectivo"))
+            tw._msg(client, "mil desde Efectivo")
+            texto = _texto_enviado(meta)
+            assert fragmento in texto and "error del servidor" not in texto and codigo not in texto, texto
+            assert tw._tx(client) == []
+    finally:
+        modelos.TransaccionDB.crear = original
 
 
 def test_inv052_whatsapp_no_envia_saldos_ni_ids_a_claude(client, meta):

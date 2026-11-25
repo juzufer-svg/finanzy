@@ -134,7 +134,7 @@ begin
   -- Los disparadores fz001_ pueden abortarlo todo con FZ001/FZ002: entonces la fecha no se ha movido
   return query
     insert into public.transacciones (id, usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago, cuenta_id)
-    values (gen_random_uuid(), p_usuario_id, r.categoria_id, v_monto, r.descripcion,
+    values (gen_random_uuid(), p_usuario_id, r.categoria_id, v_monto, coalesce(r.descripcion, ''),
             coalesce(p_fecha, p_ocurrencia), r.tipo, r.medio_pago, v_cuenta)
     returning *;
 
