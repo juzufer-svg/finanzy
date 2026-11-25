@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) y estado de autenticación persistente (CHG-020) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) estado de autenticación persistente (CHG-020) y panel de administración de usuarios (CHG-023) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -161,3 +161,60 @@ esperar "purga grande: filas vencidas borradas" "$(cat "$TMP/purga")" 600000
 esperar "purga grande: no tocó los eventos de las emisiones" "$(sql "select count(*) from public.auth_limites_eventos where clave like 'conc_pb%' and tipo = 'correo'")" 6
 sql "delete from public.auth_login_intentos; delete from public.auth_codigos; delete from public.auth_limites_eventos" > /dev/null
 echo "OK: concurrencia real del estado de autenticación"
+
+# CHG-023: panel de administración de usuarios (dos veces para comprobar que se puede repetir).
+# La base de prueba tiene un `users` mínimo: se le añaden las columnas de producción y los permisos que Supabase da a service_role.
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "alter table public.users add column if not exists hashed_password text, add column if not exists full_name text, add column if not exists is_active boolean default true, add column if not exists currency text default 'USD', add column if not exists session_version integer not null default 0, add column if not exists created_at timestamp, add column if not exists updated_at timestamp; alter table public.users alter column created_at set default now(); grant all on all tables in schema public to service_role"
+run ../2026-11-25_admin_usuarios.sql
+run ../2026-11-25_admin_usuarios.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 11_comprobar_admin_usuarios.sql
+U1='00000000-0000-4000-8000-0000000000a1'; U2='00000000-0000-4000-8000-0000000000a2'; U3='00000000-0000-4000-8000-0000000000a3'
+sql "insert into public.users(id, email, hashed_password, full_name, is_active, currency, session_version) values ('$U1','adm_c1@x.test','h','C1',true,'COP',0),('$U2','adm_c2@x.test','h','C2',true,'COP',0),('$U3','adm_c3@x.test','h','C3',true,'COP',0)" > /dev/null
+# INV-056: dos suspensiones simultáneas del mismo usuario -> una ok, una ya; una sola fila de auditoría; versión + 1
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.users where id = '$U1' for update" 2 "select public.admin_suspender_usuario('$U1')"
+esperar "2 suspensiones simultáneas: ok" "$(cuenta ok)" 1
+esperar "2 suspensiones simultáneas: ya" "$(cuenta ya)" 1
+esperar "2 suspensiones simultáneas: filas de auditoría" "$(sql "select count(*) from public.auditoria_admin where usuario_id = '$U1' and accion = 'suspender'")" 1
+esperar "2 suspensiones simultáneas: versión de sesión" "$(sql "select session_version from public.users where id = '$U1'")" 1
+# INV-057: dos cierres de sesión simultáneos suben la versión en 2 (con 2 registros)
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.users where id = '$U2' for update" 2 "select public.admin_cerrar_sesiones_usuario('$U2')"
+esperar "2 cierres simultáneos: ok" "$(cuenta ok)" 2
+esperar "2 cierres simultáneos: versión de sesión" "$(sql "select session_version from public.users where id = '$U2'")" 2
+esperar "2 cierres simultáneos: filas de auditoría" "$(sql "select count(*) from public.auditoria_admin where usuario_id = '$U2' and accion = 'cerrar_sesiones'")" 2
+# INV-061: 20 registrar_acceso simultáneos -> exactamente una escritura
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.users where id = '$U3' for update" 20 "select public.registrar_acceso('$U3')"
+esperar "20 registrar_acceso simultáneos: true" "$(cuenta t)" 1
+esperar "20 registrar_acceso simultáneos: false" "$(cuenta f)" 19
+# Suspender + inicio de sesión (registrar_acceso) a la vez: sin errores ni interbloqueo; estado final coherente (suspendida y versión + 1 juntas)
+sql "update public.users set ultimo_acceso = null where id = '$U3'" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.users where id = '$U3' for update" 1 "select public.admin_suspender_usuario('$U3')"
+sql "select public.registrar_acceso('$U3')" > "$TMP/acceso" &
+wait
+esperar "suspender + inicio de sesión: estado final" "$(sql "select suspendida || '/' || session_version || '/' || (ultimo_acceso is not null) from public.users where id = '$U3'")" "true/1/true"
+# Eliminar + suspender simultáneos: cada ok deja exactamente su registro y no queda nada a medias
+U4='00000000-0000-4000-8000-0000000000a4'
+sql "insert into public.users(id, email, hashed_password, full_name, is_active, currency) values ('$U4','adm_c4@x.test','h','C4',true,'COP')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo "select 1 from public.users where id = '$U4' for update" 1 "select public.admin_eliminar_usuario('$U4', 'adm_c4@x.test')"
+sql "select public.admin_suspender_usuario('$U4')" > "$TMP/r.2" &
+wait
+esperar "eliminar + suspender: la cuenta ya no existe" "$(sql "select count(*) from public.users where id = '$U4'")" 0
+esperar "eliminar + suspender: eliminar ok" "$(cuenta ok)" "$(sql "select count(*) from public.auditoria_admin where usuario_id = '$U4'")"
+# Tope de auditoría con otra sesión limpiando: el try-lock no espera y no recorta; sin esa sesión recorta
+sql "delete from public.auditoria_admin; insert into public.auditoria_admin(creado_en, accion, usuario_id) select now() - (g || ' seconds')::interval, 'suspender', gen_random_uuid() from generate_series(1, 10005) g" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select pg_advisory_xact_lock(hashtextextended('admin_auditoria_limpieza', 0)); select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+T0=$(date +%s%N)
+sql "select public.admin_registrar_auditoria('reactivar', gen_random_uuid())" > /dev/null
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: el tope de auditoría esperó a otra limpieza ($MS ms)"; exit 1; fi
+esperar "tope con otra sesión limpiando (no recorta)" "$(sql "select count(*) from public.auditoria_admin")" 10006
+wait
+sql "select public.admin_registrar_auditoria('reactivar', gen_random_uuid())" > /dev/null
+esperar "tope sin otra sesión (recorta a 10000)" "$(sql "select count(*) from public.auditoria_admin")" 10000
+sql "delete from public.auditoria_admin; delete from public.users where email like 'adm\_c%@x.test'" > /dev/null
+echo "OK: concurrencia real del panel de administración"

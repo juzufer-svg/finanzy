@@ -1,6 +1,6 @@
 # CT-013 — Administración de usuarios del Dueño `/api/v1/admin`
 
-- **Versión:** v1 (CHG-023, **provisional** hasta aprobación del dueño) · **UC:** UC-017 · **REQ:** F-021 · **ADR:** ADR-012 · **INV:** INV-053 a INV-062
+- **Versión:** v1 (CHG-023; spec **aprobada por el dueño** el 2026-11-25 con las correcciones del validador, a la espera de implementación) · **UC:** UC-017 · **REQ:** F-021 · **ADR:** ADR-012 · **INV:** INV-053 a INV-062
 - Solo el **Dueño** (glosario; correo de `OWNER_EMAIL`). Únicos métodos: **GET, POST y DELETE**. Los errores comunes 401/503 de sesión
   (CT-002) **no** se usan aquí: ver «Autorización» y «Errores».
 - «Administrador» en este documento = el Dueño. No existe otro rol.
@@ -13,7 +13,7 @@
 | `POST /admin/usuarios/{id}/suspender` | sin cuerpo | 200 detalle con `estado: "suspendida"` |
 | `POST /admin/usuarios/{id}/reactivar` | sin cuerpo | 200 detalle con `estado: "activa"` |
 | `POST /admin/usuarios/{id}/cerrar-sesiones` | sin cuerpo | 200 detalle (mismo `estado`) |
-| `DELETE /admin/usuarios/{id}` | cuerpo JSON `{ "confirmar_correo": "<correo del usuario>" }` | 204 sin cuerpo |
+| `DELETE /admin/usuarios/{id}` | cuerpo JSON `{ "confirmar_correo": "<correo del usuario>", "contrasena_dueno": "<contraseña del Dueño>" }` | 204 sin cuerpo |
 | `GET /admin/auditoria` | `pagina` (opcional) | 200 registros |
 
 No existe ninguna otra ruta, ni `PUT`/`PATCH`, ni rutas para editar o borrar registros de auditoría, ni para ver transacciones,
@@ -24,8 +24,9 @@ En cada petición, en este orden y **fail-closed**:
 1. `OWNER_EMAIL` vacío o ausente → 404 (ni se mira la sesión).
 2. Sesión verificada (JWT, cuenta activa **y no suspendida**, versión de sesión). Cualquier fallo (ausente, inválida, BD caída) → 404.
 3. Correo de la sesión vs `OWNER_EMAIL` con `strip().lower()` y `hmac.compare_digest` (`es_correo_dueno`) → distinto → 404.
-4. **Solo ahora** (es el Dueño): límite de frecuencia (429) → método (405) → validación de parámetros/cuerpo (422) → autoprotección (409)
-   → existencia (404 «Usuario no encontrado») → estado (409) → acción → 503 si la BD falla o excede 5 s.
+4. **Solo ahora** (es el Dueño): límite de frecuencia (429) → método (405) → validación de parámetros (422) → **lectura del cuerpo** con tope real de 2 KB
+   (413) y su validación (422) → autoprotección (409) → existencia (404 «Usuario no encontrado») → estado (409) → en `eliminar`: correo de
+   confirmación (422) y contraseña del Dueño (403, o 429 si está bloqueado) → acción → 503 si la BD falla o excede 5 s.
 
 Reglas por método y ruta (registrada para **cualquier** método, `redirect_slashes` desactivado; despachador propio, la validación de
 FastAPI **no** corre antes de autorizar):
@@ -34,7 +35,8 @@ FastAPI **no** corre antes de autorizar):
   y cabeceras, salvo `Date`) al de `GET /api/v1/no-existe`, **sin** `Cache-Control: no-store`. Nunca 401/403/405/422/429/503.
 - **Dueño** con un método no permitido sobre una ruta existente (p. ej. `PUT`, `PATCH`, `HEAD`, `GET` sobre `.../suspender`) →
   **405** con `Allow` (los métodos de esa ruta) y `no-store`; cuenta para el límite.
-- **Dueño** sobre una ruta inexistente bajo `/admin/*` (incluida la barra final) → 404 normal de la API, sin límite.
+- **Dueño** sobre una ruta inexistente bajo `/admin/*` (incluida la barra final) → 404 normal de la API (el mismo de `GET /api/v1/no-existe`), **sin
+  `Cache-Control: no-store`** y sin límite: no es una respuesta de una ruta del panel.
 - El segmento `{id}` que no es un UUID → 404 para el no-Dueño y **422** para el Dueño (después de confirmarlo).
 
 ## Listas: paginación y búsqueda (INV-060)
@@ -69,7 +71,7 @@ FastAPI **no** corre antes de autorizar):
 ```
 - `estado` ∈ `activa` | `pendiente` | `suspendida` (suspendida si `suspendida`; si no, `activa` si `is_active`, si no `pendiente`).
 - `accion` ∈ `suspender` | `reactivar` | `cerrar_sesiones` | `eliminar`. `usuario_correo` es `null` si la cuenta ya no existe.
-- Instantes en UTC ISO-8601 con `Z` (`YYYY-MM-DDTHH:MM:SSZ`); `ultimo_acceso` es `null` si nunca inició sesión desde CHG-023
+- Instantes en UTC ISO-8601 con `Z` (`YYYY-MM-DDTHH:MM:SSZ`; `users.created_at` es `timestamp` **sin zona** y la función SQL lo interpreta como UTC); `ultimo_acceso` es `null` si nunca inició sesión desde CHG-023
   (significa «último inicio de sesión», no actividad). `total_paginas` ≥ 1.
 - **Nunca** aparecen: `hashed_password`, `session_version`, `is_active` ni `suspendida` como booleanos sueltos, tokens, IP, teléfono
   de WhatsApp, ni montos, descripciones, nombres de categorías, metas o cuentas de dinero: solo los conteos y el booleano
@@ -83,23 +85,31 @@ FastAPI **no** corre antes de autorizar):
 | `suspender` | cuenta activa, no suspendida, no la del Dueño | `suspendida = true`, `session_version + 1`, borra el enlace de WhatsApp, registra `suspender` | 409 (propia cuenta / pendiente / ya suspendida) |
 | `reactivar` | cuenta suspendida | `suspendida = false`, registra `reactivar` (las sesiones viejas **no** reviven: su `sv` ya no coincide) | 409 (no suspendida) |
 | `cerrar-sesiones` | no la del Dueño | `session_version + 1`, borra el enlace de WhatsApp, registra `cerrar_sesiones` | 409 (propia cuenta) |
-| `eliminar` | `confirmar_correo` = correo del usuario (`strip().lower()`, `hmac.compare_digest`), no la del Dueño | registra `eliminar` y borra `users` (cascada); luego `auth_borrar_de_cuenta(correo)` (best-effort, INV-058) | 422 (confirmación), 409 (propia cuenta) |
-Sin cuerpo en `POST` (si llega uno se ignora, máximo 2 KB). `DELETE`: el cuerpo es un objeto con **solo** `confirmar_correo` (texto de 3 a 254 caracteres); falta, clave extra, tipo distinto o más de 2 KB → 422.
+| `eliminar` | `confirmar_correo` = correo del usuario (`strip().lower()`, `hmac.compare_digest`), `contrasena_dueno` correcta, no la del Dueño | registra `eliminar` y borra `users` (cascada); luego `auth_borrar_de_cuenta(correo)` (best-effort, INV-058) | 422 (confirmación), 403 (contraseña del Dueño incorrecta), 429 (bloqueado por intentos), 409 (propia cuenta) |
+**Cuerpo (INV-058).** Se lee **después de autorizar** y con un **tope real de 2 KB** sobre el flujo recibido (sin confiar en `Content-Length`): más de 2 KB → **413** (`detail` «El cuerpo es demasiado grande»), también en `POST`, cuyo cuerpo, si llega, se ignora. `DELETE`: el cuerpo es un objeto con **solo**
+`confirmar_correo` (texto de 3 a 255 caracteres) y `contrasena_dueno` (texto de 1 a 128 caracteres); falta, no es JSON, clave extra o tipo distinto → **422**.
+
+**Contraseña del Dueño (solo `eliminar`; decisión del dueño, ADR-012 punto 12).** Se comprueba con bcrypt en `auth_estado.ejecutar_bcrypt` y con el mismo bloqueo por intentos que el login del Dueño: `login_reservar` antes de comprobar y `login_resolver` después, con la huella del correo del Dueño (la misma clave del login: los fallos se suman). Incorrecta → **403** «Contraseña incorrecta» (genérico, cuenta como fallo; no se revela nada más); 5 fallos bloquean como el login → **429** con el mismo mensaje de bloqueo del login; acierto reinicia la serie. La contraseña **nunca** se escribe en logs, auditoría ni mensajes de error. `suspender`, `reactivar` y `cerrar-sesiones` **no** la piden.
+
+**Si `admin_eliminar_usuario` pasa de 5 s**, el cliente recibe 503 pero el borrado puede terminar en la base: la función es atómica (auditoría y borrado van juntos o ninguno), así que nunca queda la auditoría a medias; la limpieza de autenticación se omite (huellas que se purgan a los 30 días) y reintentar responde 404 si la cuenta ya se borró.
 
 ## Errores
 | Código | Cuándo | `detail` |
 |---|---|---|
 | 404 | No-Dueño con cualquier método y ruta (sin pistas, idéntico a una ruta inexistente); además, **solo el Dueño**: usuario inexistente | «Not Found» (no-Dueño) · «Usuario no encontrado» (Dueño) |
+| 403 | Solo el Dueño, en `DELETE`: `contrasena_dueno` incorrecta (cuenta como fallo del login del Dueño) | «Contraseña incorrecta» |
 | 405 | Solo el Dueño, método no permitido sobre una ruta existente (`Allow`) | «Método no permitido» |
+| 413 | Solo el Dueño: cuerpo de más de 2 KB (tope real sobre el flujo) | «El cuerpo es demasiado grande» |
 | 409 | Solo el Dueño: acción sobre su propia cuenta; suspender una cuenta pendiente o ya suspendida; reactivar una que no lo está | «No puedes hacerlo sobre tu propia cuenta» · «La cuenta aún no está verificada» · «La cuenta ya está suspendida» · «La cuenta no está suspendida» |
 | 422 | Solo el Dueño: `id`, `pagina`, `q` o cuerpo inválidos; correo de confirmación que no coincide | «El correo escrito no coincide con el de la cuenta» y mensajes de validación |
-| 429 | Solo el Dueño: más de 60 peticiones/min, o más de 20 `POST`/`DELETE`/min (INV-060) | «Demasiadas consultas. Intenta de nuevo en un minuto.» |
+| 429 | Solo el Dueño: más de 60 peticiones/min, o más de 20 `POST`/`DELETE`/min (INV-060); o contraseña de `eliminar` bloqueada por intentos (mensaje de bloqueo del login) | «Demasiadas consultas. Intenta de nuevo en un minuto.» |
 | 503 | Solo el Dueño: la BD falla, no hay hilo libre (sin encolar) o excede 5 s | «No se pudo completar la operación. Revisa el estado del usuario antes de reintentar.» |
 Un no-Dueño que «supere» un límite recibe 404, nunca 429. El camino 404 no tiene límite propio (riesgo aceptado, ADR-008).
 
 ## Cabeceras
-- `Cache-Control: no-store` en **todas** las respuestas al Dueño confirmado (200, 204, 405, 409, 422, 429, 503 y el 404 «Usuario no encontrado»).
-  El 404 del no-Dueño y el de rutas inexistentes **no** lo llevan (idéntico al 404 normal de la API).
+- `Cache-Control: no-store` en **todas** las respuestas del Dueño confirmado **a rutas existentes** (200, 204, 403, 405, 409, 413, 422, 429, 503 y el 404
+  «Usuario no encontrado»). El 404 del no-Dueño y el 404 de una ruta inexistente (también si la pide el Dueño) **no** lo llevan: son el 404 normal
+  de la API, byte a byte.
 - Sin `Set-Cookie`. El proxy de Next.js reenvía `DELETE` con cuerpo y exige el encabezado CSRF (ADR-005); sin cambios en el proxy.
 
 ## Cambios en otros contratos (CHG-023)
@@ -111,11 +121,11 @@ Un no-Dueño que «supere» un límite recibe 404, nunca 429. El camino 404 no t
 - `GET /users/me` y `es_dueno` no cambian; la interfaz usa `es_dueno` para mostrar el enlace «Usuarios».
 
 ## Datos (migración `backend/sql/2026-11-25_admin_usuarios.sql`)
-- `users.suspendida boolean not null default false`; `users.ultimo_acceso timestamptz` (nula).
+- `users.suspendida boolean not null default false`; `users.ultimo_acceso timestamptz` (nula; se escribe en segundo plano tras responder el login, INV-061).
 - `auditoria_admin(id bigint identity, creado_en timestamptz default now(), accion text check (...4 valores), usuario_id uuid not null)`;
   **sin llave foránea**; RLS activado sin políticas; sin permisos para `anon`/`authenticated`; índice por `(creado_en desc, id desc)`.
 - Funciones (todas `SECURITY INVOKER`, `search_path = public`, `EXECUTE` solo para `service_role`): `admin_listar_usuarios(p_q, p_limite, p_desplazamiento)`,
   `admin_detalle_usuario(p_id)`, `admin_suspender_usuario(p_id)`, `admin_reactivar_usuario(p_id)`, `admin_cerrar_sesiones_usuario(p_id)`,
-  `admin_eliminar_usuario(p_id, p_correo)`, `admin_auditoria(p_limite, p_desplazamiento)`, `admin_registrar_auditoria(p_accion, p_usuario_id)` (auxiliar),
+  `admin_eliminar_usuario(p_id, p_correo)`, `admin_auditoria(p_limite, p_desplazamiento)`, `admin_registrar_auditoria(p_accion, p_usuario_id)` (auxiliar: la retención de 365 días y el tope de 10 000 filas se aplican **solo al superarlos** y con `pg_try_advisory_xact_lock` sin esperar),
   `registrar_acceso(p_id)`. Las de solo lectura (`admin_listar_usuarios`, `admin_detalle_usuario`, `admin_auditoria`) están marcadas `STABLE`.
 - Las funciones de acción devuelven un texto de lista cerrada (`ok`, `no_existe`, `ya`, `pendiente`, `no_suspendida`, `correo_distinto`) que el backend traduce a 200/404/409/422.

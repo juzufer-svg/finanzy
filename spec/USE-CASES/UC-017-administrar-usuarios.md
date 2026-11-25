@@ -1,6 +1,6 @@
 # UC-017 — Administrar usuarios (solo el Dueño)
 
-- **REQ:** F-021 · **Contrato:** CT-013 (y CT-001 `login` 403) · **Invariantes:** INV-053 a INV-062 (y INV-016, INV-017, INV-031, INV-040) · **CHG:** CHG-023 · **ADR:** ADR-012 · **Estado:** provisional
+- **REQ:** F-021 · **Contrato:** CT-013 (y CT-001 `login` 403) · **Invariantes:** INV-053 a INV-062 (y INV-016, INV-017, INV-031, INV-040) · **CHG:** CHG-023 · **ADR:** ADR-012 · **Estado:** aprobada por el dueño (2026-11-25)
 - **Actor:** Dueño (sesión con el correo de `OWNER_EMAIL`). Un único administrador.
 
 ## Precondiciones
@@ -15,7 +15,7 @@
 4. **Suspender:** confirma en un diálogo; la persona pierde el acceso al instante (sesiones abiertas incluidas) y no puede iniciar sesión.
    **Reactivar:** confirma; la persona puede iniciar sesión de nuevo (con una sesión nueva).
 5. **Cerrar sesiones:** confirma; todas sus sesiones dejan de valer y debe iniciar sesión de nuevo (WhatsApp se desconecta).
-6. **Eliminar:** el diálogo exige **escribir el correo** de la cuenta; se borran la cuenta y todos sus datos (irreversible).
+6. **Eliminar:** el diálogo exige **escribir el correo** de la cuenta **y la contraseña del Dueño**; se borran la cuenta y todos sus datos (irreversible). Suspender, reactivar y cerrar sesiones no piden contraseña.
 7. Cada acción queda en el registro de acciones, que el Dueño ve en la pestaña «Registro» (`GET /admin/auditoria`).
 
 ## Flujos alternos y excepciones
@@ -23,11 +23,12 @@
   enlace y, por la dirección, la página muestra «no encontrada».
 - Sobre su propia cuenta el Dueño no puede suspender, eliminar ni cerrar sesiones (409; su fila no ofrece acciones).
 - Suspender a una cuenta pendiente o ya suspendida, o reactivar una que no lo está → 409. Usuario que ya no existe → 404 «Usuario no encontrado».
-- Correo de confirmación que no coincide → 422 y no se borra nada.
+- Correo de confirmación que no coincide → 422 y no se borra nada. Contraseña del Dueño incorrecta → 403 genérico (cuenta como fallo; 5 fallos bloquean como el login: 429). Cuerpo de más de 2 KB → 413.
 - Más de 60 peticiones por minuto (o 20 acciones) → 429. BD caída o lenta (> 5 s) → 503 con aviso de comprobar el estado antes de reintentar.
 - La persona suspendida: con contraseña correcta recibe 403 con un mensaje genérico; con incorrecta, 401 como siempre; su sesión abierta recibe 401.
 - Falla la limpieza de intentos y códigos tras eliminar → la baja **no** se revierte; se avisa sin datos (INV-058).
-- Falla el registro del último acceso al iniciar sesión → el inicio de sesión continúa (INV-061).
+- Falla el registro del último acceso (se escribe en segundo plano tras responder) → el inicio de sesión no se ve afectado (INV-061).
+- El borrado tarda más de 5 s → 503, pero la baja puede terminar; la auditoría nunca queda a medias (INV-058): revisar el estado antes de reintentar.
 
 ## Postcondiciones
 Cada acción exitosa dejó **un** registro (`suspender`, `reactivar`, `cerrar_sesiones`, `eliminar`) con el id del usuario afectado y la fecha, sin datos personales

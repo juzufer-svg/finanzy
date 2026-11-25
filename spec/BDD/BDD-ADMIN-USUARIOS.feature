@@ -1,5 +1,5 @@
 # language: es
-# Trazabilidad: REQ-F-021 · UC-017 · CT-013 · CT-001 (login 403) · INV-053 a INV-062 · CHG-023 (provisional)
+# Trazabilidad: REQ-F-021 · UC-017 · CT-013 · CT-001 (login 403) · INV-053 a INV-062 · CHG-023 (aprobada por el dueño 2026-11-25)
 # Pruebas: backend/tests/test_admin_usuarios.py, backend/tests/test_admin_suspension.py, backend/sql/pruebas/11_comprobar_admin_usuarios.sql
 # y frontend/tests/admin-usuarios.test.mjs. Los nombres completos de cada grupo de pruebas están en INV-053 a INV-062 (fuente única).
 Característica: Administración de usuarios solo para el Dueño
@@ -53,6 +53,14 @@ Característica: Administración de usuarios solo para el Dueño
     Cuando un no-Dueño envía PUT, PATCH, HEAD, TRACE, PROPFIND u OPTIONS sin "Origin" a una ruta de administración
     Entonces recibe el 404 idéntico al de una ruta inexistente
     Pero el Dueño recibe 405 con "Allow" y "Cache-Control: no-store"
+
+  @BDD-ADMIN @invariante @INV-053
+  # Prueba: tests/test_admin_usuarios.py::test_inv053_404_de_subruta_inexistente_del_dueno_no_lleva_no_store
+  Escenario: El 404 de una ruta inexistente no lleva no-store ni para el Dueño
+    Dado el Dueño con sesión
+    Cuando pide "GET /api/v1/admin/no-existe" o una ruta con barra final
+    Entonces recibe el 404 normal de la API, byte a byte, sin "Cache-Control: no-store"
+    Pero su 404 «Usuario no encontrado» sobre una ruta existente sí lleva "Cache-Control: no-store"
 
   @BDD-ADMIN @invariante @INV-053
   # Prueba: tests/test_admin_usuarios.py::test_inv053_429_y_503_solo_despues_de_confirmar_al_dueno
@@ -147,10 +155,44 @@ Característica: Administración de usuarios solo para el Dueño
     Entonces recibe 422 y no se borra nada
 
   @BDD-ADMIN @invariante @INV-058
+  # Prueba: tests/test_admin_usuarios.py::test_inv058_eliminar_sin_contrasena_dueno_responde_422_y_no_borra y ::test_inv058_contrasena_dueno_incorrecta_responde_403_generico_y_no_borra
+  Escenario: Eliminar exige la contraseña del Dueño
+    Dado un usuario con datos y el correo escrito correctamente
+    Cuando el Dueño envía DELETE sin "contrasena_dueno" o con una contraseña incorrecta
+    Entonces recibe 422 o 403 genérico y no se borra nada ni se audita
+
+  @BDD-ADMIN @invariante @INV-058
+  # Prueba: tests/test_admin_usuarios.py::test_inv058_contrasena_incorrecta_cuenta_como_fallo_y_cinco_bloquean_como_el_login y ::test_inv058_contrasena_correcta_reinicia_la_serie_de_fallos
+  Escenario: La contraseña del Dueño comparte el bloqueo del login
+    Dado que el Dueño falló 5 veces la contraseña al eliminar
+    Cuando lo intenta otra vez, incluso con la contraseña correcta
+    Entonces recibe el 429 de bloqueo del login y no se borra nada
+
+  @BDD-ADMIN @invariante @INV-058
+  # Prueba: tests/test_admin_usuarios.py::test_inv058_la_contrasena_no_llega_a_logs_ni_auditoria y ::test_inv058_suspender_reactivar_y_cerrar_sesiones_no_piden_contrasena
+  Escenario: La contraseña no se registra y solo eliminar la pide
+    Cuando el Dueño elimina o falla al eliminar
+    Entonces la contraseña no aparece en logs, auditoría ni respuestas
+    Pero suspender, reactivar y cerrar sesiones funcionan sin contraseña
+
+  @BDD-ADMIN @invariante @INV-058
+  # Prueba: tests/test_admin_usuarios.py::test_inv058_el_cuerpo_se_lee_con_tope_real_de_2kb_aunque_content_length_mienta y ::test_inv058_cuerpo_invalido_responde_422
+  Escenario: El cuerpo del DELETE tiene tope real
+    Cuando el Dueño envía más de 2 KB (aunque "Content-Length" declare menos) o un cuerpo inválido
+    Entonces recibe 413 o 422 y no se borra nada; un no-Dueño recibe el 404 sin que se lea el cuerpo
+
+  @BDD-ADMIN @invariante @INV-058
+  # Prueba: tests/test_admin_usuarios.py::test_inv058_si_el_borrado_excede_5s_responde_503_sin_dejar_la_auditoria_a_medias
+  Escenario: Un borrado que pasa de 5 s responde 503 sin dejar la auditoría a medias
+    Dado que "admin_eliminar_usuario" tarda más de 5 segundos
+    Cuando el Dueño elimina la cuenta
+    Entonces recibe 503 con "Cache-Control: no-store" y la auditoría y el borrado quedan juntos o ninguno
+
+  @BDD-ADMIN @invariante @INV-058
   # Prueba: tests/test_admin_usuarios.py::test_inv058_eliminar_borra_la_cuenta_con_cascada_y_llama_a_borrar_de_cuenta
   Escenario: Eliminar reutiliza la baja de la cuenta
     Dado un usuario con datos y WhatsApp conectado
-    Cuando el Dueño lo elimina escribiendo su correo (con mayúsculas y espacios)
+    Cuando el Dueño lo elimina escribiendo su correo (con mayúsculas y espacios) y su contraseña
     Entonces recibe 204, la cuenta y todos sus datos desaparecen y se limpian sus intentos y códigos
     Y queda un registro "eliminar" con su id y sin datos personales
 
@@ -210,11 +252,11 @@ Característica: Administración de usuarios solo para el Dueño
     Entonces "ultimo_acceso" se escribe una sola vez y se actualiza al iniciar sesión pasada la hora
 
   @BDD-ADMIN @invariante @INV-061
-  # Prueba: tests/test_admin_suspension.py::test_inv061_un_fallo_al_registrar_no_rompe_el_login
-  Escenario: Si falla el último acceso, el inicio de sesión continúa
+  # Prueba: tests/test_admin_suspension.py::test_inv061_un_fallo_al_registrar_no_rompe_el_login, ::test_inv061_se_registra_en_segundo_plano_tras_responder_el_login y ::test_inv061_registrar_acceso_tiene_plazo_propio_de_2s_y_no_afecta_la_respuesta
+  Escenario: El último acceso se escribe en segundo plano y su fallo no afecta el login
     Dado que "registrar_acceso" falla o tarda más de 2 segundos
     Cuando la persona inicia sesión con credenciales correctas
-    Entonces recibe su sesión igual y solo se registra un aviso sin datos personales
+    Entonces recibe su sesión igual, sin esperar la escritura, y solo se registra un aviso sin datos personales
 
   @BDD-ADMIN @invariante @INV-062
   # Prueba: backend/sql/pruebas/11_comprobar_admin_usuarios.sql
