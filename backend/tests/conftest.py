@@ -37,6 +37,7 @@ from app.models import auth_estado  # noqa: E402
 from app.models import admin_usuarios as admin_db  # noqa: E402
 from app.api.routes import admin_usuarios as admin_routes  # noqa: E402
 from app.api.routes import cuentas as cuentas_routes  # noqa: E402
+from app.api.routes import transferencias as transferencias_routes  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +55,7 @@ def estado_limpio():
         admin_routes._limite,
         admin_routes._limite_escrituras,
         cuentas_routes._altas,
+        transferencias_routes._altas,
     ):
         limiter.reset()
     # Estado de autenticación (CHG-020): bloqueos, códigos y ventanas por IP/correo viven en `auth_estado._Memoria`
@@ -67,6 +69,7 @@ def estado_limpio():
     demo_db.DemoMetaDB._metas.clear()
     demo_db.DemoRecurrenteDB._recurrentes.clear()
     demo_db.DemoCuentaDB._cuentas.clear()   # CHG-019
+    demo_db.DemoTransferenciaDB._transferencias.clear()   # CHG-024
     whatsapp_db._Memoria.limpiar()
     contadores_db._Memoria.limpiar()
     whatsapp_utils._codigos.clear()

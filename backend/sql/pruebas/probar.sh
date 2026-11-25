@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) estado de autenticación persistente (CHG-020) y panel de administración de usuarios (CHG-023) en un PostgreSQL DESECHABLE.
+# Prueba las migraciones de huérfanos (CHG-005), medio de pago (CHG-007) recurrentes (CHG-012) sin duplicados (CHG-013) WhatsApp (CHG-014) y monitor de consumos (CHG-017) estado de autenticación persistente (CHG-020) y panel de administración de usuarios (CHG-023), cuentas de dinero (CHG-019 a) y transferencias entre cuentas (CHG-024) en un PostgreSQL DESECHABLE.
 # Crea la base de prueba finanzy_prueba_sql en el servidor indicado y trabaja solo ahí.
 # Uso (CI o local): ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres bash backend/sql/pruebas/probar.sh
 set -euo pipefail
@@ -337,3 +337,111 @@ esperar "25 altas simultáneas con 10 previas: cuentas" "$(sql "select count(*) 
 sql "delete from public.users where email like 'cta\_k%@x.test'" > /dev/null
 esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
 echo "OK: concurrencia real de las cuentas de dinero"
+
+# CHG-024 (fase b de CHG-019): transferencias entre cuentas de dinero (dos veces para comprobar que se puede repetir).
+# Después de las cuentas: usa la tabla `cuentas`, las funciones de saldo de la fase (a) y los ayudantes de concurrencia de arriba.
+run ../2026-11-25_transferencias.sql
+run ../2026-11-25_transferencias.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 09_comprobar_transferencias.sql
+T1='00000000-0000-4000-8000-0000000025b1'
+sql "insert into public.users(id, email) values ('$T1','trf_k1@x.test')" > /dev/null
+TRF() { echo "insert into public.transferencias(usuario_id, cuenta_origen_id, cuenta_destino_id, monto, fecha) values ('$T1', '$1', '$2', $3, current_date) returning 'ok'"; }
+SUMA() { sql "select coalesce(sum(saldo), 0) from public.cuentas_con_saldo('$T1')"; }
+
+# INV-048/049: 20 transferencias simultáneas de 100 desde una cuenta con saldo 500 -> exactamente 5 guardadas, 15 FZ001, 0 interbloqueos
+TA='00000000-0000-4000-8000-0000000025a1'; TB='00000000-0000-4000-8000-0000000025a2'
+nueva_cuenta "$TA" "$T1" "Trf A" 500
+nueva_cuenta "$TB" "$T1" "Trf B" 0
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.cuentas where id = '$TA' for update" 20 "$(TRF $TA $TB 100)"
+esperar "20 transferencias simultáneas de 100 sobre 500: guardadas" "$(cuenta ok)" 5
+esperar "20 transferencias simultáneas: rechazos FZ001" "$(cuenta 'ERROR:  FZ001')" 15
+esperar "20 transferencias simultáneas: interbloqueos 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "20 transferencias simultáneas: saldos finales y suma" "$(sql "select public.cuenta_saldo_actual('$TA') || '/' || public.cuenta_saldo_actual('$TB')")/$(SUMA)" "0.00/500.00/500.00"
+# lo mismo SIN bloqueador previo (3 rondas): las sesiones arrancan casi a la vez y compiten de verdad
+for ronda in 1 2 3; do
+  RA="00000000-0000-4000-8000-0000000025a$((2 + ronda * 2))"; RB="00000000-0000-4000-8000-0000000025a$((3 + ronda * 2))"
+  nueva_cuenta "$RA" "$T1" "Trf ronda $ronda A" 500
+  nueva_cuenta "$RB" "$T1" "Trf ronda $ronda B" 0
+  rm -f "$TMP"/r.*
+  a_la_vez_e 20 "$(TRF $RA $RB 100)"
+  esperar "ronda $ronda de transferencias sin bloqueador: guardadas" "$(cuenta ok)" 5
+  esperar "ronda $ronda de transferencias sin bloqueador: FZ001" "$(cuenta 'ERROR:  FZ001')" 15
+  esperar "ronda $ronda de transferencias sin bloqueador: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+done
+
+# ADR-009 punto 5: 20 A->B y 20 B->A simultáneas (cruzadas) con fondos de sobra -> las 40 se guardan, 0 interbloqueos, suma intacta
+XA='00000000-0000-4000-8000-0000000025c1'; XB='00000000-0000-4000-8000-0000000025c2'
+nueva_cuenta "$XA" "$T1" "Cruce A" 10000
+nueva_cuenta "$XB" "$T1" "Cruce B" 10000
+cruzadas() {   # $1 = retener el bloqueo de las dos cuentas 2 s antes (si) o no (no)
+  rm -f "$TMP"/r.*
+  if [ "$1" = si ]; then
+    psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.cuentas where id in ('$XA', '$XB') order by id for update; select pg_sleep(2); commit;" > /dev/null &
+    sleep 0.7
+  fi
+  for n in $(seq 1 20); do
+    sqle "$(TRF $XA $XB 10)" > "$TMP/r.$n" &
+    sqle "$(TRF $XB $XA 10)" > "$TMP/r.$((n + 20))" &
+  done
+  wait
+}
+for ronda in 1 2 3; do
+  ANTES="$(SUMA)"
+  cruzadas no
+  esperar "ronda $ronda de 20 A->B y 20 B->A simultáneas: guardadas" "$(cuenta ok)" 40
+  esperar "ronda $ronda de 20 A->B y 20 B->A simultáneas: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+  esperar "ronda $ronda de 20 A->B y 20 B->A simultáneas: suma de saldos" "$(SUMA)" "$ANTES"
+done
+ANTES="$(SUMA)"
+cruzadas si
+esperar "20 A->B y 20 B->A con las cuentas retenidas: guardadas" "$(cuenta ok)" 40
+esperar "20 A->B y 20 B->A con las cuentas retenidas: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "20 A->B y 20 B->A con las cuentas retenidas: suma de saldos" "$(SUMA)" "$ANTES"
+esperar "20 A->B y 20 B->A: saldos finales (10 000 cada una)" "$(sql "select public.cuenta_saldo_actual('$XA') || '/' || public.cuenta_saldo_actual('$XB')")" "10000.00/10000.00"
+
+# Bajas simultáneas: B recibe 10 transferencias de 100 y gasta 600 (holgura 400) -> solo 4 se pueden eliminar, 6 FZ001
+BA='00000000-0000-4000-8000-0000000025d1'; BB='00000000-0000-4000-8000-0000000025d2'
+nueva_cuenta "$BA" "$T1" "Baja A" 1000
+nueva_cuenta "$BB" "$T1" "Baja B" 0
+sql "insert into public.transferencias(id, usuario_id, cuenta_origen_id, cuenta_destino_id, monto, fecha) select ('00000000-0000-4000-8000-00000025dd' || lpad(g::text, 2, '0'))::uuid, '$T1', '$BA', '$BB', 100, current_date from generate_series(1, 10) g" > /dev/null
+sql "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$T1', 600, current_date, 'gasto', '$BB')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.cuentas where id = '$BB' for update" 10 "delete from public.transferencias where id = ('00000000-0000-4000-8000-00000025dd' || lpad('{N}', 2, '0'))::uuid returning 'ok'"
+esperar "10 bajas simultáneas de transferencias con holgura de 400: eliminadas" "$(cuenta ok)" 4
+esperar "10 bajas simultáneas de transferencias: FZ001" "$(cuenta 'ERROR:  FZ001')" 6
+esperar "10 bajas simultáneas de transferencias: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "10 bajas simultáneas de transferencias: saldo del destino" "$(sql "select public.cuenta_saldo_actual('$BB')")" "0.00"
+# eliminar una transferencia que dejaría el destino negativo -> FZ001 (sesión suelta) y una cuenta con transferencias no se elimina
+RESTANTE="$(sql "select id from public.transferencias where cuenta_destino_id = '$BB' limit 1")"
+esperar "eliminar una transferencia que deja el destino negativo" "$(sqle "delete from public.transferencias where id = '$RESTANTE' returning 'ok'")" "ERROR:  FZ001"
+esperar "eliminar una cuenta con transferencias (23503)" "$(sqle "delete from public.cuentas where id = '$BB'")" "ERROR:  23503"
+
+# Dos usuarios distintos no se bloquean entre sí al transferir
+T2='00000000-0000-4000-8000-0000000025b2'; UA='00000000-0000-4000-8000-0000000025e1'; UB='00000000-0000-4000-8000-0000000025e2'
+sql "insert into public.users(id, email) values ('$T2','trf_k2@x.test')" > /dev/null
+sql "insert into public.cuentas(id, usuario_id, nombre, tipo, saldo_inicial) values ('$UA','$T2','Otro A','efectivo',1000),('$UB','$T2','Otro B','efectivo',0)" > /dev/null
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.cuentas where id = '$XA' for update; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+T0=$(date +%s%N)
+esperar "transferir con otro usuario reteniendo una cuenta ajena" "$(sqle "insert into public.transferencias(usuario_id, cuenta_origen_id, cuenta_destino_id, monto, fecha) values ('$T2', '$UA', '$UB', 100, current_date) returning 'ok'")" ok
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: un usuario esperó a otro al transferir ($MS ms)"; exit 1; fi
+echo "OK: dos usuarios distintos no se bloquean al transferir ($MS ms)"
+wait
+
+# Archivar y transferir a la vez: la transferencia espera al archivado y, bajo el mismo bloqueo, ve FZ002
+AR1='00000000-0000-4000-8000-0000000025f1'; AR2='00000000-0000-4000-8000-0000000025f2'
+nueva_cuenta "$AR1" "$T1" "Trf archivar 1" 1000
+nueva_cuenta "$AR2" "$T1" "Trf archivar 2" 0
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; update public.cuentas set archivada = true where id = '$AR2'; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+esperar "transferir mientras otra petición archiva el destino" "$(sqle "$(TRF $AR1 $AR2 10)")" "ERROR:  FZ002"
+wait
+esperar "archivar y transferir a la vez: transferencias de la cuenta archivada" "$(sql "select count(*) from public.transferencias where cuenta_destino_id = '$AR2'")" 0
+
+# Limpieza: borrar los usuarios borra sus cuentas, transacciones y transferencias (cascada) sin FZ001/FZ002 ni interbloqueos
+sql "delete from public.users where email like 'trf\_k%@x.test'" > /dev/null
+esperar "limpieza por cascada: transferencias restantes" "$(sql "select count(*) from public.transferencias")" 0
+esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
+echo "OK: concurrencia real de las transferencias entre cuentas"

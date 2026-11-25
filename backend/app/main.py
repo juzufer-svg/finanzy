@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor, exportar, admin_usuarios, cuentas
+from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor, exportar, admin_usuarios, cuentas, transferencias
 from app.core.purga_fondo import PurgaEnSegundoPlano
 from app.models.auth_estado import EstadoNoDisponible, MENSAJE_503
 
@@ -115,6 +115,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(plataapp.router, prefix="/api/v1", tags=["finanzy"])
 app.include_router(cuentas.router, prefix="/api/v1", tags=["cuentas"])  # CHG-019 fase a
+app.include_router(transferencias.router, prefix="/api/v1", tags=["transferencias"])  # CHG-024 (fase b)
 app.include_router(exportar.router, prefix="/api/v1", tags=["exportar"])  # CHG-018
 app.include_router(asistente.router, prefix="/api/v1/asistente", tags=["asistente"])
 app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp"])
