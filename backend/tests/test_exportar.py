@@ -558,7 +558,7 @@ def test_h1_supabase_consulta_con_usuario_de_la_sesion_orden_y_rango(client, mon
     q = tx[0]
     assert q.valor("eq") == [("usuario_id", "user-a")]            # el dueño sale de la sesión (INV-042)
     assert q.valor("gte") == [("fecha", "2026-10-01")] and q.valor("lt") == [("fecha", "2026-12-01")]
-    assert [a for a in q.valor("order")] == [("fecha",), ("created_at",), ("id",)]
+    assert [a for a in q.valor("order")] == [("fecha",), ("id",)]   # la tabla no tiene created_at
     assert q.valor("range") == [(0, 999)]
     assert "whatsapp_registros(transaccion_id)" in q.valor("select")[0][0]
     assert cat[0].valor("eq") == [("usuario_id", "user-a")]
@@ -627,19 +627,24 @@ def test_h1_supabase_categorias_paginadas_solo_las_del_usuario(client, monkeypat
     assert all(q.valor("eq") == [("usuario_id", "user-a")] for q in cats)
 
 
-def test_h1_modo_memoria_ordena_como_produccion_fecha_created_at_id():
+def test_h1_modo_memoria_ordena_por_fecha_y_conserva_el_orden_de_insercion():
     sembrar(fecha="2026-11-05", descripcion="tarde")
     sembrar(fecha="2026-11-05", descripcion="temprano")
     sembrar(fecha="2026-11-01", descripcion="primero")
-    ts = list(demo_db.DemoTransaccionDB._transacciones.values())
-    ts[0]["created_at"], ts[1]["created_at"], ts[2]["created_at"] = "2026-11-06T10:00", "2026-11-06T09:00", "2026-11-02T00:00"
-    ts[0]["id"], ts[1]["id"] = "b", "a"
     filas = TransaccionDB.pagina_para_exportar("user-a", "2026-11", "2026-11", 0, 1000)
-    assert [f["descripcion"] for f in filas] == ["primero", "temprano", "tarde"]
-    # mismo created_at: desempata el id
-    ts[0]["created_at"] = ts[1]["created_at"] = "2026-11-06T10:00"
-    filas = TransaccionDB.pagina_para_exportar("user-a", "2026-11", "2026-11", 0, 1000)
-    assert [f["descripcion"] for f in filas] == ["primero", "temprano", "tarde"]   # ids «a» (temprano) < «b» (tarde)
+    assert [f["descripcion"] for f in filas] == ["primero", "tarde", "temprano"]
+
+
+def test_h1_la_consulta_de_supabase_no_usa_columnas_inexistentes_en_transacciones(client, monkeypatch):
+    """La tabla `transacciones` de producción NO tiene `created_at` (error real: APIError → 503 en producción).
+    Columnas reales: id, usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago."""
+    reales = {"id", "usuario_id", "categoria_id", "monto", "descripcion", "fecha", "tipo", "medio_pago"}
+    cliente = _con_supabase_falso(monkeypatch, lambda q: [])
+    assert pedir(client, A, desde="2026-11", hasta="2026-11", formato="csv").status_code == 200
+    q = [x for x in cliente.consultas if x.tabla == "transacciones"][0]
+    usadas = ({a[0] for a in q.valor("order")} | {a[0] for a in q.valor("eq")}
+              | {a[0] for a in q.valor("gte")} | {a[0] for a in q.valor("lt")})
+    assert usadas <= reales, usadas - reales
 
 
 # ── Ciclo 2: H2 tope de exportaciones simultáneas ─────────────────────────────

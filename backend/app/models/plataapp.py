@@ -113,9 +113,9 @@ class TransaccionDB:
                             if str(r["usuario_id"]) == str(usuario_id)}
             propias = [t for t in DemoTransaccionDB._transacciones.values()
                        if str(t["usuario_id"]) == str(usuario_id) and primero <= str(t["fecha"])[:10] < siguiente]
-            # Mismo orden que producción: fecha, created_at, id (la BD demo no guarda created_at: ahí manda el orden de inserción)
-            propias.sort(key=lambda t: (str(t["fecha"])[:10], str(t.get("created_at") or ""),
-                                        str(t["id"]) if t.get("created_at") else ""))
+            # Mismo orden que producción: fecha y luego id (la tabla `transacciones` NO tiene `created_at`; en la BD demo
+            # los ids no siguen el orden de inserción, así que el orden estable de Python conserva el de inserción)
+            propias.sort(key=lambda t: str(t["fecha"])[:10])
             return [{
                 "fecha": t["fecha"], "tipo": t["tipo"], "categoria_id": t.get("categoria_id"),
                 "descripcion": t.get("descripcion"), "medio_pago": t.get("medio_pago"), "monto": t["monto"],
@@ -126,7 +126,7 @@ class TransaccionDB:
             filas = (client.table("transacciones")
                      .select("fecha,tipo,categoria_id,descripcion,medio_pago,monto,whatsapp_registros(transaccion_id)")
                      .eq("usuario_id", usuario_id).gte("fecha", primero).lt("fecha", siguiente)
-                     .order("fecha").order("created_at").order("id")
+                     .order("fecha").order("id")
                      .range(inicio, inicio + cantidad - 1).execute().data)
             return [{
                 "fecha": f["fecha"], "tipo": f["tipo"], "categoria_id": f.get("categoria_id"),

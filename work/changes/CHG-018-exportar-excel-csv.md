@@ -82,3 +82,8 @@ Pruebas nombradas: ver INV-042 a INV-045 en `spec/05-INVARIANTS.md` y `spec/BDD/
 - Se corrigieron de paso 3 pruebas de `backend/tests/test_contadores.py` (líneas 281, 327 y 396): usaban la fecha UTC y el código usa la fecha de Colombia (`contadores.hoy_colombia()`), por lo que fallaban entre las 7 p. m. y la medianoche de Colombia. No es un defecto de la aplicación.
 - Menores aplicados: liberación del usuario en `finally`; nota del 429 y riesgos aceptados en CT-011 y ADR-011.
 - Despliegue: sin SQL ni variables nuevas; se instala `openpyxl==3.1.5` desde `requirements.txt`.
+
+## Corrección en producción (2026-11-25)
+- Error: la descarga respondía 503 («Servicio no disponible»). Causa: la consulta ordenaba por `created_at`, columna que **no existe** en `transacciones` (APIError de PostgREST); las pruebas con cliente simulado no podían detectarlo.
+- Arreglo: orden por `fecha` e `id`; prueba nueva que exige que todas las columnas usadas existan en el esquema real; columnas de `transacciones`, `categorias` y `whatsapp_registros` verificadas con `information_schema` de la base real.
+- Lección: punto 9 añadido a la lista de comprobación previa del generador.
