@@ -52,3 +52,13 @@ test('422 de lista con otro mensaje sigue siendo genérico', () => {
   const e = { response: { status: 422, data: { detail: [{ msg: 'Value error, algo interno' }] } } }
   assert.equal(apiErrorMessage(e, 'x'), 'Revisa los datos ingresados.')
 })
+
+test('INV-003: el 422 del tope de montos se muestra tal cual (lista de Pydantic o texto)', () => {
+  const msg = 'El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)'
+  const lista = { response: { status: 422, data: { detail: [{ type: 'value_error', loc: ['body'], msg: `Value error, ${msg}` }] } } }
+  const texto = { response: { status: 422, data: { detail: msg } } }
+  for (const e of [lista, texto]) {
+    assert.equal(apiErrorMessage(e, 'x'), msg)
+    assert.equal(mensajeErrorCuenta(e, 'x'), msg)
+  }
+})

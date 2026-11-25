@@ -4,15 +4,14 @@ Pydantic schemas for Finanzy
 import re
 import uuid
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing import Optional, Literal
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Annotated, Optional, Literal
 
 from app.utils.rango_fechas import validar_rango_fecha
 
 # Formatos aceptados
 MES_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")          # YYYY-MM
 FECHA_REGEX = r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"  # YYYY-MM-DD (admite hora después)
-MONTO_MAX = 1_000_000_000_000  # tope razonable para evitar valores absurdos
 
 Tipo = Literal["ingreso", "gasto"]
 
@@ -21,14 +20,15 @@ MEDIOS_PAGO = ("debito", "credito", "efectivo", "transferencia", "nequi_daviplat
 MedioPago = Literal["debito", "credito", "efectivo", "transferencia", "nequi_daviplata"]
 
 
-# Cuentas de dinero (CHG-019, INV-051): tope real de NUMERIC(12,2) y 2 decimales; los montos se leen con Decimal
+# Todos los montos (INV-003, INV-051): tope real de NUMERIC(12,2) y 2 decimales; se validan con Decimal
 SALDO_MAX = Decimal("9999999999.99")
+MSG_MONTO_TOPE = "El monto debe tener máximo 2 decimales y no superar $9.999.999.999,99 (pesos colombianos)"
 TipoCuenta = Literal["efectivo", "ahorros_corriente", "billetera_digital", "tarjeta_credito"]
 MSG_MONTO_CON_CUENTA = "El monto de esta transacción no cumple el máximo permitido con cuenta de dinero"
 
 
 def decimales_validos(valor: Decimal) -> bool:
-    """¿Es finito, con a lo sumo 2 decimales y con valor absoluto ≤ 9 999 999 999,99 (INV-051)?"""
+    """¿Es finito, con a lo sumo 2 decimales y con valor absoluto ≤ 9 999 999 999,99 (INV-003, INV-051)?"""
     return valor.is_finite() and valor.as_tuple().exponent >= -2 and abs(valor) <= SALDO_MAX
 
 
@@ -44,6 +44,24 @@ def monto_valido_con_cuenta(valor) -> bool:
     """Una transacción CON cuenta de dinero: > 0, ≤ 9 999 999 999,99 y 2 decimales como máximo (INV-051)."""
     d = a_decimal(valor)
     return d is not None and d > 0 and decimales_validos(d)
+
+
+def _con_tope(valor):
+    """Rechaza (422) un monto sobre el tope o con más de 2 decimales (INV-003). Devuelve el valor sin cambiar su tipo."""
+    d = a_decimal(valor)
+    if d is None or not decimales_validos(d):
+        raise ValueError(MSG_MONTO_TOPE)
+    return valor
+
+
+# Sigue siendo float para rutas y modelos (suman y serializan); solo la comprobación usa Decimal. El signo lo pone cada campo.
+Monto = Annotated[float, AfterValidator(_con_tope)]
+
+
+def acumulado_con_abono(actual, abono) -> Decimal:
+    """Lo ahorrado tras un abono, en centavos exactos (sin errores de coma flotante)."""
+    centavo = Decimal("0.01")
+    return a_decimal(actual or 0).quantize(centavo) + a_decimal(abono).quantize(centavo)
 
 
 def _uuid_o_none(valor: Optional[str]) -> Optional[str]:
@@ -133,12 +151,22 @@ class CuentaResponse(BaseModel):
     created_at: Optional[str] = None
 
 
+class _MontoYCuenta(BaseModel):
+    """Para esquemas con `monto` y `cuenta_id` opcional: sin cuenta, el tope se exige aquí; con cuenta, en la ruta (INV-051)."""
+
+    @model_validator(mode="after")
+    def _monto_con_tope(self):
+        if self.cuenta_id is None and self.monto is not None:
+            _con_tope(self.monto)
+        return self
+
+
 # Transacciones
-class TransaccionBase(BaseModel):
+class TransaccionBase(_MontoYCuenta):
     """Campos de una transacción (sin la regla de rango de fechas: la aplican Create y, en la ruta, Update)"""
     categoria_id: str = Field("", max_length=64)
-    # Decimal: la regla de 2 decimales de INV-051 (solo con cuenta de dinero) no puede depender de float
-    monto: Decimal = Field(..., gt=0, le=MONTO_MAX)
+    # Decimal: la regla de 2 decimales (INV-003, INV-051) no puede depender de float
+    monto: Decimal = Field(..., gt=0)
     descripcion: str = Field("", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
     tipo: Tipo
@@ -220,7 +248,7 @@ class CategoriaResponse(BaseModel):
 class PresupuestoCreate(BaseModel):
     """Crear presupuesto"""
     categoria_id: str = Field(..., min_length=1, max_length=64)
-    limite_mensual: float = Field(..., gt=0, le=MONTO_MAX)
+    limite_mensual: Monto = Field(..., gt=0)
     mes_ano: str = Field(..., pattern=MES_PATTERN.pattern)
 
 
@@ -236,14 +264,14 @@ class PresupuestoResponse(BaseModel):
 # Presupuestos (update)
 class PresupuestoUpdate(BaseModel):
     """Actualizar presupuesto"""
-    limite_mensual: float = Field(..., gt=0, le=MONTO_MAX)
+    limite_mensual: Monto = Field(..., gt=0)
 
 
 # Metas
 class MetaCreate(BaseModel):
     """Crear meta"""
     nombre: str = Field(..., min_length=1, max_length=100)
-    monto_objetivo: float = Field(..., gt=0, le=MONTO_MAX)
+    monto_objetivo: Monto = Field(..., gt=0)
     fecha_objetivo: str = Field(..., pattern=FECHA_REGEX)
 
 
@@ -261,14 +289,14 @@ class MetaResponse(BaseModel):
 class ActualizarMeta(BaseModel):
     """Actualizar meta (todos los campos opcionales)"""
     nombre: Optional[str] = Field(None, min_length=1, max_length=100)
-    monto_objetivo: Optional[float] = Field(None, gt=0, le=MONTO_MAX)
-    monto_actual: Optional[float] = Field(None, ge=0, le=MONTO_MAX)
+    monto_objetivo: Optional[Monto] = Field(None, gt=0)
+    monto_actual: Optional[Monto] = Field(None, ge=0)
     fecha_objetivo: Optional[str] = Field(None, pattern=FECHA_REGEX)
 
 
-class AbonarMeta(BaseModel):
+class AbonarMeta(_MontoYCuenta):
     """Abonar un monto a una meta de ahorro"""
-    monto: float = Field(..., gt=0, le=MONTO_MAX)
+    monto: float = Field(..., gt=0)
     descripcion: str = Field("Abono a meta de ahorro", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
     # Opcional (CHG-025, CT-006 v1.1): cuenta de dinero de origen; null/ausente = sin cuenta (como antes)
@@ -299,11 +327,11 @@ Frecuencia = Literal["mensual", "quincenal", "semanal"]
 FECHA_EXACTA = r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"  # YYYY-MM-DD sin hora
 
 
-class RecurrenteCreate(BaseModel):
+class RecurrenteCreate(_MontoYCuenta):
     """Crear o editar una transacción recurrente (plantilla)"""
     categoria_id: str = Field("", max_length=64)
     tipo: Tipo
-    monto: float = Field(..., gt=0, le=MONTO_MAX)
+    monto: float = Field(..., gt=0)
     descripcion: str = Field("", max_length=255)
     medio_pago: Optional[MedioPago] = None
     # Opcional (CHG-025, CT-008 v1.1): cuenta de dinero del usuario. Al editar: no enviar = conservar, null = quitar
@@ -349,9 +377,9 @@ class OcurrenciaRecurrente(BaseModel):
     ocurrencia: str = Field(..., pattern=FECHA_EXACTA)
 
 
-class ConfirmarRecurrente(OcurrenciaRecurrente):
+class ConfirmarRecurrente(_MontoYCuenta, OcurrenciaRecurrente):
     """Confirmar la ocurrencia pendiente: crea la transacción (monto y fecha ajustables)"""
-    monto: Optional[float] = Field(None, gt=0, le=MONTO_MAX)
+    monto: Optional[float] = Field(None, gt=0)
     fecha: Optional[str] = Field(None, pattern=FECHA_EXACTA)
     # Opcional (CHG-025, CT-008 v1.1): reemplaza la cuenta de la plantilla. No enviar = usar la de la plantilla; null = sin cuenta
     cuenta_id: Optional[str] = Field(None, max_length=64)

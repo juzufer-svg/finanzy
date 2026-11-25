@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Dict
 import uuid
+from app.schemas.plataapp import SALDO_MAX, acumulado_con_abono
 
 
 class ErrorBD(Exception):
@@ -475,6 +476,9 @@ class DemoMetaDB:
             if not meta or meta["usuario_id"] != usuario_id:
                 return None
             DemoCuentaDB.validar_transaccion(usuario_id, None, {"cuenta_id": cuenta_id, "tipo": "gasto", "monto": monto})
+            total = acumulado_con_abono(meta.get("monto_actual"), monto)
+            if total > SALDO_MAX:   # como NUMERIC(12,2) en la BD: no cambia nada (INV-003)
+                raise ErrorBD("22003")
             ahorro = next((c for c in DemoCategoriaDB._categorias.values()
                            if c["usuario_id"] == usuario_id and c["nombre"] == "Ahorro"), None)
             if ahorro is None:
@@ -486,7 +490,7 @@ class DemoMetaDB:
                 "descripcion": descripcion or "Abono a meta de ahorro", "fecha": fecha, "tipo": "gasto",
                 "medio_pago": None, "cuenta_id": cuenta_id,
             }
-            meta["monto_actual"] = float(meta.get("monto_actual") or 0) + monto
+            meta["monto_actual"] = float(total)
             return meta
 
 

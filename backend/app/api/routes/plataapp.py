@@ -13,6 +13,7 @@ from app.schemas.plataapp import (
     CopiarPresupuestos, CopiaPresupuestosResponse,
     RecurrenteCreate, RecurrenteUpdate, RecurrenteResponse, OcurrenciaRecurrente, ConfirmarRecurrente, ConfirmacionResponse,
     MES_PATTERN, MSG_MONTO_CON_CUENTA, monto_valido_con_cuenta,
+    MSG_MONTO_TOPE, SALDO_MAX, acumulado_con_abono,
 )
 from app.models.plataapp import (
     TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, RecurrenteDB, AbonoAtomicoNoDisponible,
@@ -397,6 +398,8 @@ async def abonar_meta(meta_id: str, datos: AbonarMeta, authorization: str = Head
     except (HTTPException, EstadoNoDisponible):
         raise
     except Exception as e:
+        if codigo_de(e) == "22003":   # el acumulado pasa de NUMERIC(12,2): la función revirtió todo (INV-003)
+            raise HTTPException(status_code=422, detail=MSG_MONTO_TOPE) from None
         if datos.cuenta_id:
             relanzar_error_cuenta(e, "metas")   # FZ001/FZ002 → 409, 23503 → 404, lo demás → 503 genérico
         # La función revierte todo si falla: no quedó nada a medias
@@ -409,6 +412,9 @@ async def _abonar_sin_transaccion(meta_id: str, usuario_id: str, datos: AbonarMe
     """Método anterior (modo demo o si la función SQL aún no está instalada)."""
     # Validar la meta ANTES de registrar el gasto (evita transacciones huérfanas)
     meta = _ensure_owner(await MetaDB.obtener_por_id(meta_id, usuario_id), usuario_id, "Meta no encontrada")
+    nuevo_total = acumulado_con_abono(meta["monto_actual"], datos.monto)
+    if nuevo_total > SALDO_MAX:   # INV-003: antes de escribir nada (ni categoría ni gasto)
+        raise HTTPException(status_code=422, detail=MSG_MONTO_TOPE)
 
     # Buscar o crear la categoría especial "Ahorro"
     categorias = await CategoriaDB.obtener_por_usuario(usuario_id)
@@ -427,13 +433,14 @@ async def _abonar_sin_transaccion(meta_id: str, usuario_id: str, datos: AbonarMe
     )
 
     # Incrementar el monto_actual de la meta; si falla, revertir la transacción
-    nuevo_monto = float(meta["monto_actual"]) + datos.monto
     try:
-        meta_actualizada = await MetaDB.actualizar_progreso(meta_id, usuario_id, {"monto_actual": nuevo_monto})
+        meta_actualizada = await MetaDB.actualizar_progreso(meta_id, usuario_id, {"monto_actual": float(nuevo_total)})
         if not meta_actualizada:
             raise RuntimeError("No se pudo actualizar la meta")
-    except Exception:
+    except Exception as e:
         await TransaccionDB.eliminar(transaccion["id"], usuario_id)
+        if codigo_de(e) == "22003":   # otro abono llegó a la vez y el acumulado ya no cabe (INV-003)
+            raise HTTPException(status_code=422, detail=MSG_MONTO_TOPE) from None
         raise HTTPException(status_code=500, detail="No se pudo registrar el abono")
 
     return {**meta_actualizada, "porcentaje_completado": _porcentaje(meta_actualizada)}

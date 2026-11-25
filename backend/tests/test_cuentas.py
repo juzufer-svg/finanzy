@@ -287,7 +287,10 @@ def test_inv051_saldo_inicial_y_montos_respetan_tope_y_dos_decimales(client):
         r = _tx(client, ok["id"], malo, "ingreso")
         assert r.status_code == 422 and "no cumple el máximo permitido con cuenta de dinero" in r.json()["detail"]
     assert _tx(client, ok["id"], 9999999999.99, "ingreso").status_code == 200
-    assert _tx(client, None, 20000000000.5, "ingreso").status_code == 200   # sin cuenta rige INV-003 (1e12)
+    # sin cuenta rige INV-003, con el mismo tope y decimales (CHG-029)
+    for malo in (10000000000, 20000000000.5, 12.345, 0.001):
+        assert _tx(client, None, malo, "ingreso").status_code == 422, malo
+    assert _tx(client, None, 9999999999.99, "ingreso").status_code == 200
     # tarjeta: la deuda inicial tampoco pasa del tope
     _cuenta(client, "Visa", "tarjeta_credito", -10000000000, esperado=422)
 
@@ -711,17 +714,17 @@ def test_i1_con_la_bd_lenta_las_cuentas_no_dan_503_a_los_logins_de_otras_persona
 # ───────────── M-1 / FZ004: traducción de errores de la BD ─────────────
 
 def test_m1_monto_que_desborda_numeric_12_2_en_transaccion_sin_cuenta_es_422_no_503(client, monkeypatch, capsys):
-    """Entre 1e10 y 1e12 pasa INV-003 pero NUMERIC(12,2) lo rechaza (22003). BL-017 (alinear el tope global) sigue pendiente."""
+    """Defensa en profundidad: INV-003 ya rechaza el exceso (CHG-029); si aun así la BD lanza 22003, es 422 y no 503."""
     def fuente(q):
         if q.tabla == "transacciones" and (q.valor("insert") or q.valor("update")):
             raise _ErrorPG("22003")
         return [{"id": INEXISTENTE, "usuario_id": "user-a", "categoria_id": None, "monto": 5, "descripcion": "",
                  "fecha": "2026-11-22", "tipo": "gasto", "medio_pago": None, "cuenta_id": None}]
     _con_supabase_falso(monkeypatch, fuente)
-    r = _tx(client, None, 50_000_000_000)
+    r = _tx(client, None, 5000)
     assert r.status_code == 422 and r.json() == {"detail": "El monto es demasiado grande"}
     r = client.put(f"/api/v1/transacciones/{INEXISTENTE}", headers=A, json={
-        "monto": 50_000_000_000, "fecha": "2026-11-22", "tipo": "gasto", "descripcion": ""})
+        "monto": 5000, "fecha": "2026-11-22", "tipo": "gasto", "descripcion": ""})
     assert r.status_code == 422 and "demasiado grande" in r.json()["detail"]
     assert "secreto" not in r.text and "secreto" not in capsys.readouterr().out
 

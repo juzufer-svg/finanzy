@@ -8,7 +8,7 @@ Seguridad (INV-029):
   de enlace.
 - El `usuario_id` sale SIEMPRE del número enlazado, nunca de lo que diga el modelo.
 - La IA solo PROPONE datos; el backend los valida con las mismas reglas de la app (monto > 0 y
-  ≤ 1e12, fecha válida, categoría propia, medio de pago permitido) antes de guardar.
+  ≤ 9 999 999 999,99, fecha válida, categoría propia, medio de pago permitido) antes de guardar.
 - Sus herramientas solo crean transacciones y deshacen o corrigen las que creó el propio WhatsApp.
   No tocan presupuestos, metas, categorías ni el perfil, y NO crean transferencias entre cuentas. Este agente es distinto
   del Asistente de la app, que sigue siendo de solo lectura (INV-023).
@@ -38,7 +38,7 @@ from app.models.auth_estado import EstadoNoDisponible
 from app.models.cuentas import CuentaDB
 from app.models.plataapp import CategoriaDB, TransaccionDB
 from app.models.whatsapp import WhatsappDB
-from app.schemas.plataapp import MEDIOS_PAGO, MONTO_MAX
+from app.schemas.plataapp import MEDIOS_PAGO, a_decimal, decimales_validos
 from app.utils.rango_fechas import MSG_FECHA_FUERA_DE_RANGO_WHATSAPP, fecha_en_rango
 from app.utils.asistente import AsistenteError, ZONA_COLOMBIA, llamar_claude
 
@@ -324,7 +324,7 @@ def _validar_movimiento(m: Any, categorias: list[dict], hoy: date) -> dict:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         raise ValueError("monto inválido")
     monto = round(float(valor), 2)
-    if not (0 < monto <= MONTO_MAX):
+    if not (monto > 0 and decimales_validos(a_decimal(monto))):   # INV-003: ya redondeado a 2 decimales
         raise ValueError("monto fuera de rango")
     try:
         fecha = date.fromisoformat(str(m.get("fecha") or hoy.isoformat()))

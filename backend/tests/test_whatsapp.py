@@ -250,6 +250,26 @@ def test_inv029_lo_que_propone_la_ia_se_valida_y_no_se_guarda_si_es_invalido(cli
     assert "repites" in meta["enviados"][-1][1]
 
 
+def test_inv003_whatsapp_respeta_tope(client, meta):
+    _enlazar(client, meta)
+    for monto in (10000000000, 1e12, 9999999999.996, 0.001):
+        meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [
+            {"tipo": "gasto", "monto": monto, "fecha": "2026-11-23"}]}))
+        _msg(client, "algo enorme")
+        assert _tx(client) == [], monto
+        assert "repites" in meta["enviados"][-1][1]
+    # el tope se acepta y los decimales de más se redondean como siempre
+    for monto in (9999999999.99, 12.345678):
+        meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [
+            {"tipo": "gasto", "monto": monto, "fecha": "2026-11-23"}]}))
+        _msg(client, "ahora sí")
+    assert sorted(t["monto"] for t in _tx(client)) == [12.35, 9999999999.99]
+    # una corrección por encima del tope no cambia nada
+    meta["claude"].append(herramienta("corregir_ultimo", {"monto": 10000000000}))
+    _msg(client, "eran diez mil millones")
+    assert sorted(t["monto"] for t in _tx(client)) == [12.35, 9999999999.99]
+
+
 def test_si_un_movimiento_es_invalido_no_se_guarda_ninguno(client, meta):
     _enlazar(client, meta)
     meta["claude"].append(herramienta("registrar_movimientos", {"movimientos": [

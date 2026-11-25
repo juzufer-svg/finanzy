@@ -483,7 +483,7 @@ class MetaDB:
             if codigo in MetaDB._RPC_NO_DISPONIBLE:
                 print(f"[Supabase] abonar_meta no disponible ({codigo}); se usa el método anterior")
                 raise AbonoAtomicoNoDisponible(codigo) from e
-            print(f"[Supabase] metas.abonar error: {codigo} {mensaje}")
+            print(f"[Supabase] metas.abonar error: {codigo}")   # sin el texto de la BD
             raise
         datos = result.data
         if isinstance(datos, list):

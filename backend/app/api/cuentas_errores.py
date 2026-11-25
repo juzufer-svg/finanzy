@@ -38,7 +38,7 @@ def traducir(error: Exception, al_eliminar_cuenta: bool = False) -> Optional[HTT
         return HTTPException(status_code=409, detail=MSG_TOPE)
     if codigo == "FZ004":
         return HTTPException(status_code=422, detail=MSG_INMUTABLE)
-    if codigo == "22003":   # NUMERIC(12,2) desbordado (p. ej. una transacción sin cuenta entre 1e10 y 1e12; BL-017 sigue pendiente)
+    if codigo == "22003":   # NUMERIC(12,2) desbordado: defensa en profundidad, INV-003 ya lo valida antes
         return HTTPException(status_code=422, detail=MSG_MONTO_GRANDE)
     if codigo == "23505":
         return HTTPException(status_code=409, detail=MSG_NOMBRE)

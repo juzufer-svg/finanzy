@@ -21,7 +21,7 @@ from openpyxl import load_workbook
 
 import test_whatsapp as tw
 from app.models import plataapp as modelos
-from app.models.demo_db import DemoTransaccionDB, DemoTransferenciaDB, ErrorBD
+from app.models.demo_db import DemoRecurrenteDB, DemoTransaccionDB, DemoTransferenciaDB, ErrorBD
 from app.models.plataapp import RecurrenteDB
 from app.utils import asistente
 from test_cuentas import A, B, FILA_CUENTA, INEXISTENTE, _ErrorPG, _con_supabase_falso, _cuenta, _saldo, _tx
@@ -183,8 +183,9 @@ def test_inv051_recurrente_con_cuenta_valida_el_tope_al_crear_y_editar_422(clien
                                                      "proxima_fecha": "2026-11-05", "cuenta_id": efectivo["id"]}, headers=A)
         assert r.status_code == 422, r.text
     assert client.get("/api/v1/recurrentes", headers=A).json() == []
-    # Sin cuenta el monto grande sigue permitido (comportamiento anterior)
-    sin = _recurrente(client, monto=10_000_000_000)
+    # Sin cuenta rige el mismo tope (INV-003, CHG-029)
+    _recurrente(client, monto=10_000_000_000, esperado=422)
+    sin = _recurrente(client, monto=9999999999.99)
     base = {"tipo": "gasto", "descripcion": "Arriendo", "frecuencia": "mensual"}
     # Editar para quedar CON cuenta: 422 y no cambia nada
     r = client.put(f"/api/v1/recurrentes/{sin['id']}", json={**base, "monto": 10_000_000_000, "cuenta_id": efectivo["id"]}, headers=A)
@@ -194,8 +195,9 @@ def test_inv051_recurrente_con_cuenta_valida_el_tope_al_crear_y_editar_422(clien
     con = _recurrente(client, cuenta_id=efectivo["id"])
     assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 5.123}, headers=A).status_code == 422
     assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 7.5}, headers=A).status_code == 200
-    # Quitar la cuenta permite el monto grande
-    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 10_000_000_000, "cuenta_id": None}, headers=A).status_code == 200
+    # Quitar la cuenta no levanta el tope (INV-003)
+    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 10_000_000_000, "cuenta_id": None}, headers=A).status_code == 422
+    assert client.put(f"/api/v1/recurrentes/{con['id']}", json={**base, "monto": 9999999999.99, "cuenta_id": None}, headers=A).status_code == 200
 
 
 
@@ -272,7 +274,8 @@ def test_inv052_recurrente_con_cuenta_archivada_o_sin_saldo_no_avanza(client):
     assert client.put(f"/api/v1/cuentas/{efectivo['id']}", json={"archivada": False}, headers=A).status_code == 200
     # Con cuenta, el monto de la plantilla también respeta el tope y los 2 decimales (INV-051)
     # (crear con cuenta ya lo rechaza; se parte de una plantilla guardada sin cuenta y se confirma con cuenta)
-    rec2 = _recurrente(client, monto=10.123)
+    rec2 = _recurrente(client)
+    DemoRecurrenteDB._recurrentes[rec2["id"]]["monto"] = 10.123   # dato imposible por la API: guardado a mano
     assert _confirmar(client, rec2, cuenta_id=efectivo["id"]).status_code == 422 and _fecha_de(client, rec2) == "2026-11-05"
 
 
