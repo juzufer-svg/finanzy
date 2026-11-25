@@ -7,6 +7,7 @@ import { useCurrencyStore } from '@/store/currency'
 import ErrorState from '@/components/ErrorState'
 import PageHeader from '@/components/PageHeader'
 import PeriodPicker from '@/components/PeriodPicker'
+import ExportarDescarga from '@/components/ExportarDescarga'
 import { usePeriodStore } from '@/store/period'
 import SpendingChart from '@/components/SpendingChart'
 import { apiErrorMessage } from '@/components/DialogProvider'
@@ -168,6 +169,8 @@ export default function ReportsPage() {
         subtitle="Análisis del período elegido"
         actions={<PeriodPicker />}
       />
+
+      <ExportarDescarga />
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => { setLoading(true); fetchData() }} />

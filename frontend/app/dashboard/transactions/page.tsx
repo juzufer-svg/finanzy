@@ -13,6 +13,7 @@ import PeriodPicker from '@/components/PeriodPicker'
 import { usePeriodStore } from '@/store/period'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import ExportarDescarga from '@/components/ExportarDescarga'
 
 interface Transaction {
   id: string
@@ -478,6 +479,8 @@ export default function TransactionsPage() {
         subtitle="Ingresos y gastos del período"
         actions={<PeriodPicker />}
       />
+
+      <ExportarDescarga />
 
       {/* Mini stats */}
       <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 transition-opacity ${stale ? 'opacity-50' : ''}`} aria-busy={stale}>

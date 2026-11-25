@@ -26,6 +26,7 @@ from app.main import app  # noqa: E402
 from app.api.routes import auth as auth_routes  # noqa: E402
 from app.api.routes import asistente as asistente_routes  # noqa: E402
 from app.api.routes import whatsapp as whatsapp_routes  # noqa: E402
+from app.api.routes import exportar as exportar_routes  # noqa: E402
 from app.models import whatsapp as whatsapp_db  # noqa: E402
 from app.models import contadores as contadores_db  # noqa: E402
 from app.utils import whatsapp as whatsapp_utils  # noqa: E402
@@ -46,6 +47,7 @@ def estado_limpio():
         whatsapp_routes._por_usuario_dia,
         whatsapp_routes._global_dia,
         whatsapp_routes._intentos_codigo,
+        exportar_routes._por_minuto,
     ):
         limiter.reset()
     # Estado de autenticación (CHG-020): bloqueos, códigos y ventanas por IP/correo viven en `auth_estado._Memoria`

@@ -6,6 +6,7 @@ import uuid
 from datetime import date as date_type
 from app.core.supabase import SupabaseDB
 from app.core.config import settings
+from app.models import whatsapp as whatsapp_db
 from app.models.demo_db import (
     DemoTransaccionDB,
     DemoCategoriaDB,
@@ -76,6 +77,65 @@ class TransaccionDB:
             return result.data
         except Exception as e:
             print(f"[Supabase] transacciones.obtener error: {e}")
+            raise
+
+    # ---- Lectura para exportar (CHG-018, INV-042/INV-044): síncrona, para correr en un hilo ----
+
+    @staticmethod
+    def nombres_de_categorias_propias(usuario_id: str) -> dict:
+        """{id: nombre} de las categorías DEL USUARIO (nunca siembra ni lee las de otros: INV-042)."""
+        if not _supabase_ok():
+            return {c["id"]: c.get("nombre", "") for c in DemoCategoriaDB._categorias.values()
+                    if str(c.get("usuario_id")) == str(usuario_id)}
+        try:
+            client = SupabaseDB.get_client()
+            nombres, desde = {}, 0
+            while True:
+                filas = (client.table("categorias").select("id,nombre").eq("usuario_id", usuario_id)
+                         .order("id").range(desde, desde + 999).execute().data)
+                nombres.update({str(f["id"]): f.get("nombre", "") for f in filas})
+                if len(filas) < 1000:
+                    return nombres
+                desde += 1000
+        except Exception as e:
+            print(f"[Supabase] categorias.exportar error: {type(e).__name__}")
+            raise
+
+    @staticmethod
+    def pagina_para_exportar(usuario_id: str, desde_mes: str, hasta_mes: str, inicio: int, cantidad: int) -> list:
+        """Una página de transacciones DEL USUARIO entre dos meses (YYYY-MM, ambos incluidos), ordenadas por fecha,
+        creación e id. Cada fila: fecha, tipo, categoria_id, descripcion, medio_pago, monto, whatsapp (bool).
+        PostgREST corta en 1000 filas: quien llama pagina con `inicio` y `cantidad` ≤ 1000 (INV-044)."""
+        primero, _ = _mes_rango(desde_mes)
+        _, siguiente = _mes_rango(hasta_mes)
+        if not _supabase_ok():
+            ids_whatsapp = {r["transaccion_id"] for r in whatsapp_db._Memoria.registros
+                            if str(r["usuario_id"]) == str(usuario_id)}
+            propias = [t for t in DemoTransaccionDB._transacciones.values()
+                       if str(t["usuario_id"]) == str(usuario_id) and primero <= str(t["fecha"])[:10] < siguiente]
+            # Mismo orden que producción: fecha, created_at, id (la BD demo no guarda created_at: ahí manda el orden de inserción)
+            propias.sort(key=lambda t: (str(t["fecha"])[:10], str(t.get("created_at") or ""),
+                                        str(t["id"]) if t.get("created_at") else ""))
+            return [{
+                "fecha": t["fecha"], "tipo": t["tipo"], "categoria_id": t.get("categoria_id"),
+                "descripcion": t.get("descripcion"), "medio_pago": t.get("medio_pago"), "monto": t["monto"],
+                "whatsapp": t["id"] in ids_whatsapp,
+            } for t in propias[inicio:inicio + cantidad]]
+        try:
+            client = SupabaseDB.get_client()
+            filas = (client.table("transacciones")
+                     .select("fecha,tipo,categoria_id,descripcion,medio_pago,monto,whatsapp_registros(transaccion_id)")
+                     .eq("usuario_id", usuario_id).gte("fecha", primero).lt("fecha", siguiente)
+                     .order("fecha").order("created_at").order("id")
+                     .range(inicio, inicio + cantidad - 1).execute().data)
+            return [{
+                "fecha": f["fecha"], "tipo": f["tipo"], "categoria_id": f.get("categoria_id"),
+                "descripcion": f.get("descripcion"), "medio_pago": f.get("medio_pago"), "monto": f["monto"],
+                # WhatsApp = existe fila en whatsapp_registros (objeto o lista según la relación; vacío = App)
+                "whatsapp": bool(f.get("whatsapp_registros")),
+            } for f in filas]
+        except Exception as e:
+            print(f"[Supabase] transacciones.exportar error: {type(e).__name__}")
             raise
 
     @staticmethod
