@@ -218,3 +218,122 @@ sql "select public.admin_registrar_auditoria('reactivar', gen_random_uuid())" > 
 esperar "tope sin otra sesión (recorta a 10000)" "$(sql "select count(*) from public.auditoria_admin")" 10000
 sql "delete from public.auditoria_admin; delete from public.users where email like 'adm\_c%@x.test'" > /dev/null
 echo "OK: concurrencia real del panel de administración"
+
+# CHG-019 fase (a): cuentas de dinero con saldo derivado (dos veces para comprobar que se puede repetir).
+# Después del panel de administración: la base de prueba ya tiene las columnas de producción de `users` y los permisos de service_role.
+run ../2026-11-25_cuentas.sql
+run ../2026-11-25_cuentas.sql
+PGOPTIONS="" psql "$PGURL" -q -v ON_ERROR_STOP=1 -f 08_comprobar_cuentas.sql
+# Concurrencia real con los disparadores BEFORE fz001_/fz003_ (ADR-009 punto 5). Con SQLSTATE visible: FZ001, FZ002, FZ003, 40P01 (interbloqueo)
+sqle() { psql "$PGURL" -q -t -A -v VERBOSITY=sqlstate -c "$1" 2>&1 || true; }
+# $1 = sentencia que retiene el bloqueo 2 s; $2 = cantidad; $3 = sentencia de cada sesión ({N} = su número); resultado en $TMP/r.N
+en_paralelo_e() {
+  psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; $1; select pg_sleep(2); commit;" > /dev/null &
+  sleep 0.7
+  for n in $(seq 1 "$2"); do sqle "${3//\{N\}/$n}" > "$TMP/r.$n" & done
+  wait
+}
+# $1 = cantidad; $2 = sentencia de cada sesión ({N} = su número): todas a la vez, SIN bloqueador previo
+a_la_vez_e() {
+  for n in $(seq 1 "$1"); do sqle "${2//\{N\}/$n}" > "$TMP/r.$n" & done
+  wait
+}
+K1='00000000-0000-4000-8000-0000000019b1'; K2='00000000-0000-4000-8000-0000000019b2'
+sql "insert into public.users(id, email) values ('$K1','cta_k1@x.test'),('$K2','cta_k2@x.test')" > /dev/null
+nueva_cuenta() { sql "insert into public.cuentas(id, usuario_id, nombre, tipo, saldo_inicial) values ('$1','$2','$3','efectivo',$4)" > /dev/null; }
+GASTO100() { echo "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K1', 100, current_date, 'gasto', '$1') returning 'ok'"; }
+
+# INV-048 / REQ-N-023: 30 INSERT simultáneos de 100 sobre saldo 1000 -> exactamente 10 guardados, 20 FZ001, 0 interbloqueos, saldo 0
+CA='00000000-0000-4000-8000-0000000019d1'
+nueva_cuenta "$CA" "$K1" "Conc A" 1000
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.cuentas where id = '$CA' for update" 30 "$(GASTO100 $CA)"
+esperar "30 gastos simultáneos de 100 sobre 1000: guardados" "$(cuenta ok)" 10
+esperar "30 gastos simultáneos: rechazos FZ001" "$(cuenta 'ERROR:  FZ001')" 20
+esperar "30 gastos simultáneos: interbloqueos 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "30 gastos simultáneos: filas y saldo final" "$(sql "select count(*) || '/' || public.cuenta_saldo_actual('$CA') from public.transacciones where cuenta_id = '$CA'")" "10/0.00"
+# lo mismo SIN bloqueador previo (3 rondas con cuentas nuevas): las sesiones arrancan casi a la vez y compiten de verdad
+for ronda in 1 2 3; do
+  CR="00000000-0000-4000-8000-0000000019d$((1 + ronda))"
+  nueva_cuenta "$CR" "$K1" "Conc ronda $ronda" 1000
+  rm -f "$TMP"/r.*
+  a_la_vez_e 30 "$(GASTO100 $CR)"
+  esperar "ronda $ronda sin bloqueador: guardados" "$(cuenta ok)" 10
+  esperar "ronda $ronda sin bloqueador: FZ001" "$(cuenta 'ERROR:  FZ001')" 20
+  esperar "ronda $ronda sin bloqueador: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+  esperar "ronda $ronda sin bloqueador: saldo final" "$(sql "select public.cuenta_saldo_actual('$CR')")" "0.00"
+done
+
+# Ediciones e inserciones simultáneas: saldo 500 de holgura, 10 ediciones (+50) y 10 inserciones (50) -> exactamente 10 pasan
+CE='00000000-0000-4000-8000-0000000019e1'
+nueva_cuenta "$CE" "$K1" "Conc edicion" 0
+sql "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K1', 1000, current_date, 'ingreso', '$CE')" > /dev/null
+sql "insert into public.transacciones(id, usuario_id, monto, fecha, tipo, cuenta_id) select ('00000000-0000-4000-8000-00000019ed' || lpad(g::text, 2, '0'))::uuid, '$K1', 50, current_date, 'gasto', '$CE' from generate_series(1, 10) g" > /dev/null
+rm -f "$TMP"/r.*
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.cuentas where id = '$CE' for update; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+for n in $(seq 1 10); do
+  sqle "update public.transacciones set monto = 100 where id = ('00000000-0000-4000-8000-00000019ed' || lpad('$n', 2, '0'))::uuid returning 'ok'" > "$TMP/r.$n" &
+  sqle "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K1', 50, current_date, 'gasto', '$CE') returning 'ok'" > "$TMP/r.$((n + 10))" &
+done
+wait
+esperar "20 ediciones/inserciones simultáneas con holgura de 500: guardadas" "$(cuenta ok)" 10
+esperar "20 ediciones/inserciones simultáneas: FZ001" "$(cuenta 'ERROR:  FZ001')" 10
+esperar "20 ediciones/inserciones simultáneas: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "20 ediciones/inserciones simultáneas: saldo final" "$(sql "select public.cuenta_saldo_actual('$CE')")" "0.00"
+
+# Eliminaciones simultáneas: 10 ingresos de 100, un gasto de 600 (holgura 400) -> solo 4 ingresos se pueden eliminar
+CD='00000000-0000-4000-8000-0000000019f1'
+nueva_cuenta "$CD" "$K1" "Conc baja" 0
+sql "insert into public.transacciones(id, usuario_id, monto, fecha, tipo, cuenta_id) select ('00000000-0000-4000-8000-00000019dd' || lpad(g::text, 2, '0'))::uuid, '$K1', 100, current_date, 'ingreso', '$CD' from generate_series(1, 10) g" > /dev/null
+sql "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K1', 600, current_date, 'gasto', '$CD')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo_e "select 1 from public.cuentas where id = '$CD' for update" 10 "delete from public.transacciones where id = ('00000000-0000-4000-8000-00000019dd' || lpad('{N}', 2, '0'))::uuid returning 'ok'"
+esperar "10 bajas simultáneas con holgura de 400: eliminadas" "$(cuenta ok)" 4
+esperar "10 bajas simultáneas: FZ001" "$(cuenta 'ERROR:  FZ001')" 6
+esperar "10 bajas simultáneas: 40P01" "$(cuenta 'ERROR:  40P01')" 0
+esperar "10 bajas simultáneas: saldo final" "$(sql "select public.cuenta_saldo_actual('$CD')")" "0.00"
+
+# Dos usuarios distintos no se bloquean entre sí: la cuenta de K1 está retenida 2 s y K2 registra de inmediato
+CK2='00000000-0000-4000-8000-0000000019f2'
+nueva_cuenta "$CK2" "$K2" "Otro usuario" 1000
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; select 1 from public.cuentas where id = '$CA' for update; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+T0=$(date +%s%N)
+esperar "usuario distinto con la cuenta de otro retenida" "$(sqle "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K2', 100, current_date, 'gasto', '$CK2') returning 'ok'")" ok
+MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+if [ "$MS" -gt 1200 ]; then echo "ERROR: un usuario esperó a otro ($MS ms)"; exit 1; fi
+echo "OK: dos usuarios distintos no se bloquean ($MS ms)"
+wait
+
+# Archivar y registrar a la vez: el registro espera al archivado y, bajo el mismo bloqueo, ve FZ002 (nada queda en la cuenta archivada)
+CF='00000000-0000-4000-8000-0000000019f3'
+nueva_cuenta "$CF" "$K1" "Conc archivar" 1000
+psql "$PGURL" -q -v ON_ERROR_STOP=1 -c "begin; update public.cuentas set archivada = true where id = '$CF'; select pg_sleep(2); commit;" > /dev/null &
+sleep 0.7
+esperar "registrar mientras otra petición archiva" "$(sqle "insert into public.transacciones(usuario_id, monto, fecha, tipo, cuenta_id) values ('$K1', 10, current_date, 'gasto', '$CF') returning 'ok'")" "ERROR:  FZ002"
+wait
+esperar "archivar y registrar a la vez: transacciones en la cuenta archivada" "$(sql "select count(*) from public.transacciones where cuenta_id = '$CF'")" 0
+
+# Altas simultáneas de cuentas: 21 al mismo tiempo para un usuario sin cuentas -> 20 creadas, 1 FZ003
+K3='00000000-0000-4000-8000-0000000019b3'
+sql "insert into public.users(id, email) values ('$K3','cta_k3@x.test')" > /dev/null
+rm -f "$TMP"/r.*
+en_paralelo_e "select pg_advisory_xact_lock(hashtextextended('fz003_tope_cuentas:$K3', 0))" 21 "insert into public.cuentas(usuario_id, nombre, tipo) values ('$K3', 'Alta {N}', 'efectivo') returning 'ok'"
+esperar "21 altas simultáneas: creadas" "$(cuenta ok)" 20
+esperar "21 altas simultáneas: FZ003" "$(cuenta 'ERROR:  FZ003')" 1
+esperar "21 altas simultáneas: cuentas del usuario" "$(sql "select count(*) from public.cuentas where usuario_id = '$K3'")" 20
+# y sin bloqueador previo: 10 existentes + 25 simultáneas -> 10 creadas, 15 FZ003
+K4='00000000-0000-4000-8000-0000000019b4'
+sql "insert into public.users(id, email) values ('$K4','cta_k4@x.test')" > /dev/null
+sql "insert into public.cuentas(usuario_id, nombre, tipo) select '$K4', 'Previa ' || g, 'efectivo' from generate_series(1, 10) g" > /dev/null
+rm -f "$TMP"/r.*
+a_la_vez_e 25 "insert into public.cuentas(usuario_id, nombre, tipo) values ('$K4', 'Alta {N}', 'efectivo') returning 'ok'"
+esperar "25 altas simultáneas con 10 previas: creadas" "$(cuenta ok)" 10
+esperar "25 altas simultáneas con 10 previas: FZ003" "$(cuenta 'ERROR:  FZ003')" 15
+esperar "25 altas simultáneas con 10 previas: cuentas" "$(sql "select count(*) from public.cuentas where usuario_id = '$K4'")" 20
+
+# Limpieza: borrar los usuarios borra sus cuentas y transacciones (cascada) sin FZ001 ni interbloqueos
+sql "delete from public.users where email like 'cta\_k%@x.test'" > /dev/null
+esperar "limpieza por cascada: cuentas restantes" "$(sql "select count(*) from public.cuentas")" 0
+echo "OK: concurrencia real de las cuentas de dinero"

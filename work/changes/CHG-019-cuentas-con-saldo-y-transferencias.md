@@ -48,7 +48,7 @@ Cambia de spec: REQUIREMENTS §4 (cuentas **manuales**; «cuentas bancarias cone
 | 17 | Confirmar recurrente atómico (B-3) | Integridad | **Decidido:** función SQL `confirmar_recurrente` (crea la transacción y avanza `proxima_fecha` con compare-and-set en una sola transacción, patrón de `abonar_meta`); saldo insuficiente → 409 y la fecha NO avanza; reemplaza el flujo actual de `plataapp.py` ~474-499 (avanza y luego revierte); sin la función → 503; pruebas SQL y de API | coordinador |
 | 18 | Monto guardado en `PUT` solo con `cuenta_id` (I-14) | Dinero | **Decidido:** se valida con `Decimal` contra el tope y los 2 decimales antes de escribir (422); prueba `test_inv051_put_solo_con_cuenta_id_valida_el_monto_guardado` | coordinador |
 | 19 | Estado por fase de REQ-F-020 (M-4) | Trazabilidad | **Decidido:** REQ-F-020 lista sus criterios de aceptación por fase: a = CA-1 a CA-4, CA-6 y CA-8; b = CA-5; c = CA-7; cada fase tiene su propio estado | coordinador |
-| 15 | Fases (a)(b)(c) con despliegue separado y migraciones SQL propias (`2026-11-24_cuentas.sql`, `_transferencias.sql`, `_cuentas_integracion.sql`), ejecutadas **antes** de cada backend | Operación | **Decidido** | coordinador |
+| 15 | Fases (a)(b)(c) con despliegue separado y migraciones SQL propias (`2026-11-25_cuentas.sql`, `_transferencias.sql`, `_cuentas_integracion.sql`), ejecutadas **antes** de cada backend | Operación | **Decidido** | coordinador |
 
 Preguntas que **requieren** respuesta del dueño: ninguna. La 9 (transacciones de fecha futura cuentan) y la 10 (tope 9 999 999 999,99 hasta resolver BL-017) quedaron **decididas** en el ciclo 2 (M-3/Q-3).
 
@@ -59,7 +59,7 @@ Preguntas que **requieren** respuesta del dueño: ninguna. La 9 (transacciones d
 | Tarea | Alcance | Depende de | Estado | Ciclos |
 |---|---|---|---|---|
 | **Fase (a)** | | | | |
-| T1 | Migración `backend/sql/2026-11-24_cuentas.sql` (tabla `cuentas` con RLS sin políticas, `transacciones.cuenta_id` con llave compuesta y `NO ACTION`, índices, disparadores **`BEFORE`** `fz001_saldo_transacciones`, `fz001_saldo_cuentas`, `fz003_tope_cuentas` con `FZ001/FZ002/FZ003`, función `cuentas_con_saldo`) + `backend/sql/pruebas/08_comprobar_cuentas.sql` (incluye que los disparadores sean `BEFORE`) + concurrencia real en `probar.sh` (30 `INSERT` simultáneos de 100 sobre saldo 1000 → 10 guardados, 20 `FZ001`, 0 `40P01`) | spec aprobada; BL-017 recomendado | pendiente | 0 |
+| T1 | Migración `backend/sql/2026-11-25_cuentas.sql` (tabla `cuentas` con RLS sin políticas, `transacciones.cuenta_id` con llave compuesta y `NO ACTION`, índices, disparadores **`BEFORE`** `fz001_saldo_transacciones`, `fz001_saldo_cuentas`, `fz003_tope_cuentas` con `FZ001/FZ002/FZ003`, función `cuentas_con_saldo`) + `backend/sql/pruebas/08_comprobar_cuentas.sql` (incluye que los disparadores sean `BEFORE`) + concurrencia real en `probar.sh` (30 `INSERT` simultáneos de 100 sobre saldo 1000 → 10 guardados, 20 `FZ001`, 0 `40P01`) | spec aprobada; BL-017 recomendado | **hecha (2026-11-25)**, pendiente de validación | 1 |
 | T2 | Backend: `schemas`, `models` (`CuentaDB`, `DemoCuentaDB` con las mismas reglas), rutas `/cuentas` y `cuenta_id` en transacciones (traducción de errores SQL a 409/404), `backend/tests/test_cuentas.py` | T1 | pendiente | 0 |
 | T3 | Frontend: página «Cuentas», selector «Cuenta (opcional)» en `TransactionForm`, saldos en la moneda de visualización, accesibilidad | T2 | pendiente | 0 |
 | T4 | Validación + revisión independiente de la fase (a) + trazabilidad; despliegue (SQL antes) | T1-T3 | pendiente | 0 |
@@ -82,6 +82,8 @@ Pruebas nombradas: ver INV-046 a INV-052 en `spec/05-INVARIANTS.md` y `spec/BDD/
 | 2026-11-24 | generador | Especificación (sin código) | REQ-F-020, CT-012, UC-016, ADR-009, INV-046 a INV-052, BDD, NFR y trazabilidad escritos. Hallazgos: choque de vocabulario «cuenta», `RESTRICT` rompería la cascada de usuario, `NUMERIC(12,2)` vs 1e12 |
 | 2026-11-24 | validador | Validación independiente de la spec | CHG-019 **no aprobable**: B-2 (disparador AFTER: 27 `deadlock detected` en 30 `INSERT` simultáneos), B-3 (confirmar recurrente no atómico), I-1, I-14, I-15, M-3, M-4, M-7, M-8, Q-3 |
 | 2026-11-24 | generador | Ciclo 2 de la spec (sin código) | Corregidos B-2, B-3, I-1, I-14, I-15, M-3, M-4, M-7, M-8, Q-3 en ADR-009 (reescrito: disparadores `BEFORE`, `confirmar_recurrente`), INV-046 a INV-052, CT-012, CT-003, CT-006, CT-007, CT-008, CT-009, UC-016, BDD-CUENTAS, 02-ENTITIES, 04-STATES, glosario, REQUIREMENTS, NFR (REQ-N-023), TRACEABILITY y BACKLOG |
+
+| 2026-11-25 | generador | T1 hecha (modo completo, sin commit) | `backend/sql/2026-11-25_cuentas.sql` (el plan decía `2026-11-24_`; corregido el nombre en CHG, spec y trazabilidad), `backend/sql/pruebas/08_comprobar_cuentas.sql` y bloque de concurrencia en `probar.sh`; `probar.sh` completo en PostgreSQL 16 desechable: exit 0; 30 INSERT simultáneos de 100 sobre 1000 → 10 guardados, 20 `FZ001`, 0 `40P01` (también 3 rondas sin bloqueador previo) |
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente
