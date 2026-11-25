@@ -52,6 +52,7 @@ El coordinador (o el clasificador) propone el modo; ante la duda entre dos, se u
 6. Cada prueba que la spec nombra **existe con ese nombre**; si se renombra, se actualiza en la spec en el mismo cambio.
 7. Spec, trazabilidad y notas de despliegue (SQL antes que el backend) actualizadas en el mismo cambio.
 8. Las pruebas de concurrencia o de SQL se escriben contra PostgreSQL real, no solo con un simulado.
+9. Toda consulta nueva a Supabase se comprueba contra el **esquema real** (columnas y relaciones, con el MCP de Supabase o `information_schema`); un cliente simulado no detecta columnas inexistentes (error real de CHG-018: `created_at` no existe en `transacciones`).
 
 ## Tareas pequeñas y avisos
 - Cada tarea de generación debe caber en **unos 10 minutos y un alcance** (un archivo grande o una capa). Si es mayor, el coordinador la divide.
