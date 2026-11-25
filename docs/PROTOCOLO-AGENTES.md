@@ -90,6 +90,8 @@ Un agente nunca es la única evidencia de calidad: las reglas críticas se compr
 Pasar a cada agente: la tarea + rutas exactas de los archivos a leer y editar (`docs/MAPA.md`, `spec/INDICE.md`). No pegar documentos enteros. No cargar MCP ni herramientas innecesarias.
 
 ## Qué modelo usar (parámetro `model` al lanzar cada agente)
+**Autorización permanente del dueño (2026-11-25):** el coordinador cambia y rota Haiku / Sonnet / Opus por tarea **sin pedir permiso**, según lo que se implemente o valide y la complejidad real de cada tarea (al subir a Opus o bajar a Haiku lo anota en una línea del registro de la ficha). Esto NO autoriza ni cambia nada más: el push a `main`, el SQL en producción y los cambios de reglas de negocio siguen requiriendo su aprobación explícita. El modelo de la conversación principal lo cambia solo el dueño con `/model`.
+
 Se turnan los tres modelos según la complejidad de **cada tarea**; el perfil de `.claude/agents/*.md` solo fija el **valor por defecto, barato**. El coordinador sube o baja el modelo al lanzar la tarea (parámetro `model`: `haiku`, `sonnet` u `opus`).
 
 | Modelo | Úsalo para |

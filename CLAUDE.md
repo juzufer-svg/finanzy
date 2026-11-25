@@ -32,6 +32,8 @@ Analizar → Especificar → Diseñar → Validar spec → Coordinar → Impleme
   (riesgo alto: autenticación, dinero, datos personales, migraciones, seguridad: ficha/spec + validador y revisor en paralelo).
   Ante la duda entre dos, el más estricto. Detalle: `docs/PROTOCOLO-AGENTES.md` y `docs/CICLO-SDD.md`.
 
+> **Modelos:** el dueño autorizó (2026-11-25) que el coordinador rote Haiku/Sonnet/Opus por tarea sin pedir permiso (ver `docs/PROTOCOLO-AGENTES.md` «Qué modelo usar»). No cubre push a `main`, SQL en producción ni reglas de negocio.
+
 ## Los 5 agentes (`.claude/agents/`)
 
 | Agente | Rol | Modelo | Puede escribir código |
