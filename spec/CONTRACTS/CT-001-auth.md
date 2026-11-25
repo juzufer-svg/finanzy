@@ -57,6 +57,7 @@ Salida (pendiente, INV-006): `{ "status": "pending", "message": "Tu cuenta no es
 | HTTP | Cuándo | `detail` |
 |---|---|---|
 | 401 | Correo inexistente o contraseña incorrecta (con un correo inexistente se ejecuta igual la comprobación bcrypt contra un hash señuelo, M-5) | "Credenciales inválidas" |
+| 403 | (CHG-023, INV-056, **provisional**) Contraseña **correcta** de una cuenta **suspendida** por el Dueño: sin token ni código, no cuenta como fallo. Con contraseña incorrecta sigue el 401. `verify-email` responde igual a una suspendida y `reset-password` no la reactiva | "No fue posible iniciar sesión con esta cuenta. Contacta al administrador." |
 | 429 | 5 fallos del correo dentro de una ventana de 24 h → bloqueo de 15 min, o 30 intentos por IP / 10 min | "Demasiados intentos fallidos…" / "Demasiadas solicitudes…" |
 
 El intento se **reserva** antes de comprobar la contraseña (INV-038): con peticiones simultáneas solo 5 llegan a comprobarla y el resto recibe 429. Si la 5.ª reserva acierta, inicia sesión. Riesgo aceptado (M-6): quien conozca un correo puede bloquearlo 15 min; `reset-password` lo desbloquea.

@@ -13,6 +13,8 @@
 | nombre completo | Texto | Sí (registro) | 2-100 caracteres |
 | moneda | Código de moneda | Sí | USD, EUR, MXN, ARS, COP, CLP |
 | activa | Booleano | Sí | Ver estados |
+| suspendida (CHG-023) | Booleano | Sí (por defecto `false`) | Solo la cambia el Dueño desde el panel (INV-056); distinta de «activa». Solo existe sobre una cuenta activa |
+| último acceso (CHG-023) | Instante UTC | No | Último inicio de sesión; como mucho una escritura por hora (INV-061) |
 
 - **Relaciones:** Usuario 1—N Categoría, Transacción, Presupuesto, Meta, Cuenta de dinero, Transferencia (borrado en cascada). «Cuenta» sola significa la cuenta de usuario; la entidad nueva siempre se llama «cuenta de dinero» (glosario).
 - **Estados:** `04-STATES.md` → Usuario. **Invariantes:** INV-006, INV-014, INV-015. **REQ:** F-001, F-002, F-003, F-013, F-014.
@@ -129,6 +131,18 @@
 
 - **Reglas:** RLS activado (solo `service_role`); retención 90 días (se borran filas con fecha < hoy − 90) con purga oportunista al escribir, como mucho una vez al día, con la marca de «última purga» en la propia tabla (fila `purga`/`general` del día) para soportar varias instancias; un fallo al escribirlo nunca rompe el flujo principal. **Estados:** ninguno (`04-STATES.md`). **Invariantes:** INV-036. **REQ:** F-018.
 
+## Registro de acciones del administrador (CHG-023)
+- **Identidad:** `id` numérico. **Sin relación (ni llave foránea) con Usuario**: sobrevive a la baja.
+- **Descripción:** lo que el Dueño hizo desde el panel; jamás guarda correos, nombres, IP, texto libre ni el id del administrador.
+
+| Atributo | Tipo (conceptual) | Obligatorio | Regla / Value Object |
+|---|---|---|---|
+| fecha | Instante UTC | Sí | Reloj de la BD |
+| acción | Texto de lista cerrada | Sí | `suspender`, `reactivar`, `cerrar_sesiones`, `eliminar` |
+| usuario afectado | UUID | Sí | Solo el id; el correo se une al leer y solo si la cuenta existe |
+
+- **Reglas:** se escribe en la misma transacción que la acción; retención de 365 días y tope de 10 000 filas; solo lectura por la API (INV-059). **REQ:** F-021.
+
 ## Mapa de relaciones
 ```
 Usuario 1—N Categoría 1—N Transacción
@@ -139,4 +153,5 @@ Usuario 1—N Cuenta de dinero 1—N Transacción (opcional)
 Usuario 1—N Transferencia N—1 Cuenta de dinero (origen) y N—1 Cuenta de dinero (destino)
 Intento de login, Código y Evento de límite: claves por huella HMAC, sin llave foránea a Usuario (INV-040)
 Contador diario: sin relación con Usuario (solo agregados)
+Registro de acciones del administrador: sin llave foránea a Usuario (guarda solo el id del afectado, INV-059)
 ```

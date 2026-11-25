@@ -34,6 +34,8 @@ from app.core import security  # noqa: E402
 from app.models import demo_db  # noqa: E402
 from app.models.user import UserDB  # noqa: E402
 from app.models import auth_estado  # noqa: E402
+from app.models import admin_usuarios as admin_db  # noqa: E402
+from app.api.routes import admin_usuarios as admin_routes  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -48,12 +50,15 @@ def estado_limpio():
         whatsapp_routes._global_dia,
         whatsapp_routes._intentos_codigo,
         exportar_routes._por_minuto,
+        admin_routes._limite,
+        admin_routes._limite_escrituras,
     ):
         limiter.reset()
     # Estado de autenticación (CHG-020): bloqueos, códigos y ventanas por IP/correo viven en `auth_estado._Memoria`
     # (modo demo, sin Supabase) y el cliente dedicado de Supabase se recrea en cada prueba
     auth_estado._Memoria.limpiar()
     auth_estado._cliente_estado = None
+    admin_db._Memoria.limpiar()   # panel de administración (CHG-023), modo demo
     demo_db.DemoTransaccionDB._transacciones.clear()
     demo_db.DemoCategoriaDB._categorias.clear()
     demo_db.DemoPresupuestoDB._presupuestos.clear()
@@ -101,7 +106,7 @@ def users(monkeypatch):
 
     async def get_session_version(user_id):
         user = await get_by_id(user_id)
-        if user is None or not user.get("is_active"):  # INV-017
+        if user is None or not user.get("is_active") or user.get("suspendida"):  # INV-017, INV-056
             return None
         return user.get("session_version", 0)
 

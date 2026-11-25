@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor, exportar
+from app.api.routes import auth, users, plataapp, asistente, whatsapp, monitor, exportar, admin_usuarios
 from app.core.purga_fondo import PurgaEnSegundoPlano
 from app.models.auth_estado import EstadoNoDisponible, MENSAJE_503
 
@@ -118,6 +118,7 @@ app.include_router(exportar.router, prefix="/api/v1", tags=["exportar"])  # CHG-
 app.include_router(asistente.router, prefix="/api/v1/asistente", tags=["asistente"])
 app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp"])
 app.include_router(monitor.router, prefix="/api/v1/monitor", tags=["monitor"])  # solo Dueño (CHG-017)
+app.include_router(admin_usuarios.router, prefix="/api/v1/admin", tags=["admin"])  # solo Dueño (CHG-023)
 
 @app.get("/")
 async def root():
