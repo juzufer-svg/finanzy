@@ -60,7 +60,7 @@ Preguntas que **requieren** respuesta del dueño: ninguna. La 9 (transacciones d
 |---|---|---|---|---|
 | **Fase (a)** | | | | |
 | T1 | Migración `backend/sql/2026-11-25_cuentas.sql` (tabla `cuentas` con RLS sin políticas, `transacciones.cuenta_id` con llave compuesta y `NO ACTION`, índices, disparadores **`BEFORE`** `fz001_saldo_transacciones`, `fz001_saldo_cuentas`, `fz003_tope_cuentas` con `FZ001/FZ002/FZ003`, función `cuentas_con_saldo`) + `backend/sql/pruebas/08_comprobar_cuentas.sql` (incluye que los disparadores sean `BEFORE`) + concurrencia real en `probar.sh` (30 `INSERT` simultáneos de 100 sobre saldo 1000 → 10 guardados, 20 `FZ001`, 0 `40P01`) | spec aprobada; BL-017 recomendado | **hecha (2026-11-25)**, pendiente de validación | 1 |
-| T2 | Backend: `schemas`, `models` (`CuentaDB`, `DemoCuentaDB` con las mismas reglas), rutas `/cuentas` y `cuenta_id` en transacciones (traducción de errores SQL a 409/404), `backend/tests/test_cuentas.py` | T1 | pendiente | 0 |
+| T2 | Backend: `schemas`, `models` (`CuentaDB`, `DemoCuentaDB` con las mismas reglas), rutas `/cuentas` y `cuenta_id` en transacciones (traducción de errores SQL a 409/404), `backend/tests/test_cuentas.py` | T1 | **hecha (2026-11-25)**, pendiente de validación | 1 |
 | T3 | Frontend: página «Cuentas», selector «Cuenta (opcional)» en `TransactionForm`, saldos en la moneda de visualización, accesibilidad | T2 | **hecha (2026-11-25)**, pendiente de validación | 1 |
 | T4 | Validación + revisión independiente de la fase (a) + trazabilidad; despliegue (SQL antes) | T1-T3 | pendiente | 0 |
 | **Fase (b)** | | | | |
@@ -85,6 +85,7 @@ Pruebas nombradas: ver INV-046 a INV-052 en `spec/05-INVARIANTS.md` y `spec/BDD/
 
 | 2026-11-25 | generador | T1 hecha (modo completo, sin commit) | `backend/sql/2026-11-25_cuentas.sql` (el plan decía `2026-11-24_`; corregido el nombre en CHG, spec y trazabilidad), `backend/sql/pruebas/08_comprobar_cuentas.sql` y bloque de concurrencia en `probar.sh`; `probar.sh` completo en PostgreSQL 16 desechable: exit 0; 30 INSERT simultáneos de 100 sobre 1000 → 10 guardados, 20 `FZ001`, 0 `40P01` (también 3 rondas sin bloqueador previo) |
 | 2026-11-25 | generador | T3 hecha (fase a, sin commit) | `frontend/lib/cuentas.ts` + `tests/cuentas.test.mjs` (13 pruebas), `app/dashboard/cuentas/page.tsx`, selector en `TransactionForm` y en la edición de `transactions/page.tsx` (nombre de cuenta en la lista), menú «Cuentas» (solo lateral en celular). eslint, tsc, `npm test` (94) y `next build` OK; Playwright con backend simulado en PC y celular, claro y oscuro |
+| 2026-11-25 | generador | T2 hecha (modo completo, sin commit) | `be/schemas/plataapp.py` (`Cuenta*`, `cuenta_id`, `Decimal`), `be/models/cuentas.py` (`CuentaDB`: RPC/consultas por usuario de la sesión, ejecutor con plazo, fail-closed 503), `be/models/demo_db.py` (`DemoCuentaDB` con las mismas reglas), `be/api/routes/cuentas.py`, `be/api/cuentas_errores.py`, `cuenta_id` en `be/api/routes/plataapp.py`, `tests/test_cuentas.py` (44 pruebas). Suite completa: 935 passed; pyflakes y pip_audit limpios |
 
 ## 8. Cierre
 - **Aprobación humana final:** pendiente
