@@ -117,6 +117,12 @@ class DemoCuentaDB:
         for t in DemoTransaccionDB._transacciones.values():
             if t.get("cuenta_id") == cuenta["id"] and t["usuario_id"] == cuenta["usuario_id"]:
                 total += _efecto(t["tipo"], t["monto"])
+        for tr in DemoTransferenciaDB._transferencias.values():   # CHG-024: recibidas suman, enviadas restan (INV-047)
+            if tr["usuario_id"] == cuenta["usuario_id"]:
+                if tr["cuenta_destino_id"] == cuenta["id"]:
+                    total += _dec(tr["monto"])
+                if tr["cuenta_origen_id"] == cuenta["id"]:
+                    total -= _dec(tr["monto"])
         return total
 
     @staticmethod
@@ -227,7 +233,74 @@ class DemoCuentaDB:
                 return False
             if any(t.get("cuenta_id") == cuenta_id for t in DemoTransaccionDB._transacciones.values()):
                 raise ErrorBD("23503")   # NO ACTION: con movimientos no se elimina (INV-050)
+            if any(cuenta_id in (t["cuenta_origen_id"], t["cuenta_destino_id"])
+                   for t in DemoTransferenciaDB._transferencias.values()):
+                raise ErrorBD("23503")   # ni con transferencias (CHG-024)
             del DemoCuentaDB._cuentas[cuenta_id]
+            return True
+
+
+class DemoTransferenciaDB:
+    """Transferencias en memoria (CHG-024). Mismas reglas que el disparador `fz001_saldo_transferencias` y los CHECK/llaves
+    compuestas de la tabla: cuentas propias (23503), distintas y monto > 0 (23514), ninguna archivada (FZ002) y el origen
+    (si no es tarjeta de crédito) no puede quedar en negativo (FZ001). Al borrar, el destino no puede quedar en negativo."""
+
+    _transferencias: Dict[str, dict] = {}
+
+    @staticmethod
+    def _publica(t: dict) -> dict:
+        return {
+            "id": t["id"], "usuario_id": t["usuario_id"], "cuenta_origen_id": t["cuenta_origen_id"],
+            "cuenta_destino_id": t["cuenta_destino_id"], "monto": float(t["monto"]), "fecha": t["fecha"],
+            "descripcion": t["descripcion"], "created_at": t["created_at"],
+        }
+
+    @staticmethod
+    async def crear(usuario_id: str, origen_id: str, destino_id: str, monto: Decimal, fecha: str,
+                    descripcion: Optional[str]) -> dict:
+        with DemoCuentaDB._lock:
+            origen, destino = DemoCuentaDB._de(origen_id, usuario_id), DemoCuentaDB._de(destino_id, usuario_id)
+            if origen is None or destino is None:
+                raise ErrorBD("23503")
+            if origen_id == destino_id or _dec(monto) <= 0:
+                raise ErrorBD("23514")
+            if origen["archivada"] or destino["archivada"]:
+                raise ErrorBD("FZ002")
+            if origen["tipo"] != "tarjeta_credito" and DemoCuentaDB.saldo(origen) - _dec(monto) < 0:
+                raise ErrorBD("FZ001")
+            t = {"id": str(uuid.uuid4()), "usuario_id": usuario_id, "cuenta_origen_id": origen_id,
+                 "cuenta_destino_id": destino_id, "monto": _dec(monto), "fecha": fecha, "descripcion": descripcion,
+                 "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+            DemoTransferenciaDB._transferencias[t["id"]] = t
+            return DemoTransferenciaDB._publica(t)
+
+    @staticmethod
+    async def listar(usuario_id: str, mes: Optional[str] = None) -> list:
+        """Las del usuario, más recientes primero: fecha desc, id desc."""
+        with DemoCuentaDB._lock:
+            filas = [t for t in DemoTransferenciaDB._transferencias.values()
+                     if t["usuario_id"] == usuario_id and (not mes or t["fecha"].startswith(mes))]
+            filas.sort(key=lambda t: (t["fecha"], t["id"]), reverse=True)
+            return [DemoTransferenciaDB._publica(t) for t in filas]
+
+    @staticmethod
+    async def obtener_por_id(transferencia_id: str, usuario_id: str) -> Optional[dict]:
+        with DemoCuentaDB._lock:
+            t = DemoTransferenciaDB._transferencias.get(transferencia_id)
+            return DemoTransferenciaDB._publica(t) if t and t["usuario_id"] == usuario_id else None
+
+    @staticmethod
+    async def eliminar(transferencia_id: str, usuario_id: str) -> bool:
+        with DemoCuentaDB._lock:
+            t = DemoTransferenciaDB._transferencias.get(transferencia_id)
+            if t is None or t["usuario_id"] != usuario_id:
+                return False
+            origen, destino = DemoCuentaDB._cuentas.get(t["cuenta_origen_id"]), DemoCuentaDB._cuentas.get(t["cuenta_destino_id"])
+            if (origen and origen["archivada"]) or (destino and destino["archivada"]):
+                raise ErrorBD("FZ002")
+            if destino and destino["tipo"] != "tarjeta_credito" and DemoCuentaDB.saldo(destino) - _dec(t["monto"]) < 0:
+                raise ErrorBD("FZ001")
+            del DemoTransferenciaDB._transferencias[transferencia_id]
             return True
 
 

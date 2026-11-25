@@ -18,9 +18,14 @@ import {
   TIPOS_CUENTA, NOMBRE_CUENTA_MAX, normalizarCuentas, separarCuentas, tipoLabel, estadoLabel, esTarjeta,
   textoSaldo, notaDeuda, validarCuenta, cambiosCuenta, mensajeErrorCuenta, type Cuenta, type TipoCuenta,
 } from '@/lib/cuentas'
+import {
+  DESCRIPCION_MAX, normalizarTransferencias, cuentasParaTransferir, validarTransferencia, cuerpoTransferencia,
+  fechaLocal, mesDe, desplazarMes, mesLabel, type Transferencia,
+} from '@/lib/transferencias'
 
 type Formulario = { id: string | null; nombre: string; tipo: TipoCuenta; saldo: string }
 const FORM_VACIO: Formulario = { id: null, nombre: '', tipo: 'efectivo', saldo: '' }
+type FormTransf = { origen: string; destino: string; monto: string; fecha: string; descripcion: string }
 
 export default function CuentasPage() {
   const router = useRouter()
@@ -38,6 +43,15 @@ export default function CuentasPage() {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [trabajando, setTrabajando] = useState<string | null>(null)
+
+  // Transferencias (CHG-024)
+  const [mes, setMes] = useState(() => mesDe())
+  const [transferencias, setTransferencias] = useState<Transferencia[]>([])
+  const [transfError, setTransfError] = useState('')
+  const [transfCargando, setTransfCargando] = useState(true)
+  const [formT, setFormT] = useState<FormTransf | null>(null)
+  const [savingT, setSavingT] = useState(false)
+  const [formTError, setFormTError] = useState('')
 
   const fetchCuentas = useCallback((isActive: () => boolean = () => true) => {
     return apiClient.get('/api/v1/cuentas?incluir_archivadas=true')
@@ -61,8 +75,81 @@ export default function CuentasPage() {
     return () => { active = false }
   }, [fetchCuentas, router])
 
-  const openCreate = () => { setForm({ ...FORM_VACIO }); setSaldoOriginal(''); setFormError('') }
+  const fetchTransferencias = useCallback((mesConsulta: string, isActive: () => boolean = () => true) => {
+    return apiClient.get(`/api/v1/transferencias?mes=${mesConsulta}`)
+      .then(res => {
+        if (!isActive()) return
+        setTransferencias(normalizarTransferencias(res.data))
+        setTransfError('')
+      })
+      .catch(err => {
+        if (isActive()) setTransfError(mensajeErrorCuenta(err, 'No se pudieron cargar tus transferencias.'))
+      })
+      .finally(() => {
+        if (isActive()) setTransfCargando(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    if (!hasStoredSession()) return
+    let active = true
+    fetchTransferencias(mes, () => active)
+    return () => { active = false }
+  }, [fetchTransferencias, mes])
+
+  const cambiarMes = (delta: number) => { setTransfCargando(true); setMes(m => desplazarMes(m, delta)) }
+
+  const openTransfer = () => {
+    setForm(null)
+    const opciones = cuentasParaTransferir(cuentas)
+    setFormT({ origen: opciones[0]?.id ?? '', destino: opciones[1]?.id ?? '', monto: '', fecha: fechaLocal(), descripcion: '' })
+    setFormTError('')
+  }
+  const closeTransfer = () => { setFormT(null); setFormTError('') }
+
+  const handleTransfer = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formT) return
+    const datos = { origen: formT.origen, destino: formT.destino, monto: toBase(formT.monto), fecha: formT.fecha, descripcion: formT.descripcion }
+    const problema = validarTransferencia(datos)
+    if (problema) { setFormTError(problema); return }
+    setSavingT(true)
+    setFormTError('')
+    try {
+      await apiClient.post('/api/v1/transferencias', cuerpoTransferencia(datos))
+      await Promise.all([fetchCuentas(), fetchTransferencias(mes)])
+      notify('Transferencia registrada', 'success')
+      closeTransfer()
+    } catch (err) {
+      setFormTError(mensajeErrorCuenta(err, 'No se pudo registrar la transferencia.'))
+    } finally {
+      setSavingT(false)
+    }
+  }
+
+  const eliminarTransferencia = async (t: Transferencia) => {
+    const ok = await confirm({
+      title: '¿Eliminar esta transferencia?',
+      description: 'Los saldos de las dos cuentas volverán a como estaban antes. Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
+    setTrabajando(t.id)
+    try {
+      await apiClient.delete(`/api/v1/transferencias/${t.id}`)
+      await Promise.all([fetchCuentas(), fetchTransferencias(mes)])
+      notify('Transferencia eliminada', 'success')
+    } catch (err) {
+      notify(mensajeErrorCuenta(err, 'No se pudo eliminar la transferencia.'), 'error')
+    } finally {
+      setTrabajando(null)
+    }
+  }
+
+  const openCreate = () => { setFormT(null); setForm({ ...FORM_VACIO }); setSaldoOriginal(''); setFormError('') }
   const openEdit = (c: Cuenta) => {
+    setFormT(null)
     const texto = toInput(c.saldo_inicial)
     setForm({ id: c.id, nombre: c.nombre, tipo: c.tipo ?? 'efectivo', saldo: texto })
     setSaldoOriginal(texto)
@@ -146,6 +233,9 @@ export default function CuentasPage() {
   const editandoCuenta = form?.id ? cuentas.find(c => c.id === form.id) ?? null : null
   const tipoFormulario = editandoCuenta ? (editandoCuenta.tipo ?? form!.tipo) : form?.tipo
 
+  const opcionesT = cuentasParaTransferir(cuentas)
+  const nombreCuenta = (id: string) => cuentas.find(c => c.id === id)?.nombre ?? 'Cuenta desconocida'
+
   const tarjeta = (c: Cuenta) => {
     const deuda = notaDeuda(c)
     const ocupada = trabajando === c.id
@@ -183,14 +273,65 @@ export default function CuentasPage() {
         title="Cuentas"
         subtitle="Dónde está tu dinero: efectivo, bancos, billeteras y tarjetas"
         actions={
+          <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={formT ? closeTransfer : openTransfer} disabled={opcionesT.length < 2} className="btn-secondary disabled:opacity-50" aria-expanded={formT !== null}
+            title={opcionesT.length < 2 ? 'Necesitas al menos dos cuentas sin archivar' : undefined}>
+            {formT ? 'Cancelar transferencia' : 'Transferir'}
+          </button>
           <button type="button" onClick={creando ? closeForm : openCreate} className="btn-primary" aria-expanded={creando}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             {creando ? 'Cancelar' : 'Nueva cuenta'}
           </button>
+          </div>
         }
       />
+
+      {formT && (
+        <form onSubmit={handleTransfer} className="card p-4 sm:p-6 space-y-4 animate-slide-in" aria-labelledby="trf-form-titulo" noValidate>
+          <div className="flex items-center justify-between">
+            <h2 id="trf-form-titulo" className="text-sm font-bold text-slate-900">Transferir entre cuentas</h2>
+            <button type="button" onClick={closeTransfer} aria-label="Cerrar formulario de transferencia" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
+          </div>
+          {formTError && <div role="alert" className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm font-medium text-red-700">{formTError}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="trf-origen" className="label">Desde</label>
+              <select id="trf-origen" value={formT.origen} onChange={e => setFormT(p => p && ({ ...p, origen: e.target.value }))} className="input-field" autoFocus>
+                <option value="">Elige una cuenta</option>
+                {opcionesT.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="trf-destino" className="label">Hacia</label>
+              <select id="trf-destino" value={formT.destino} onChange={e => setFormT(p => p && ({ ...p, destino: e.target.value }))} className="input-field">
+                <option value="">Elige una cuenta</option>
+                {opcionesT.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="trf-monto" className="label">Monto</label>
+              <div className="relative">
+                <MoneyPrefix />
+                <input id="trf-monto" type="number" inputMode="decimal" step="0.01" min={0} value={formT.monto} onChange={e => setFormT(p => p && ({ ...p, monto: e.target.value }))} placeholder="0" autoComplete="off" required className="input-field !pl-12" />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="trf-fecha" className="label">Fecha</label>
+              <input id="trf-fecha" type="date" value={formT.fecha} onChange={e => setFormT(p => p && ({ ...p, fecha: e.target.value }))} required className="input-field" />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="trf-nota" className="label">Nota (opcional)</label>
+            <input id="trf-nota" type="text" value={formT.descripcion} onChange={e => setFormT(p => p && ({ ...p, descripcion: e.target.value }))} maxLength={DESCRIPCION_MAX} autoComplete="off" className="input-field" />
+          </div>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <button type="button" onClick={closeTransfer} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={savingT} className="btn-primary disabled:opacity-50">{savingT ? 'Transfiriendo…' : 'Transferir'}</button>
+          </div>
+        </form>
+      )}
 
       {form && (
         <form onSubmit={handleSubmit} className="card p-4 sm:p-6 space-y-4 animate-slide-in" aria-labelledby="cta-form-titulo" noValidate>
@@ -276,6 +417,39 @@ export default function CuentasPage() {
           )}
         </>
       )}
+
+      <section aria-labelledby="trf-titulo">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 id="trf-titulo" className="text-sm font-bold text-slate-900">Transferencias</h2>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => cambiarMes(-1)} aria-label="Mes anterior" className="btn-secondary !py-1 !px-3 text-xs">&lsaquo;</button>
+            <span className="text-xs font-semibold text-slate-700 capitalize min-w-[8rem] text-center" aria-live="polite">{mesLabel(mes)}</span>
+            <button type="button" onClick={() => cambiarMes(1)} aria-label="Mes siguiente" className="btn-secondary !py-1 !px-3 text-xs">&rsaquo;</button>
+          </div>
+        </div>
+        {transfError ? (
+          <ErrorState message={transfError} onRetry={() => { setTransfCargando(true); fetchTransferencias(mes) }} />
+        ) : transfCargando ? (
+          <div className="card h-16 animate-pulse bg-slate-100" role="status" aria-label="Cargando transferencias" />
+        ) : transferencias.length === 0 ? (
+          <p className="text-sm text-slate-500">No hay transferencias en este mes.</p>
+        ) : (
+          <ul className="card divide-y divide-slate-100">
+            {transferencias.map(t => (
+              <li key={t.id} className="p-3 sm:p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{nombreCuenta(t.cuenta_origen_id)} → {nombreCuenta(t.cuenta_destino_id)}</p>
+                  <p className="text-xs text-slate-500 truncate">{t.fecha}{t.descripcion ? ` · ${t.descripcion}` : ''}</p>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <p className="text-sm font-bold tabular-nums whitespace-nowrap text-slate-900">{fmt(t.monto)}</p>
+                  <button type="button" onClick={() => eliminarTransferencia(t)} disabled={trabajando === t.id} aria-label={`Eliminar transferencia de ${nombreCuenta(t.cuenta_origen_id)} a ${nombreCuenta(t.cuenta_destino_id)}`} className="btn-secondary !py-1.5 !px-3 text-xs !text-red-600 dark:!text-red-400 disabled:opacity-50">Eliminar</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }

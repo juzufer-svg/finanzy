@@ -59,14 +59,14 @@ def relanzar(error: Exception, al_eliminar_cuenta: bool = False):
     raise http from None
 
 
-def relanzar_o_503(error: Exception):
-    """Para escrituras de transacciones (BL-043): el error de la regla de cuentas se traduce (409/404/422); CUALQUIER otro fallo
-    de la BD (red, plazo, error inesperado) es 503 genérico, sin detalles (INV-039, INV-048), nunca un 500."""
+def relanzar_o_503(error: Exception, origen: str = "transacciones"):
+    """Para escrituras de transacciones y transferencias (BL-043): el error de la regla de cuentas se traduce (409/404/422);
+    CUALQUIER otro fallo de la BD (red, plazo, error inesperado) es 503 genérico, sin detalles (INV-039, INV-048), nunca un 500."""
     http = traducir(error)
     if http is not None:
         raise http from None
-    print(f"[transacciones] Falló la BD ({type(error).__name__})")
-    raise EstadoNoDisponible("falló la escritura de transacciones") from None
+    print(f"[{origen}] Falló la BD ({type(error).__name__})")
+    raise EstadoNoDisponible(f"falló la escritura de {origen}") from None
 
 
 _WA_BASE = {
