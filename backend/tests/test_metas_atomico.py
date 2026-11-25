@@ -1,7 +1,7 @@
 """CHG-004 · INV-008: abono atómico con la función SQL `abonar_meta` (BDD-METAS).
 
 La concurrencia real se probó contra PostgreSQL (30 abonos simultáneos → suma exacta);
-ver work/changes/CHG-004-abono-atomico.md. Aquí se prueba cómo el backend usa la función.
+ver work/archivo/CHG-004-abono-atomico.md. Aquí se prueba cómo el backend usa la función.
 """
 import asyncio
 

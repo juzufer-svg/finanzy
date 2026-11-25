@@ -1,6 +1,6 @@
 # CLAUDE.md — Finanzy
 
-> Breve a propósito. Contexto completo (arquitectura, API, BD, infraestructura): `CONTEXTO_PROYECTO_CLAUDE.md`.
+> Breve a propósito. Empezar por `docs/MAPA.md` (mapa) y `work/ESTADO.md` (estado). Arquitectura, BD e infraestructura: `CONTEXTO_PROYECTO_CLAUDE.md` por secciones.
 > Especificación (fuente de verdad del comportamiento): `spec/`. Proceso: `docs/`.
 
 Finanzy es una app personal de finanzas: Next.js 16 (`frontend/`, Vercel) + FastAPI (`backend/`, Railway) +
@@ -8,7 +8,7 @@ Supabase (PostgreSQL) + Brevo (correo). Producción: https://finanzyapp.vercel.a
 
 ## Reglas del proyecto
 
-1. Leer `CONTEXTO_PROYECTO_CLAUDE.md` antes de trabajar.
+1. Leer `docs/MAPA.md` y `work/ESTADO.md`; el CONTEXTO (`CONTEXTO_PROYECTO_CLAUDE.md`) solo por secciones cuando haga falta.
 2. Consultar `spec/` antes de modificar funcionalidades. La especificación aprobada es la fuente de verdad.
 3. No inventar requerimientos. Si falta información: listar el vacío y preguntar.
 4. No modificar reglas de negocio sin autorización humana explícita.
@@ -36,11 +36,13 @@ Analizar → Especificar → Diseñar → Validar spec → Coordinar → Impleme
 
 | Agente | Rol | Modelo | Puede escribir código |
 |---|---|---|---|
-| `coordinador` | Orquesta, divide tareas, mantiene estado, escala a humano | opus | No (solo `work/` y spec aprobada) |
+| `coordinador` | Orquesta, divide tareas, mantiene estado, escala a humano | sonnet | No (solo `work/` y spec aprobada) |
 | `clasificador` | Clasifica la entrada, riesgo y modo | haiku | No |
 | `generador` | Implementa lo ya especificado | sonnet | Sí |
 | `validador` | Protege invariantes, ejecuta pruebas, puede bloquear | sonnet | No |
-| `revisor` | Audita contra spec: regresiones, seguridad, evidencia | opus | No |
+| `revisor` | Audita contra spec: regresiones, seguridad, evidencia | sonnet (opus si el modo es `completo`) | No |
+
+Modelo por defecto barato; el coordinador lo sube o baja por tarea con el parámetro `model` (haiku = mecánico, sonnet = estándar, opus = solo revisión `completo` de dinero/seguridad/migraciones, diseño con concurrencia o especificar algo ambiguo). Detalle y reglas de economía: `docs/PROTOCOLO-AGENTES.md`. La sesión principal conviene en Sonnet (`/model`); Opus solo para diseño.
 
 ## Parámetros del proyecto
 
@@ -69,10 +71,11 @@ Analizar → Especificar → Diseñar → Validar spec → Coordinar → Impleme
 
 ## Mapa de la documentación
 
-- Qué hace la app → `spec/REQUIREMENTS.md` · Dominio → `spec/01..05-*.md`
+- **Mapa de la app (leer primero)** → `docs/MAPA.md` · Estado actual → `work/ESTADO.md` · Índice de la spec → `spec/INDICE.md`
+- Qué hace la app → `spec/REQUIREMENTS.md` (solo con `grep`) · Dominio → `spec/01..05-*.md`
 - API → `spec/CONTRACTS/` · Casos de uso → `spec/USE-CASES/` · Escenarios → `spec/BDD/`
 - Decisiones técnicas → `spec/ADR/` · No funcionales → `spec/NFR/NFR.md`
-- Estado de cada trabajo → `work/BACKLOG.md` y `work/changes/`
+- Estado de cada trabajo → `work/BACKLOG.md` y `work/changes/` (abiertas; las cerradas están en `work/archivo/`)
 - Cómo trabajan los agentes → `docs/PROTOCOLO-AGENTES.md`
 - Los documentos y scripts antiguos de la raíz se eliminaron (CHG-005). El esquema de referencia de la BD es
   `PLATAAPP_SCHEMA.sql` y los cambios sobre la base existente van como migraciones en `backend/sql/`.

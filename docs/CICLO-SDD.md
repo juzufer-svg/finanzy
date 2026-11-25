@@ -5,6 +5,8 @@
 > - **`estandar`** (riesgo medio): etapas 1-4, 8, 9 y 11, con una **ficha de cambio** como especificación; revisor solo si hay dudas.
 > - **`completo`** (riesgo alto: autenticación, dinero, datos personales, migraciones, seguridad): todas las etapas; validador y revisor en paralelo.
 
+**Modelos por etapa** (parámetro `model`; detalle en `PROTOCOLO-AGENTES.md`): clasificación, documentación y suites → haiku; generación, validación y coordinación → sonnet; revisión `completo` de dinero/seguridad/migraciones y diseño con concurrencia → opus.
+
 El flujo es iterativo: si una prueba revela una ambigüedad o cambia un requerimiento, se vuelve a la especificación, se aprueba y se repite el ciclo afectado.
 
 | # | Etapa | Responsable | Entregable | Puerta (no avanzar sin…) |

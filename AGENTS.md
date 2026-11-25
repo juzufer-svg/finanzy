@@ -2,7 +2,8 @@
 
 Instrucciones para herramientas de IA distintas de Claude Code (Codex, Cursor, etc.).
 
-Las reglas del proyecto están en [`CLAUDE.md`](CLAUDE.md) y se aplican igual aquí. Contexto completo en
+Las reglas del proyecto están en [`CLAUDE.md`](CLAUDE.md) y se aplican igual aquí. Empezar por
+[`docs/MAPA.md`](docs/MAPA.md) y [`work/ESTADO.md`](work/ESTADO.md); contexto por secciones en
 [`CONTEXTO_PROYECTO_CLAUDE.md`](CONTEXTO_PROYECTO_CLAUDE.md). Resumen:
 
 - La especificación en `spec/` es la fuente de verdad. No inventar requerimientos.

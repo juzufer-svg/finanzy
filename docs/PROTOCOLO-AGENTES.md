@@ -57,7 +57,7 @@ El coordinador (o el clasificador) propone el modo; ante la duda entre dos, se u
 ## Tareas pequeñas y avisos
 - Cada tarea de generación debe caber en **unos 10 minutos y un alcance** (un archivo grande o una capa). Si es mayor, el coordinador la divide.
 - **Al terminar cada tarea se guarda en la rama** (commit y push a la rama de trabajo, nunca a `main`) para que un reinicio del entorno no pierda trabajo.
-- Los agentes devuelven un informe **corto**: máximo ~40 líneas (generador y validador) o ~60 (revisor), solo lo que el coordinador necesita para decidir.
+- Los agentes devuelven un informe **corto** (≤ 15 líneas; ver «Reglas de economía»), solo lo que el coordinador necesita para decidir.
 - Tareas de **archivos distintos** (servidor y frontend de un mismo cambio, o cambios independientes) pueden correr **en paralelo**.
 
 ## Especificación proporcional
@@ -87,18 +87,36 @@ Cada agente termina con su bloque de salida de formato fijo (ver su perfil) que 
 Un agente nunca es la única evidencia de calidad: las reglas críticas se comprueban con pruebas deterministas.
 
 ## Contexto mínimo
-Pasar a cada agente: la tarea + rutas de los archivos de spec relevantes. No pegar documentos enteros. No cargar MCP ni herramientas innecesarias.
+Pasar a cada agente: la tarea + rutas exactas de los archivos a leer y editar (`docs/MAPA.md`, `spec/INDICE.md`). No pegar documentos enteros. No cargar MCP ni herramientas innecesarias.
 
-## Modelos (estrategia costo/calidad, ajustar a lo disponible con `/model`)
-| Agente | Modelo | Razón |
+## Qué modelo usar (parámetro `model` al lanzar cada agente)
+Se turnan los tres modelos según la complejidad de **cada tarea**; el perfil de `.claude/agents/*.md` solo fija el **valor por defecto, barato**. El coordinador sube o baja el modelo al lanzar la tarea (parámetro `model`: `haiku`, `sonnet` u `opus`).
+
+| Modelo | Úsalo para |
+|---|---|
+| `haiku` | Clasificador; búsquedas y resúmenes; tareas mecánicas (textos, estilos, docs, trazabilidad, fichas, backlog, renombrar/mover); correr suites y reportar resultados |
+| `sonnet` (por defecto) | Implementar y validar funcionalidades estándar; coordinador; revisor de cambios que no son `completo` |
+| `opus` | **Solo**: revisor de cambios `completo` con dinero, seguridad o migraciones; diseño o SQL con concurrencia o atomicidad; especificar algo nuevo y ambiguo. Nunca para ejecutar suites ni documentar |
+
+| Agente | `model:` por defecto | Sube a |
 |---|---|---|
-| Coordinador, Revisor | opus | Razonamiento, planificación, revisión independiente |
-| Generador, Validador | sonnet | Implementación y pruebas con criterios claros |
-| Clasificador | haiku | Tarea simple y rápida (en modo `rapido` no se usa) |
+| Coordinador | sonnet | opus solo al diseñar algo nuevo y ambiguo |
+| Clasificador | haiku | — |
+| Generador | sonnet | opus para SQL con concurrencia/atomicidad; haiku si es mecánico |
+| Validador | sonnet | haiku si solo corre suites y reporta |
+| Revisor | sonnet | opus si el modo es `completo` |
 
-Para ahorrar tokens: los agentes que solo redactan o corrigen documentos de spec usan `sonnet`; el `opus` se reserva para el coordinador y el revisor de cambios de riesgo alto.
+La **sesión principal** conviene en Sonnet (el dueño la cambia con `/model`); Opus solo para sesiones de diseño.
 
-Cambiar el modelo = editar la línea `model:` del perfil en `.claude/agents/`.
+## Reglas de economía (tokens)
+1. Leer primero `docs/MAPA.md`; consultar `spec/INDICE.md` y leer solo la fila necesaria con `grep -n "^| INV-049" spec/05-INVARIANTS.md`.
+2. NUNCA leer enteros `spec/05-INVARIANTS.md`, `spec/TRACEABILITY.md`, `spec/REQUIREMENTS.md` ni `CONTEXTO_PROYECTO_CLAUDE.md` (esta última, solo por secciones).
+3. Cada tarea del coordinador lista los **archivos exactos** a leer y a editar.
+4. Máximo **3 agentes en paralelo**.
+5. Informes de **≤ 15 líneas**; no pegar informes completos al siguiente agente.
+6. No repetir suites ya corridas (la evidencia del validador se reutiliza).
+7. **Sesión nueva** al cerrar cada cambio grande: se retoma leyendo `work/ESTADO.md` (se actualiza al cerrar cada cambio).
+8. El aviso del hook de «guardar cambios» solo se atiende al final de cada tarea.
 
 ## Auditoría
 Cada archivo `work/changes/CHG-*.md` registra: qué agente hizo qué, herramientas relevantes, pruebas ejecutadas y decisiones humanas.

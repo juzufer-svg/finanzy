@@ -12,7 +12,8 @@ mensuales, crea metas de ahorro y revisa reportes del mes. Interfaz en español.
 
 | Qué | Dónde |
 |---|---|
-| Contexto completo (arquitectura, API, BD, seguridad, convenciones) | [`CONTEXTO_PROYECTO_CLAUDE.md`](CONTEXTO_PROYECTO_CLAUDE.md) |
+| Mapa de la app (leer primero) y estado actual | [`docs/MAPA.md`](docs/MAPA.md) · [`work/ESTADO.md`](work/ESTADO.md) |
+| Contexto (arquitectura, BD, seguridad, convenciones; por secciones) | [`CONTEXTO_PROYECTO_CLAUDE.md`](CONTEXTO_PROYECTO_CLAUDE.md) |
 | Reglas para trabajar en el proyecto | [`CLAUDE.md`](CLAUDE.md) · [`AGENTS.md`](AGENTS.md) |
 | Especificación (fuente de verdad) | [`spec/`](spec/) |
 | Proceso y agentes | [`docs/`](docs/) |

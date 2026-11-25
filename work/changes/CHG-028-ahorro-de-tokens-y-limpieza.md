@@ -17,7 +17,7 @@ Hoy ≈ 64 M de tokens efectivos: generadores 46 %, conversación principal 44 %
 ## 4. Plan de tareas
 | Tarea | Alcance | Modelo | Estado | Ciclos |
 |---|---|---|---|---|
-| T1 | Docs/proceso/contexto/enrutamiento de modelos | Sonnet | en curso | 0 |
+| T1 | Docs/proceso/contexto/enrutamiento de modelos | Sonnet | hecha (pendiente de validar): `docs/MAPA.md`, `spec/INDICE.md`, CONTEXTO adelgazado (27 KB a 11,8 KB), `work/ESTADO.md`, 16 fichas cerradas movidas a `work/archivo/` (001-014, 016, 021, 022), sección «Qué modelo usar» y reglas de economía en PROTOCOLO y agentes, CLAUDE.md regla 1 | 1 |
 | T2 | Limpieza de código y docs sin uso | Sonnet | hecha (pendiente de validar en T3) | 1 |
 | T3 | Validación: suites y build tras T2 | Haiku/Sonnet | pendiente | 0 |
 
