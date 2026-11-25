@@ -117,10 +117,10 @@ begin
   det := public.admin_detalle_usuario(a);
   perform public.admin_cerrar_sesiones_usuario(a);
   aud := public.admin_auditoria(25, 0);
-  for k in select distinct x from (
-      select jsonb_path_query(lista, 'lax $.**.keyvalue().key') #>> '{}' as x
-      union all select jsonb_path_query(det, 'lax $.**.keyvalue().key') #>> '{}'
-      union all select jsonb_path_query(aud, 'lax $.**.keyvalue().key') #>> '{}') s loop
+  for k in select distinct jsonb_object_keys(o) from (
+      select jsonb_path_query(lista, 'lax $.** ? (@.type() == "object")') as o
+      union all select jsonb_path_query(det, 'lax $.** ? (@.type() == "object")')
+      union all select jsonb_path_query(aud, 'lax $.** ? (@.type() == "object")')) s loop
     if not (k = any(permitidas)) then raise exception 'clave no permitida en el jsonb: %', k; end if;
   end loop;
   if (lista::text || det::text || aud::text) ~* 'hashed_password|HASH_SECRETO|session_version|CENTINELA|987654|5555555|777777|123456|573001112233|monto|descripcion' then
