@@ -1,259 +1,103 @@
-# Finanzy — Contexto del proyecto
+# Finanzy — Contexto del proyecto (vigente)
 
-> Documento de referencia para trabajar en Finanzy con Claude. Describe la app tal como está
-> en producción (noviembre de 2026). No contiene claves ni contraseñas: los valores reales
-> viven solo en las variables de entorno de Vercel y Railway.
+> Leer SOLO por secciones y solo si hace falta (empezar por `docs/MAPA.md` y `work/ESTADO.md`). Sin claves: los valores reales
+> viven en las variables de entorno de Vercel y Railway. Comportamiento exacto: `spec/` (índice en `spec/INDICE.md`).
 
-## 1. Qué es Finanzy
-
-App web personal de **control de finanzas**: registrar ingresos y gastos por categoría,
-definir presupuestos mensuales por categoría, crear metas de ahorro con abonos, ver reportes
-del mes y elegir la moneda de visualización. Interfaz en **español**.
-
-- **App en producción:** https://finanzyapp.vercel.app
-- **Repositorio:** https://github.com/juzufer-svg/finanzy (público, rama `main`)
-- **Despliegue:** cada `git push` a `main` despliega solo (Vercel ≈ 45 s, Railway ≈ 40 s)
+## 1. Qué es
+App web personal de control de finanzas, en español: ingresos y gastos por categoría, presupuestos mensuales, metas con abonos,
+recurrentes que se confirman, cuentas de dinero con saldo y transferencias, reportes del mes, exportar CSV/Excel, asistente con IA,
+registro por WhatsApp, Monitor de consumos y panel de usuarios (ambos solo para el Dueño). Los montos se guardan en COP y se convierten al mostrarlos.
+- Producción: https://finanzyapp.vercel.app · repositorio https://github.com/juzufer-svg/finanzy (rama `main`).
+- Cada `git push` a `main` despliega solo (Vercel ≈ 45 s, Railway ≈ 40 s).
 
 ## 2. Arquitectura e infraestructura
-
 ```
-Navegador ──► Vercel (Next.js, carpeta /frontend)
-                 │  rewrite /api/v1/*  (servidor a servidor, sin CORS)
-                 ▼
-              Railway (FastAPI, carpeta /backend, Dockerfile, Python 3.11)
-                 │                     │
-                 ▼                     ▼
-              Supabase (PostgreSQL)   Brevo (API HTTPS de correo)
+Navegador ─► Vercel (Next.js, /frontend) ─ rewrite /api/v1/* (servidor a servidor, sin CORS) ─► Railway (FastAPI, /backend, Dockerfile, Python 3.11)
+                                                                                                  ├─► Supabase (PostgreSQL)
+                                                                                                  └─► Brevo (correo por API HTTPS)
 ```
+| Servicio | Uso | Plan | Notas |
+|---|---|---|---|
+| Vercel | Frontend | Hobby, US$0 | Node ≥ 20.9; Root Directory = `frontend` |
+| Railway | Backend | Hobby, US$5/mes | Bloquea SMTP: el correo va por API HTTPS |
+| Supabase | PostgreSQL | Free, US$0 | Se pausa tras 7 días sin actividad (keepalive en `.github/workflows/`); respaldo semanal en Actions (`docs/RESPALDOS_SUPABASE.md`) |
+| Brevo | Códigos por correo | Free | 300 correos/día |
+| Anthropic | Asistente y WhatsApp | Prepago por tokens | Opcional; costos en `docs/COSTOS_ASISTENTE.md`; fijar límite de gasto en la Claude Console |
+| Meta WhatsApp Cloud API | Registro por WhatsApp | Número de prueba | Guía `docs/WHATSAPP.md` |
 
-| Servicio | Uso | Plan | Costo | Notas |
-|---|---|---|---|---|
-| Vercel | Frontend Next.js | Hobby | US$0 | Sin vencimiento. Necesita Node ≥ 20.9 |
-| Railway | Backend FastAPI | Hobby | US$5/mes (incluye US$5 de consumo) | **Bloquea SMTP** (puertos 25/465/587/2525) → el correo va por API HTTPS |
-| Supabase | Base de datos PostgreSQL | Free | US$0 | **Se pausa tras 7 días sin actividad** (se reactiva con *Restore*). Sin respaldos restaurables en el plan gratis |
-| Brevo | Correos transaccionales (códigos) | Free | US$0 | 300 correos/día. Remitente verificado: Gmail del dueño |
-| Anthropic (API de Claude) | Asistente del chat (CHG-010) | Prepago por uso | Por tokens (Haiku) | Opcional. Topes diarios en INV-024; fijar también un límite de gasto en la Claude Console |
+**Variables de entorno (solo nombres).** Railway: `ENVIRONMENT=production`, `SECRET_KEY` (≥ 32), `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`,
+`SUPABASE_URL`, `SUPABASE_KEY` (service_role), `SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`; opcionales:
+`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`; WhatsApp: `WHATSAPP_TOKEN`,
+`WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_MENSAJES_POR_DIA`, `WHATSAPP_MENSAJES_TOTALES_DIA`;
+Dueño y Monitor: `OWNER_EMAIL` (único correo con acceso; vacío = nadie), `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID`,
+`MONITOR_ANTHROPIC_ADMIN_KEY`, `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID`, `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID`,
+`MONITOR_BREVO_KEY` (tokens de solo lectura), `MONITOR_SUPABASE_LIMITE_BD_BYTES` (por defecto 500 MB). Vercel: `BACKEND_URL` (con `https://`).
 
-**Historial de proveedores:** SendGrid se eliminó (su prueba gratis venció el 30/06/2026) y se
-reemplazó por Brevo.
+## 3. Stack
+- Frontend: Next.js 16 (App Router), React 19, TypeScript, Tailwind 3.4, Zustand, Axios; ESLint 9 con reglas del React Compiler (0 problemas);
+  `proxy.ts` redirige `/login` y `/register` a `/auth/*`; cabeceras de seguridad (CSP, HSTS, etc.) en `next.config.js`.
+- Backend: FastAPI, Pydantic 2, PyJWT, bcrypt, supabase-py, httpx, openpyxl (exportar). `requirements.txt` (producción) y `requirements-dev.txt` (pytest, pip-audit).
+- El backend es el único que habla con la BD (clave service_role). Modo demo en memoria (`models/demo_db.py`) solo en desarrollo.
 
-### Variables de entorno (solo nombres)
-
-**Railway (backend):** `ENVIRONMENT=production`, `SECRET_KEY` (≥ 32 caracteres), `ALGORITHM`
-(HS256), `ACCESS_TOKEN_EXPIRE_MINUTES`, `SUPABASE_URL`, `SUPABASE_KEY` (service_role),
-`SUPABASE_ANON_KEY`, `BREVO_API_KEY`, `FROM_EMAIL`, `FROM_NAME`, `ANTHROPIC_API_KEY` (opcional, asistente),
-`ANTHROPIC_MODEL` (por defecto `claude-haiku-5-5`), `ASISTENTE_PREGUNTAS_POR_USUARIO_DIA`, `ASISTENTE_PREGUNTAS_TOTALES_DIA`, y para WhatsApp (opcionales) `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_MENSAJES_POR_DIA`, `WHATSAPP_MENSAJES_TOTALES_DIA`.
-Monitor del Dueño (CHG-017, opcionales): `OWNER_EMAIL` (único correo que ve el Monitor; vacío = nadie), `MONITOR_RAILWAY_TOKEN`, `MONITOR_RAILWAY_PROJECT_ID`, `MONITOR_ANTHROPIC_ADMIN_KEY`, `MONITOR_META_TOKEN`, `MONITOR_META_WABA_ID`, `MONITOR_VERCEL_TOKEN`, `MONITOR_VERCEL_TEAM_ID`, `MONITOR_BREVO_KEY` (tokens propios de menor permiso, nunca los de escritura), y opcional `MONITOR_SUPABASE_LIMITE_BD_BYTES` (límite de la BD para la barra de uso; por defecto 524288000 = 500 MB). Sin `MONITOR_ANTHROPIC_ADMIN_KEY`, la tarjeta de Claude estima el mes con los contadores propios (solo el chat). El tamaño de la BD requiere ejecutar `backend/sql/2026-11-24_monitor_tamano_bd.sql` en Supabase.
-
-**Vercel (frontend):** `BACKEND_URL` (URL pública de Railway, con `https://`). Root Directory = `frontend`.
-
-## 3. Stack técnico
-
-**Frontend** (`/frontend`)
-- Next.js **16.4** (App Router) + React **19**, TypeScript, Tailwind CSS 3.4, Zustand, Axios
-- ESLint 9 (flat config `eslint.config.mjs`) con reglas estrictas del React Compiler → **0 problemas**
-- `proxy.ts` (antes `middleware.ts`): solo redirige `/login` y `/register` a `/auth/*`
-- Fuente Inter auto-alojada con `next/font`
-- Cabeceras de seguridad en `next.config.js`: CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, HSTS
-
-**Backend** (`/backend`)
-- FastAPI 0.165, Pydantic 2.14, pydantic-settings, PyJWT 2.15, bcrypt 5, supabase-py 2.34, httpx
-- `requirements.txt` (producción) y `requirements-dev.txt` (pytest, pip-audit) → `pip-audit`: 0 vulnerabilidades
-- Acceso a datos con el cliente de Supabase usando la clave **service_role** (el backend es el único que habla con la BD)
-- Modo demo en memoria (`models/demo_db.py`) cuando no hay `SUPABASE_URL`/`SUPABASE_KEY` (solo para desarrollo local)
-
-## 4. Estructura de carpetas
-
-```
-backend/app/
-  main.py                 FastAPI, CORS, /health, oculta /docs en producción
-  api/routes/auth.py      registro, verificación, login, reenvío, recuperar contraseña
-  api/routes/users.py     /users/me (ver, moneda, eliminar cuenta)
-  api/routes/plataapp.py  transacciones, categorías, presupuestos, metas (con verificación de dueño)
-  api/routes/asistente.py chat con Claude: sesión, topes de costo (CHG-010)
-  utils/asistente.py      herramientas de solo lectura + ciclo de tool use con la API de Claude
-  core/config.py          Settings (variables de entorno)
-  core/security.py        JWT (PyJWT, solo HMAC) y hash de contraseñas (bcrypt)
-  core/rate_limit.py      limitadores en memoria (ventana deslizante; asistente, WhatsApp, Monitor) + `VentanaPersistente` por IP para auth + IP del cliente
-  models/auth_estado.py   estado de autenticación persistente en PostgreSQL (CHG-020, ADR-010): bloqueos, códigos, límites
-  core/supabase.py        cliente de Supabase
-  models/user.py          tabla users
-  models/plataapp.py      tablas de finanzas (si Supabase falla → error, nunca guarda en memoria)
-  models/demo_db.py       BD en memoria para desarrollo
-  schemas/                validaciones Pydantic (montos > 0, tipo, fechas YYYY-MM-DD, meses YYYY-MM)
-  utils/email.py          códigos (secrets) y envío por Brevo
-backend/tests/            pruebas pytest (una por invariante; ver spec/TRACEABILITY.md)
-spec/  work/  docs/  .claude/   metodología SDD (ver §12)
-
-frontend/
-  app/page.tsx                    landing
-  app/auth/{login,register,forgot-password}/page.tsx
-  app/dashboard/layout.tsx        sidebar, menú móvil, protección de sesión
-  app/dashboard/{page,transactions,recurring,categories,budgets,goals,reports,profile}  (page = «Inicio»)
-  components/DialogProvider.tsx   confirmaciones y avisos (toasts) propios: useDialog(), apiErrorMessage()
-  components/ErrorState.tsx       bloque de error con "Reintentar"
-  components/PageHeader.tsx       encabezado común de las vistas: título, subtítulo y acciones (CHG-008)
-  components/PeriodPicker.tsx     selector de período: flechas, calendario de meses y "Mes actual" (CHG-009)
-  store/period.ts                 período (mes) compartido por todas las vistas, en sessionStorage (CHG-009)
-  components/…                    BudgetCard, DashboardSummary, GoalProgressCard, TransactionForm, TransactionList, FinanzyLogo, ThemeProvider
-  app/api/v1/[...path]/route.ts   proxy al backend: guarda el JWT en cookie HttpOnly y lo envía como Bearer; CSRF (ADR-005)
-  lib/api-client.ts               Axios con encabezado CSRF; migra sesiones antiguas; 401 → va a /auth/login
-  lib/session.ts                  constantes de sesión (encabezado CSRF, claves de localStorage)
-  lib/code-input.ts               lógica de las 6 casillas del código (admite pegar/autocompletar)
-  lib/month-stats.ts              cálculos del mes: promedio diario real, proyección, vs mes anterior, acumulado, buscador (CHG-006)
-  lib/payment-methods.ts          medios de pago y sus etiquetas (CHG-007)
-  components/SpendingChart.tsx    gráfico SVG propio del gasto acumulado con línea de presupuesto (sin librerías)
-  tests/month-stats.test.mjs      pruebas del frontend: `npm test` (node --test, sin dependencias)
-  lib/currency.ts                 tasas de cambio (open.er-api.com, caché 4 h, valores de respaldo)
-  store/auth.ts                   datos no sensibles del usuario (el token NO está en el navegador)
-  store/currency.ts               moneda de visualización; los montos se guardan en base COP
-  store/theme.ts                  modo claro/oscuro (clase `dark`)
-```
-
-## 5. Base de datos (Supabase / PostgreSQL)
-
-Esquema de referencia en `PLATAAPP_SCHEMA.sql`. Todas las tablas de datos tienen `usuario_id` → `users(id) ON DELETE CASCADE`.
-
-| Tabla | Columnas principales |
+## 4. Base de datos (Supabase / PostgreSQL)
+Esquema de referencia `PLATAAPP_SCHEMA.sql`; cambios como migraciones manuales en `backend/sql/` (se ejecutan en el SQL Editor **antes** del push que las usa; se prueban con `backend/sql/pruebas/probar.sh`). Las tablas de datos tienen `usuario_id → users(id) ON DELETE CASCADE`.
+| Tabla | Contenido clave |
 |---|---|
-| `users` | id, email (único, en minúsculas), hashed_password (bcrypt), full_name, currency, is_active, session_version (entero, sube al restablecer la contraseña), created_at |
-| `categorias` | id, usuario_id, nombre, icono, tipo (`ingreso`/`gasto`) |
-| `transacciones` | id, usuario_id, categoria_id (SET NULL), monto NUMERIC(12,2), descripcion, fecha DATE, tipo, medio_pago (opcional: `debito`, `credito`, `efectivo`, `transferencia`, `nequi_daviplata`) |
-| `presupuestos` | id, usuario_id, categoria_id, limite_mensual, mes_ano (`YYYY-MM`) |
-| `metas` | id, usuario_id, nombre, monto_objetivo, monto_actual, fecha_objetivo, estado |
-| `recurrentes` (CHG-012) | id, usuario_id, categoria_id (SET NULL), tipo, monto, descripcion, medio_pago, frecuencia (`mensual`/`quincenal`/`semanal`), dia_ancla, proxima_fecha, activa. RLS activo sin políticas (solo `service_role`) |
+| `users` | email único en minúsculas, `hashed_password` (bcrypt), `full_name`, `currency`, `is_active`, `session_version`, `suspendida`, `ultimo_acceso` |
+| `categorias` / `presupuestos` / `metas` | categoría (`tipo` ingreso/gasto); presupuesto (`limite_mensual`, `mes_ano` `YYYY-MM`, UNIQUE por categoría y mes); meta (`monto_objetivo`, `monto_actual`, `estado` sin uso, BL-008) |
+| `transacciones` | `monto NUMERIC(12,2)`, `fecha`, `tipo`, `categoria_id` (SET NULL), `medio_pago` opcional, `cuenta_id` opcional |
+| `recurrentes` | frecuencia mensual/quincenal/semanal, `proxima_fecha`, `activa`; RLS sin políticas |
+| `cuentas` / `transferencias` | cuenta de dinero (`tipo`, `saldo_inicial`, `archivada`; saldo derivado, nunca guardado); transferencia entre dos cuentas propias; llaves compuestas `(id, usuario_id)` |
+| `auth_login_intentos`, `auth_codigos`, `auth_limites_eventos` | estado de autenticación persistente (funciones `auth_*` solo `service_role`) |
+| `whatsapp_enlaces`, `whatsapp_mensajes`, `whatsapp_registros` | enlace del número, mensajes y registros del agente |
+| `contadores_diarios`, `auditoria_admin` | contadores agregados del Monitor; auditoría del panel de usuarios |
+- Funciones SQL atómicas solo para `service_role` (nunca `EXECUTE` a `anon`/`authenticated`): `abonar_meta`, funciones de cuentas, transferencias y confirmar recurrente, `auth_*`.
+- Las cuentas sin verificar (`is_active = false`) se borran solas tras 1 hora. Esquema privado `respaldo` para copias de borrados.
+- Columna sobrante `presupuestos."mes_año"` (BL-019): no usarla.
+- Cambiar una contraseña a mano (también cierra sus sesiones): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true, session_version = session_version + 1 where email = '…';`
 
-- Cada usuario recibe sus categorías por defecto la primera vez que las pide.
-- Llaves foráneas y registros huérfanos (CHG-005, PR #9): la base real no tenía FKs y había 64 filas huérfanas. Scripts `backend/sql/2026-11-22_huerfanos_{1_diagnostico,2_respaldo_y_borrado,3_llaves_foraneas}.sql` (en ese orden) + `2026-11-22_quitar_vista_resumen.sql`. El paso 2 copia lo borrado al esquema privado `respaldo` (sin acceso para `anon`/`authenticated`). Se prueban en CI con PostgreSQL (`backend/sql/pruebas/probar.sh`). La columna sobrante `presupuestos."mes_año"` queda pendiente (BL-019). **Ejecutados en Supabase el 2026-11-22** (junto con `2026-11-22_medio_pago.sql`).
-- Las cuentas sin verificar (`is_active = false`) se borran solas tras 1 hora.
-- Cambiar una contraseña a mano (SQL Editor; también cierra sus sesiones): `update users set hashed_password = extensions.crypt('Nueva', extensions.gen_salt('bf', 12)), is_active = true, session_version = session_version + 1 where email = '…';`
-- Migraciones manuales en `backend/sql/` (se ejecutan en el SQL Editor **antes** del push que las usa).
-- Función `public.abonar_meta(meta, usuario, monto, fecha, descripcion)` (`backend/sql/2026-11-22_abonar_meta_atomico.sql`, CHG-004): abono en una sola transacción con la meta bloqueada. Solo la ejecuta `service_role`; **nunca** dar `EXECUTE` a `anon`/`authenticated` (recibe el `usuario_id` como parámetro). Sin la función, el backend usa el método anterior.
+## 5. API (prefijo `/api/v1`)
+El navegador no llama al backend: usa el proxy de Next.js, que convierte la cookie `__Host-finanzy_session` en `Authorization: Bearer` y quita el token de las respuestas. Rutas propias del proxy: `POST /auth/logout` y `POST /auth/adopt`.
+Contratos exactos en `spec/CONTRACTS/` (CT-001…013); prefijos: `/auth`, `/users/me`, `/transacciones`, `/categorias`, `/presupuestos`, `/metas`, `/recurrentes`, `/cuentas`, `/transferencias`, `/exportaciones/transacciones`, `/asistente/chat`, `/whatsapp` (webhook de Meta directo a Railway, firma `X-Hub-Signature-256`), `/monitor` y `/admin` (solo Dueño, 404 a los demás), `/health`. `/docs` y `/openapi.json` ocultos en producción.
 
-## 6. API (prefijo `/api/v1`, autenticación `Authorization: Bearer <JWT>`)
+## 6. Flujos clave
+- Registro: usuario inactivo → código de 6 dígitos (10 min) → `verify-email` activa y entrega sesión. Login con cuenta sin verificar reenvía código (`status: pending`).
+- Recuperar contraseña: código por correo, respuesta genérica, mínimo 8 caracteres; cierra todas las sesiones y desconecta WhatsApp.
+- Sesión: JWT HS256 de 7 días en cookie HttpOnly + Secure + SameSite=Lax con la versión de sesión (`sv`).
 
-El navegador no llama al backend: usa el proxy de Next.js, que convierte la cookie `__Host-finanzy_session` en el
-encabezado Bearer y quita el token de las respuestas de `login`/`verify-email`. Rutas propias del proxy:
-`POST /api/v1/auth/logout` y `POST /api/v1/auth/adopt` (ver `spec/CONTRACTS/CT-001-auth.md`).
+## 7. Estructura de carpetas
+Ver `docs/MAPA.md` (carpetas y tema → archivos → spec); no se duplica aquí.
 
-**Auth (`/auth`)**: `POST register`, `POST verify-email`, `POST resend-code`, `POST login`,
-`POST forgot-password`, `POST reset-password`
-
-**Usuario (`/users`)**: `GET me`, `PUT me` (nombre), `PUT me/currency`, `POST me/password` (cambia la contraseña, cierra las demás sesiones y entrega un token nuevo que el proxy guarda en la cookie), `DELETE me`
-
-**Finanzas**: `transacciones` (GET con `?mes=YYYY-MM`, POST, GET/PUT/DELETE `/{id}`, GET `resumen/{mes}`; campo opcional `medio_pago`, CT-003 v1.1),
-`categorias` (GET, POST, PUT/DELETE `/{id}`), `presupuestos` (GET `/{mes_ano}`, POST, PUT/DELETE `/{id}`),
-`metas` (GET, POST, PUT/DELETE `/{id}`, POST `/{id}/abonar` → crea un gasto en la categoría "Ahorro" y suma a la meta),
-`presupuestos/copiar` (POST, copia los del mes anterior sin duplicar), `recurrentes` (GET, POST, PUT/DELETE `/{id}`, GET `pendientes?hasta=`, POST `/{id}/confirmar` y `/{id}/omitir`; CT-008)
-
-**Asistente (`/asistente`)**: `POST chat` → pregunta en lenguaje natural; Claude consulta herramientas de solo lectura (CT-007)
-
-**WhatsApp (`/whatsapp`, CHG-014)**: `GET/POST webhook` (Meta, firma `X-Hub-Signature-256`, directo a Railway) y `GET/POST/DELETE enlace` (con sesión). Agente de IA aparte que solo crea transacciones y deshace/corrige las suyas (CT-009, ADR-007, guía en `docs/WHATSAPP.md`)
-
-**Monitor (`/monitor`, CHG-017, solo Dueño)**: `GET resumen` → consumos de Railway, Anthropic, Meta, Supabase, Vercel y Brevo + contadores propios de 30 días (CT-010, ADR-008). 404 para cualquiera que no sea el Dueño (`OWNER_EMAIL`); `GET /users/me` trae `es_dueno`.
-
-**Otros**: `GET /health`. `/docs` y `/openapi.json` están ocultos en producción.
-
-## 7. Flujos clave
-
-- **Registro**: crea usuario inactivo → envía código de 6 dígitos (10 min) → `verify-email` activa y devuelve JWT.
-- **Login**: si la cuenta no está verificada, reenvía código y responde `status: pending`.
-- **Recuperar contraseña**: `/auth/forgot-password` → código por correo (propósito interno `reset`) → nueva contraseña (mín. 8). Respuesta genérica (no revela si el correo existe).
-- **Sesión**: JWT HS256 de 7 días en una cookie HttpOnly + Secure + SameSite=Lax (ADR-005), con la versión de sesión del usuario (`sv`). Restablecer o cambiar la contraseña desconecta WhatsApp (CHG-014), sube la versión y cierra todas las sesiones abiertas (INV-016).
-- **Moneda**: los montos se almacenan en **COP** y se convierten a la moneda elegida al mostrarlos.
-
-## 8. Seguridad implementada (no deshacer)
-
-- Endpoints de diagnóstico eliminados (antes exponían correos y permitían resetear contraseñas).
-- **Verificación de dueño (anti-IDOR)** en toda operación por ID: si el registro no es del usuario → 404. Al crear transacciones/presupuestos se valida que la categoría sea suya.
-- Validación de datos con Pydantic (montos > 0 y ≤ 1e12, tipos permitidos, formatos de fecha/mes, longitudes).
-- **Estado de autenticación persistente (CHG-020, ADR-010, INV-037 a INV-041; implementado, pendiente de validación y de aprobación del dueño):** bloqueos de login, códigos y límites de envío/intentos viven en PostgreSQL (`auth_login_intentos`, `auth_codigos`, `auth_limites_eventos`, RLS sin políticas, funciones `auth_*` solo para `service_role`, reloj `now()` de la BD) y **sobreviven a despliegues**; correo e IP solo como huella HMAC y códigos solo como HMAC (clave derivada de `SECRET_KEY`: rotarla pierde bloqueos y códigos pendientes). Fail-closed: si falla la BD de estado, la lectura de usuarios (`get_by_email_estricto`) o se pasa el plazo (4 s por llamada, 5 s por petición, 8 hilos), las rutas de auth responden **503** «Servicio no disponible…». Sin Supabase solo hay memoria fuera de producción (en producción, 503). **Orden de despliegue obligatorio: ejecutar `backend/sql/2026-11-24_auth_persistente.sql` en el SQL Editor de Supabase ANTES de desplegar el backend** (si no, todo el login responde 503); sin variables nuevas. Fuera de alcance (BL-040): limitadores en memoria del asistente, WhatsApp y Monitor.
-- Bloqueo de login: 5 fallos por correo **dentro de una ventana de 24 h** → 15 min (persistente; el intento se reserva antes de comprobar la contraseña).
-- Códigos con `secrets`, un solo uso, se invalidan tras 5 intentos (persistidos solo como HMAC).
-- **Límites de envío de correos** (`core/rate_limit.py`, ahora persistentes): 10 pedidos de código por IP/hora, 60 s entre códigos al mismo correo, 10 correos/día por destinatario, tope global 250/día; 30 intentos de login/verificación/reseteo por IP cada 10 min.
-- JWT con PyJWT: solo algoritmos HMAC, exige `exp` y `sub`.
-- **Cierre de sesiones al restablecer la contraseña** (`api/sesion.py`): toda ruta protegida compara el `sv` del token con `users.session_version`; si no coincide o el usuario ya no existe → 401; si Supabase falla → 503 (no cierra la sesión).
-- En producción sin `BREVO_API_KEY` el código **nunca** se escribe en logs.
-- **Configuración segura que nunca impide arrancar** (`core/config.py`, INV-019): `SECRET_KEY` vacía o de ejemplo → clave aleatoria temporal; solo HMAC; sesión 5 min–30 días; CORS sin comodines ni regex; `DEBUG` apagado en producción. Avisos `[CONFIG]` en los logs de Railway.
-- Toda consulta por ID filtra también por `usuario_id` en la base de datos (defensa en profundidad); un token de una cuenta no activa recibe 401 (INV-017).
-- **Token fuera del alcance de JavaScript** (INV-020): cookie HttpOnly gestionada por el proxy de Next.js; toda petición que cambia datos exige el encabezado `x-finanzy-csrf` y un `Origin` propio.
-- Abono a metas atómico en PostgreSQL (INV-008, CHG-004).
-- CI en GitHub Actions (`.github/workflows/ci.yml`): pytest, pip-audit, eslint y next build en cada PR y push a `main`.
-- Frontend sin la clave de Supabase; cabeceras de seguridad; diálogos propios (sin `alert`/`confirm`).
+## 8. Seguridad implementada (no deshacer; detalle en `spec/05-INVARIANTS.md`)
+- Sin endpoints de diagnóstico; verificación de dueño (anti-IDOR) en toda operación por ID (404 si no es suyo) y filtro por `usuario_id` en la BD (INV-001, 021).
+- Validación Pydantic: montos, tipos, fechas y meses, longitudes, rango de fechas (INV-003 a 005, 063).
+- Estado de autenticación persistente en PostgreSQL (INV-037 a 041, ADR-010): bloqueo de login (5 fallos en 24 h → 15 min), códigos de un solo uso (5 intentos) y límites de envío sobreviven a despliegues; correo e IP solo como huella HMAC (clave derivada de `SECRET_KEY`: rotarla pierde bloqueos y códigos pendientes); fail-closed: si falla la BD de estado o se pasa el plazo (4 s por llamada) las rutas de auth responden 503. Tras el SQL `2026-11-24_auth_persistente.sql`. Limitadores en memoria del asistente, WhatsApp y Monitor: BL-040.
+- Límites de correos: 10 pedidos/IP/hora, 60 s entre códigos al mismo correo, 10/día por destinatario, 250/día global; 30 intentos de login/verificación por IP cada 10 min (`core/rate_limit.py`).
+- JWT con PyJWT: solo HMAC, exige `exp` y `sub`. Cierre de sesiones por `session_version` en cada ruta protegida (401 si no coincide; 503 si Supabase falla). Cuenta suspendida: sin login ni sesiones (INV-056).
+- Token fuera de JavaScript (INV-020): cookie HttpOnly vía proxy; todo cambio de datos exige `x-finanzy-csrf` y `Origin` propio.
+- Configuración que nunca impide arrancar (INV-019); en producción sin `BREVO_API_KEY` el código nunca va a los logs.
+- Operaciones de dinero atómicas en PostgreSQL: abono a metas (INV-008), cuentas, transferencias y confirmar recurrentes (INV-046 a 052). Trabajo pesado con ejecutores acotados y 503 sin encolar.
+- Monitor y panel de usuarios solo para el Dueño (INV-031 a 036, 053 a 062): sin tokens ni datos personales en respuestas y logs.
+- Exportación solo de lo propio y con neutralización de fórmulas (INV-042 a 045). WhatsApp solo con firma de Meta y número enlazado (INV-029).
+- CI (`.github/workflows/ci.yml`): pytest, pip-audit, eslint y next build en cada PR y push a `main`. Frontend sin clave de Supabase y sin `alert`/`confirm`.
 
 ## 9. Convenciones de código y diseño
-
-- **Idioma**: textos de la interfaz, mensajes de error y comentarios en español.
-- **Frontend**
-  - Llamadas a la API siempre con `apiClient` (`@/lib/api-client`), rutas relativas `/api/v1/...` (un `fetch` directo que cambie datos recibe 403 por CSRF). Nunca leer ni guardar el token en el navegador.
-  - Errores: `apiErrorMessage(err, 'mensaje por defecto')`; avisos con `notify()`; confirmaciones con `await confirm({...})` de `useDialog()`; fallos de carga con `<ErrorState onRetry>`.
-  - Cargas de datos: `useCallback((isActive = () => true) => apiClient.get(...).then(...))` y en el `useEffect` una guardia `let active = true … return () => { active = false }` (evita respuestas tardías y cumple las reglas del React Compiler).
-  - Accesibilidad: cada `<label>` con `htmlFor` + `id` en el campo, `autoComplete`, foco visible (`focus-visible:`), radios con `sr-only` (no `hidden`), avisos con `role="alert"`/`aria-live`.
-  - Clases utilitarias propias en `globals.css`: `card`, `btn-primary`, `btn-secondary`, `btn-danger`, `input-field`, `label`, `page-title`, `page-subtitle`, `badge-*`.
-  - Diseño responsive (CHG-008): cada vista usa `<PageHeader>` y, si depende del mes, `<PeriodPicker />` con `wideActions`; el mes se lee de `usePeriodStore` (nunca un `useState` propio, CHG-009); títulos de mes con `monthTitle()` ("Noviembre de 2026", nunca la clase `capitalize`) y fechas de listas con `shortDate()` ("5 nov"), ambos en `lib/month-stats.ts`. El logo aparece una sola vez por pantalla (barra lateral en PC, barra superior en el celular). El menú lateral del celular se cierra en cada cambio de ruta (CHG-011): no guardar la ruta donde se abrió. Botones de fila con `reveal-on-hover` (en táctil siempre visibles). iPhone: `viewport-fit=cover` + `env(safe-area-inset-*)` en barra superior, barra inferior, menú y modales; campos a 16 px en pantallas pequeñas (evita el zoom de Safari); la página desplaza la ventana, no un contenedor interno. Modales con `max-h-[calc(100dvh-2rem)]`.
-  - Colores de marca: azul marino `#0D1B4B`, verde azulado `#00B89C`; primario Tailwind `#2563eb`. Modo oscuro por clase `dark` (ojo: `globals.css` fuerza `.dark .bg-white` a oscuro; para fondos que deben seguir blancos usar `bg-[#fff]`).
-  - Antes de terminar: `npx eslint .` (0 problemas) y `npx next build`.
-- **Backend**
-  - Rutas finas en `api/routes`, acceso a datos en `models`, validación en `schemas`.
-  - Toda ruta protegida obtiene `usuario_id` del token y usa `_ensure_owner(...)` en operaciones por ID.
-  - Nuevos endpoints que envíen correos deben pasar por `_issue_code(...)` y los límites de `rate_limit.py`.
-  - Fechas con `datetime.now(timezone.utc)` (no `utcnow`).
+- Idioma: interfaz, errores, comentarios y docs en español.
+- Frontend: API solo con `apiClient` (`@/lib/api-client`) y rutas relativas `/api/v1/...`; nunca leer ni guardar el token. Errores con `apiErrorMessage`, avisos con `notify()`, confirmaciones con `await confirm({...})` de `useDialog()`, fallos de carga con `<ErrorState onRetry>`. Cargas con `useCallback((isActive = () => true) => …)` y guardia `let active = true … return () => { active = false }` en el `useEffect`.
+- Accesibilidad: `<label htmlFor>` + `id`, `autoComplete`, foco visible (`focus-visible:`), radios `sr-only`, `role="alert"`/`aria-live`.
+- Diseño: clases de `globals.css` (`card`, `btn-primary/secondary/danger`, `input-field`, `label`, `page-title`, `page-subtitle`, `badge-*`). Cada vista usa `<PageHeader>` y, si depende del mes, `<PeriodPicker />` con el mes de `usePeriodStore` (nunca un `useState` propio); `monthTitle()` y `shortDate()` de `lib/month-stats.ts`. Un solo logo por pantalla; el menú móvil se cierra en cada cambio de ruta; iPhone: `viewport-fit=cover`, `env(safe-area-inset-*)`, campos a 16 px; modales `max-h-[calc(100dvh-2rem)]`.
+- Colores: azul marino `#0D1B4B`, verde azulado `#00B89C`, primario `#2563eb`; modo oscuro por clase `dark` (`globals.css` fuerza `.dark .bg-white`; para fondos que deben seguir blancos usar `bg-[#fff]`).
+- Backend: rutas finas en `api/routes`, datos en `models`, validación en `schemas`; `usuario_id` del token y `_ensure_owner(...)` por ID; correos con `_issue_code(...)` y `rate_limit.py`; fechas con `datetime.now(timezone.utc)`.
+- Antes de terminar: pruebas del backend, `npx eslint .` y `npx next build`.
 
 ## 10. Desarrollo local
-
 ```powershell
-# Backend (sin Supabase usa la BD demo en memoria; el código de correo aparece en consola)
 cd backend; python -m venv .venv; .venv\Scripts\pip install -r requirements-dev.txt
-.venv\Scripts\python -m pytest          # pruebas (103)
-.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
-
-# Frontend (BACKEND_URL por defecto http://localhost:8000)
-cd frontend; npm install; npm run dev
+.venv\Scripts\python -m pytest -q
+.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000   # sin Supabase: BD demo; el código de correo sale por consola
+cd frontend; npm install; npm run dev                              # BACKEND_URL por defecto http://localhost:8000
 ```
 
-## 11. Pendientes conocidos
-
-La lista viva está en `work/BACKLOG.md`. Los principales:
-
-1. **Supabase gratis** (BL-001, BL-002): evitar la pausa por inactividad y respaldo semanal automático.
-2. ~~Cerrar sesiones al cambiar la contraseña~~ (BL-003, hecho en CHG-001).
-3. ~~CI~~ (BL-004, hecho en CHG-002). ~~Cookies HttpOnly~~ (BL-012, CHG-003). ~~Abono atómico~~ (BL-013, CHG-004).
-3b. Códigos y límites persistentes en PostgreSQL (BL-014/BL-039: login y códigos de correo implementados en CHG-020, pendientes de validación; asistente, WhatsApp y Monitor siguen en memoria, BL-040). ~~FKs/huérfanos (BL-015) y limpieza (BL-009)~~: hechos en PR #9, SQL ejecutados en Supabase el 2026-11-22.
-4. **Revisar RLS** en Supabase (BL-005).
-5. Preguntas abiertas de la spec (BL-006, BL-008) y decidir la columna `presupuestos."mes_año"` (BL-019).
-
-## 12. Metodología: SDD con 5 agentes (Claude Code)
-
-Finanzy usa desarrollo guiado por especificaciones (ADR-004), adaptado de la plantilla `D:\Proyecto Claude IA`:
-
-- **Fuente de verdad del comportamiento:** `spec/` — `REQUIREMENTS.md` (REQ-F/REQ-N), `05-INVARIANTS.md`
-  (INV-001…016, cada uno con su prueba), `CONTRACTS/` (CT-001…006), `USE-CASES/`, `BDD/`, `ADR/`, `TRACEABILITY.md`.
-- **Agentes** (`.claude/agents/`): coordinador, clasificador, generador, validador y revisor.
-- **Comandos:** `/sdd-nuevo-cambio <pedido>` (ciclo completo) y `/sdd-validar-spec`. Skill: `sdd-trazabilidad`.
-- **Modo proporcional:** riesgo bajo (textos, estilos, docs) → modo `ligero`; datos, dinero, seguridad,
-  contratos o infraestructura → modo `completo` con aprobación de la spec.
-- **Pruebas:** `backend/tests/` (pytest, 64 pruebas) — `cd backend; python -m pytest`.
-- **Reglas para agentes:** `CLAUDE.md` (y `AGENTS.md` para otras herramientas). `git push` siempre con aprobación.
-
-## 13. Cómo pedir cambios (para Claude)
-
-- Leer este documento y revisar el código real antes de proponer cambios; respetar la sección 8 y `spec/05-INVARIANTS.md`.
-- No introducir librerías nuevas sin justificación; reutilizar `DialogProvider`, `ErrorState`, `apiClient`.
-- No poner claves, contraseñas ni correos personales en el código ni en la documentación.
-- Todo cambio de comportamiento actualiza la spec y `spec/TRACEABILITY.md` y trae pruebas.
-- Al terminar un cambio: pruebas del backend, lint + build del frontend, y comprobar en producción tras el despliegue.
-
-## 14. Registro de cambios recientes
-
-- **2026-11-22 · PR #5 (CHG-002)**: configuración segura que nunca impide arrancar, filtro por dueño en la BD, cuenta activa, moneda sin éxito falso, contraseña 8-128, CI en GitHub Actions.
-- **2026-11-22 · PR #6 (CHG-003)**: sesión en cookie HttpOnly con proxy de Next.js y CSRF; el token ya no está en el navegador.
-- **2026-11-22 · PR #7 (CHG-004)**: abono a metas atómico con la función SQL `abonar_meta`. SQL ejecutado en Supabase y fusionado; CI en verde.
-- **2026-11-22 · PR #2 cerrado** sin fusionar: lo útil ya está en PR #5, #6 y #7.
-- **2026-11-22 · PR #9 (CHG-005/006/007, fusionado; todos sus SQL ejecutados en Supabase)**: limpieza de código y documentos sin uso; SQL de registros huérfanos con respaldo y llaves foráneas; Reportes con promedio diario real, proyección al cierre, comparación con el mes anterior (hasta el mismo día) y gráfico acumulado con presupuesto; buscador y filtros en Transacciones; medio de pago (columna `medio_pago`, ejecutar `2026-11-22_medio_pago.sql` antes de fusionar). 121 pruebas backend + 14 frontend; revisión independiente aprobada con observaciones, ya corregidas.
-- **2026-11-22 · PR #10 (CHG-008, diseño en PC y iPhone, fusionado)**: un solo logo por pantalla (antes salía dos veces en PC; en el celular el ícono se veía cortado por ids de degradado repetidos); "Noviembre de 2026" en vez de "Noviembre De 2026"; encabezados y navegación de mes iguales en todas las vistas; barra superior con sección actual, botón de modo claro/oscuro y acceso al perfil; barra inferior del celular de 5 botones sin textos cortados; zona segura del iPhone, sin zoom al escribir, editar/eliminar visibles en pantallas táctiles, avisos que no tapan la barra inferior; tarjetas de resumen legibles en el celular; fechas "5 nov". Solo frontend: sin cambios de API, base de datos ni variables de entorno.
-- **2026-11-22 · CHG-009 (filtro de período, PR #11 fusionado)**: el mes elegido es uno solo para Dashboard, Transacciones, Presupuestos y Reportes; se mantiene al navegar y al recargar (sessionStorage), vuelve al mes actual en una pestaña nueva o al cerrar sesión. Nuevo selector con calendario de meses, cambio de año y "Mes actual". Corrige que Presupuestos usara el mes en UTC. Solo frontend.
-- **2026-11-22 · PR #13 (documentación, fusionado)**: nuevo `docs/COSTOS_ASISTENTE.md` con el costo del asistente (Claude Haiku 5.5: 0,10 / 0,50 US$ por millón de tokens de entrada/salida hasta 100.000 tokens, verificado en la página oficial de precios de Anthropic), cómo calcular el costo de una pregunta, dónde ver el gasto real y cómo se controla; enlazado desde README y ADR-006. Sin cambios de código, API, base de datos ni variables de entorno.
-- **2026-11-22 · CHG-011 (Asistente IA y menú del celular, PR pendiente)**: el menú y el título dicen «Asistente IA»; en el celular el menú lateral ya no reaparece solo al abrir el asistente con el ícono de chat (guardaba la ruta donde se abrió y se volvía a mostrar al regresar a ella; ahora se cierra en cada cambio de ruta y al tocar cualquier enlace). El campo de pregunta dice «Escribe tu pregunta…» para no cortarse en el celular. Solo frontend: sin API, base de datos ni variables de entorno.
-- **2026-11-23 · CHG-012 (en revisión)**: transacciones recurrentes que se confirman (nunca se registran solas), copiar presupuestos del mes anterior, editar nombre y cambiar contraseña en el perfil, página de Categorías, avisos de presupuesto y nuevo Inicio, botón «+» en el celular, página pública rediseñada, modo oscuro completado. **Requiere ejecutar `backend/sql/2026-11-23_recurrentes.sql` en Supabase antes del despliegue.** Sin variables de entorno nuevas.
-- **2026-11-23 · CHG-013**: los formularios piden los montos en la moneda elegida y los guardan en COP; sin duplicados en categorías y presupuestos (índices UNIQUE, `backend/sql/2026-11-23_sin_duplicados.sql`, fusiona los existentes con respaldo en `respaldo.*`); limpieza de código sin uso (CSS, imports, método demo, archivo de ejemplo).
-- **2026-11-23 · CHG-014 (en revisión)**: registrar ingresos y gastos por WhatsApp con IA en lenguaje libre (Cloud API de Meta con el número de prueba, gratis hasta 1.000 respuestas/mes; Claude Haiku ~0,0003 US$/mensaje; tope 50/día). Requiere `backend/sql/2026-11-23_whatsapp.sql` y la configuración de `docs/WHATSAPP.md`.
+## 11. Metodología y pendientes
+SDD con agentes (ADR-004): `CLAUDE.md`, `docs/PROTOCOLO-AGENTES.md`, `docs/CICLO-SDD.md`. Pendientes vivos: `work/BACKLOG.md` y `work/ESTADO.md`.
+Reglas: no introducir librerías sin justificación (reutilizar `DialogProvider`, `ErrorState`, `apiClient`); sin claves ni correos personales en código o docs; todo cambio de comportamiento actualiza la spec y `spec/TRACEABILITY.md` con pruebas.

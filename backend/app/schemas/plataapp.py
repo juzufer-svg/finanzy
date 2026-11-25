@@ -23,7 +23,6 @@ MedioPago = Literal["debito", "credito", "efectivo", "transferencia", "nequi_dav
 
 # Cuentas de dinero (CHG-019, INV-051): tope real de NUMERIC(12,2) y 2 decimales; los montos se leen con Decimal
 SALDO_MAX = Decimal("9999999999.99")
-TIPOS_CUENTA = ("efectivo", "ahorros_corriente", "billetera_digital", "tarjeta_credito")
 TipoCuenta = Literal["efectivo", "ahorros_corriente", "billetera_digital", "tarjeta_credito"]
 MSG_MONTO_CON_CUENTA = "El monto de esta transacción no cumple el máximo permitido con cuenta de dinero"
 

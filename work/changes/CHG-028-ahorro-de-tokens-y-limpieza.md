@@ -18,8 +18,15 @@ Hoy ≈ 64 M de tokens efectivos: generadores 46 %, conversación principal 44 %
 | Tarea | Alcance | Modelo | Estado | Ciclos |
 |---|---|---|---|---|
 | T1 | Docs/proceso/contexto/enrutamiento de modelos | Sonnet | en curso | 0 |
-| T2 | Limpieza de código y docs sin uso | Sonnet | en curso | 0 |
+| T2 | Limpieza de código y docs sin uso | Sonnet | hecha (pendiente de validar en T3) | 1 |
 | T3 | Validación: suites y build tras T2 | Haiku/Sonnet | pendiente | 0 |
+
+## Eliminado (T2)
+- `backend/app/api/cuentas_errores.py`: constantes `MSG_WA_SALDO`, `MSG_WA_ARCHIVADA`, `MSG_WA_MONTO`, `MSG_WA_MONTO_GRANDE`. Evidencia: grep en app, tests, spec y docs: solo su definición; `motivo_whatsapp` usa `_WA_BASE`/`_WA_NADA` directamente.
+- `backend/app/schemas/plataapp.py`: constante `TIPOS_CUENTA`. Evidencia: grep en todo el repo: solo su definición (se usa `TipoCuenta`).
+- `frontend/lib/cuentas.ts`: export `MAX_CUENTAS`. Evidencia: grep en app, components, lib, store, tests y e2e: solo su definición (el tope lo aplica el servidor).
+- Sin cambios por revisión: pyflakes sin hallazgos; todas las dependencias de `package.json` y `requirements*.txt` se usan; no hay componentes, archivos de `lib/` ni `store/` sin importar; no hay carpetas vacías ni archivos .bak/copias versionados.
+- Dudosos, no borrados: `limpiar_cache` y `reset`/`limpiar`/`total_eventos` (solo los usan pruebas, son ganchos de prueba); `maxDuration` (configuración de ruta de Next.js).
 
 ## 5. Cierre
 Pendiente. Despliegue: solo docs/proceso y borrado de código sin uso; push a `main` con aprobación del dueño; sin SQL ni variables nuevas.

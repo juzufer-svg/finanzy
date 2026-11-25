@@ -22,8 +22,6 @@ export const TIPOS_CUENTA: { value: TipoCuenta; label: string; ayuda: string }[]
 export const NOMBRE_CUENTA_MAX = 100
 /** Tope de saldo inicial y de montos con cuenta, en COP (INV-051). */
 export const TOPE_COP = 9_999_999_999.99
-/** Máximo de cuentas de dinero por usuario (INV-050); el servidor lo hace cumplir. */
-export const MAX_CUENTAS = 20
 
 export interface Cuenta {
   id: string

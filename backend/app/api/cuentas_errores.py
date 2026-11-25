@@ -77,10 +77,6 @@ _WA_BASE = {
 }
 _WA_NADA = {"FZ001": " No cambié nada; revísalo en la app.", "FZ002": " No cambié nada; desarchívala en la app.",
             "23514": " No cambié nada.", "22003": " No cambié nada."}
-MSG_WA_SALDO = _WA_BASE["FZ001"] + _WA_NADA["FZ001"]
-MSG_WA_ARCHIVADA = _WA_BASE["FZ002"] + _WA_NADA["FZ002"]
-MSG_WA_MONTO = _WA_BASE["23514"] + _WA_NADA["23514"]
-MSG_WA_MONTO_GRANDE = _WA_BASE["22003"] + _WA_NADA["22003"]
 
 
 def motivo_whatsapp(error: Exception, parcial: bool = False) -> Optional[str]:
