@@ -277,7 +277,7 @@ Característica: Cuentas de dinero con saldo y transferencias
   # Prueba: tests/test_transferencias.py::test_inv049_origen_y_destino_deben_ser_distintos_422
   Escenario: Origen y destino distintos
     Cuando transfiero de "Efectivo" a "Efectivo"
-    Entonces recibe 422 "Elige dos cuentas de dinero distintas"
+    Entonces recibe 422 "Elige dos cuentas distintas"
 
   @BDD-CUENTAS @invariante @INV-049
   # Prueba: tests/test_transferencias.py::test_inv049_saldo_insuficiente_en_origen_409_y_no_mueve_nada

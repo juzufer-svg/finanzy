@@ -34,7 +34,7 @@ REQ-F-020 CA-5 · INV-049 (y INV-046/047/048/050/051) · CT-012 §Transferencias
 | Tarea | Alcance | Depende de | Estado | Ciclos |
 |---|---|---|---|---|
 | T5 | Migración A1-A3 + `09_comprobar_transferencias.sql` + concurrencia (20 transferencias; 20 A→B y 20 B→A sin interbloqueos) + `PLATAAPP_SCHEMA.sql` | — | hecha, pendiente de validar (2026-11-25) | 1 |
-| T6 | Backend `/transferencias` (A4-A6, `DemoDB`) + `test_transferencias.py` | T5 | pendiente | 0 |
+| T6 | Backend `/transferencias` (A4-A6, `DemoDB`) + `test_transferencias.py` | T5 | hecho (2026-11-25: `routes/transferencias.py`, `models/transferencias.py`, `schemas/transferencias.py`, `DemoTransferenciaDB`; 29 pruebas nuevas, suite 980 OK, pyflakes OK) | 0 |
 | T7 | Frontend (A8) + `PLATAAPP_SCHEMA.sql` + trazabilidad | T6 | frontend hecho (2026-11-25: `cuentas/page.tsx`, `lib/transferencias.ts`, `tests/transferencias.test.mjs`; eslint, tsc, 99 pruebas y build OK); falta `PLATAAPP_SCHEMA.sql` | 0 |
 | T8 | Validador y revisor en paralelo (máx. 2 ciclos) | T5-T7 | pendiente | 0 |
 
