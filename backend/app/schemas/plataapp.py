@@ -2,7 +2,9 @@
 Pydantic schemas for Finanzy
 """
 import re
-from pydantic import BaseModel, Field
+import uuid
+from decimal import Decimal
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, Literal
 
 # Formatos aceptados
@@ -17,16 +19,132 @@ MEDIOS_PAGO = ("debito", "credito", "efectivo", "transferencia", "nequi_daviplat
 MedioPago = Literal["debito", "credito", "efectivo", "transferencia", "nequi_daviplata"]
 
 
+# Cuentas de dinero (CHG-019, INV-051): tope real de NUMERIC(12,2) y 2 decimales; los montos se leen con Decimal
+SALDO_MAX = Decimal("9999999999.99")
+TIPOS_CUENTA = ("efectivo", "ahorros_corriente", "billetera_digital", "tarjeta_credito")
+TipoCuenta = Literal["efectivo", "ahorros_corriente", "billetera_digital", "tarjeta_credito"]
+MSG_MONTO_CON_CUENTA = "El monto de esta transacción no cumple el máximo permitido con cuenta de dinero"
+
+
+def decimales_validos(valor: Decimal) -> bool:
+    """¿Es finito, con a lo sumo 2 decimales y con valor absoluto ≤ 9 999 999 999,99 (INV-051)?"""
+    return valor.is_finite() and valor.as_tuple().exponent >= -2 and abs(valor) <= SALDO_MAX
+
+
+def a_decimal(valor) -> Optional[Decimal]:
+    """Lee un monto sin pasar por float (`str` del número tal como lo guardó el JSON o la BD). None si no es un número."""
+    try:
+        return valor if isinstance(valor, Decimal) else Decimal(str(valor))
+    except Exception:
+        return None
+
+
+def monto_valido_con_cuenta(valor) -> bool:
+    """Una transacción CON cuenta de dinero: > 0, ≤ 9 999 999 999,99 y 2 decimales como máximo (INV-051)."""
+    d = a_decimal(valor)
+    return d is not None and d > 0 and decimales_validos(d)
+
+
+def _uuid_o_none(valor: Optional[str]) -> Optional[str]:
+    """El id en su forma canónica, o None si no es un UUID."""
+    try:
+        return str(uuid.UUID(str(valor)))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def es_uuid(valor) -> bool:
+    return _uuid_o_none(valor) is not None
+
+
+class CuentaCreate(BaseModel):
+    """Crear cuenta de dinero"""
+    nombre: str = Field(..., min_length=1, max_length=100)
+    tipo: TipoCuenta
+    saldo_inicial: Decimal = Field(Decimal("0"))
+
+    @field_validator("nombre")
+    @classmethod
+    def _nombre(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("El nombre no puede estar vacío")
+        return v
+
+    @field_validator("saldo_inicial")
+    @classmethod
+    def _saldo(cls, v: Decimal) -> Decimal:
+        if not decimales_validos(v):
+            raise ValueError("El saldo inicial debe tener máximo 2 decimales y no superar 9.999.999.999,99")
+        return v
+
+    @model_validator(mode="after")
+    def _solo_tarjeta_negativa(self):
+        if self.saldo_inicial < 0 and self.tipo != "tarjeta_credito":
+            raise ValueError("Solo la tarjeta de crédito puede empezar con saldo negativo")
+        return self
+
+
+class CuentaUpdate(BaseModel):
+    """Editar cuenta de dinero: el tipo NO se puede cambiar (si llega, 422)."""
+    model_config = ConfigDict(extra="forbid")
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
+    saldo_inicial: Optional[Decimal] = None
+    archivada: Optional[bool] = None
+
+    @field_validator("nombre")
+    @classmethod
+    def _nombre(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("El nombre no puede estar vacío")
+        return v
+
+    @field_validator("saldo_inicial")
+    @classmethod
+    def _saldo(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and not decimales_validos(v):
+            raise ValueError("El saldo inicial debe tener máximo 2 decimales y no superar 9.999.999.999,99")
+        return v
+
+
+class CuentaResponse(BaseModel):
+    """Respuesta de cuenta de dinero (lista blanca: nunca datos de la cuenta de usuario)"""
+    id: str
+    usuario_id: str
+    nombre: str
+    tipo: str
+    saldo_inicial: float
+    saldo: float
+    archivada: bool
+    created_at: Optional[str] = None
+
+
 # Transacciones
 class TransaccionCreate(BaseModel):
     """Crear transacción"""
     categoria_id: str = Field("", max_length=64)
-    monto: float = Field(..., gt=0, le=MONTO_MAX)
+    # Decimal: la regla de 2 decimales de INV-051 (solo con cuenta de dinero) no puede depender de float
+    monto: Decimal = Field(..., gt=0, le=MONTO_MAX)
     descripcion: str = Field("", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
     tipo: Tipo
     # Opcional: null = sin especificar (transacciones antiguas y abonos a metas)
     medio_pago: Optional[MedioPago] = None
+    # Opcional (CHG-019, CT-003 v1.2): null/ausente = sin cuenta de dinero; si viene, debe ser un UUID
+    cuenta_id: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("cuenta_id")
+    @classmethod
+    def _cuenta_uuid(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        canonico = _uuid_o_none(v)
+        if canonico is None:
+            raise ValueError("cuenta_id debe ser un UUID")
+        return canonico
 
 
 class TransaccionResponse(BaseModel):
@@ -39,6 +157,7 @@ class TransaccionResponse(BaseModel):
     fecha: str
     tipo: str
     medio_pago: Optional[str] = None
+    cuenta_id: Optional[str] = None
 
 
 class ResumenTransacciones(BaseModel):

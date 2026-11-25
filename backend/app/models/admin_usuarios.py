@@ -97,6 +97,7 @@ def _mem_colecciones() -> dict[str, dict]:
         "presupuestos": demo_db.DemoPresupuestoDB._presupuestos,
         "metas": demo_db.DemoMetaDB._metas,
         "recurrentes": demo_db.DemoRecurrenteDB._recurrentes,
+        "cuentas": demo_db.DemoCuentaDB._cuentas,   # CHG-019: borrar al usuario borra sus cuentas de dinero (INV-050)
     }
 
 

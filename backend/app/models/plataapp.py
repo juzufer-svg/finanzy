@@ -41,9 +41,11 @@ class TransaccionDB:
 
     @staticmethod
     async def crear(usuario_id: str, categoria_id: str, monto: float,
-                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None) -> dict:
+                    descripcion: str, fecha: str, tipo: str, medio_pago: Optional[str] = None,
+                    cuenta_id: Optional[str] = None) -> dict:
         if not _supabase_ok():
-            return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago)
+            return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago,
+                                                 cuenta_id)
         try:
             client = SupabaseDB.get_client()
             row = {
@@ -57,10 +59,13 @@ class TransaccionDB:
             }
             if medio_pago is not None:  # columna de CHG-007; sin dato se deja NULL
                 row["medio_pago"] = medio_pago
+            if cuenta_id is not None:  # columna de CHG-019; sin cuenta no se envía (funciona aunque falte la migración)
+                row["cuenta_id"] = cuenta_id
             result = client.table("transacciones").insert(row).execute()
             return result.data[0]
         except Exception as e:
-            print(f"[Supabase] transacciones.crear error: {e}")
+            # Sin el texto de la BD (puede traer ids de cuentas); los errores FZ001/FZ002 los traduce la ruta (409)
+            print(f"[Supabase] transacciones.crear error: {type(e).__name__} {getattr(e, 'code', '')}")
             raise
 
     @staticmethod
@@ -161,13 +166,15 @@ class TransaccionDB:
             updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
             if "medio_pago" in kwargs:  # None aquí significa "quitar el medio de pago"
                 updates["medio_pago"] = kwargs["medio_pago"]
+            if "cuenta_id" in kwargs:  # igual que medio_pago: None = quitar la cuenta de dinero (CHG-019)
+                updates["cuenta_id"] = kwargs["cuenta_id"]
             if updates.get("categoria_id") == "":  # igual que en crear: "" = sin categoría (columna uuid)
                 updates["categoria_id"] = None
             client = SupabaseDB.get_client()
             result = client.table("transacciones").update(updates).eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
-            print(f"[Supabase] transacciones.actualizar error: {e}")
+            print(f"[Supabase] transacciones.actualizar error: {type(e).__name__} {getattr(e, 'code', '')}")
             raise
 
     @staticmethod
@@ -181,7 +188,7 @@ class TransaccionDB:
             client.table("transacciones").delete().eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
             return True
         except Exception as e:
-            print(f"[Supabase] transacciones.eliminar error: {e}")
+            print(f"[Supabase] transacciones.eliminar error: {type(e).__name__} {getattr(e, 'code', '')}")
             raise
 
     @staticmethod

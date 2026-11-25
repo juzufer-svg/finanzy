@@ -14,6 +14,7 @@ import { usePeriodStore } from '@/store/period'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 import MoneyPrefix from '@/components/MoneyPrefix'
 import ExportarDescarga from '@/components/ExportarDescarga'
+import { normalizarCuentas, opcionesSelector, nombreDeCuenta, cuentaIdParaPut, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
 
 interface Transaction {
   id: string
@@ -23,6 +24,7 @@ interface Transaction {
   descripcion: string
   fecha: string
   medio_pago?: string | null
+  cuenta_id?: string | null
 }
 
 interface Category {
@@ -33,9 +35,10 @@ interface Category {
 }
 
 
-function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
+function EditTransactionModal({ transaction, categories, cuentas, onClose, onSaved }: {
   transaction: Transaction
   categories: Category[]
+  cuentas: Cuenta[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -50,7 +53,10 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
     fecha: transaction.fecha,
     tipo: transaction.tipo as 'gasto' | 'ingreso',
     medio_pago: transaction.medio_pago || '',
+    cuenta_id: transaction.cuenta_id || '',
   })
+  // Solo las no archivadas, más la cuenta que la transacción ya tiene (se conserva al editar)
+  const opcionesCuenta = opcionesSelector(cuentas, transaction.cuenta_id)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const filteredCats = categories.filter(c => c.tipo === formData.tipo)
@@ -60,15 +66,18 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
     setLoading(true)
     setError('')
     try {
+      const { cuenta_id, ...resto } = formData
       await apiClient.put(`/api/v1/transacciones/${transaction.id}`, {
-        ...formData,
+        ...resto,
         monto: toBase(formData.monto, { base: transaction.monto, text: montoInicial }),
         medio_pago: formData.medio_pago || null,
+        // Sin cambio no se envía: conserva la cuenta y no revalida el monto (CT-003 v1.2)
+        ...cuentaIdParaPut(transaction.cuenta_id, cuenta_id),
       })
       onSaved()
       onClose()
     } catch (err) {
-      setError(apiErrorMessage(err, 'Error al actualizar la transacción'))
+      setError(mensajeErrorCuenta(err, 'Error al actualizar la transacción'))
     } finally {
       setLoading(false)
     }
@@ -81,7 +90,7 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
           <h3 className="text-base font-bold text-slate-900">Editar Transacción</h3>
           <button type="button" onClick={onClose} aria-label="Cerrar" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">&times;</button>
         </div>
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+        {error && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <span className="block text-xs font-semibold text-slate-700 mb-2">Tipo</span>
@@ -112,6 +121,14 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
               className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white">
               {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               <option value="">Sin especificar</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="txe-cuenta" className="block text-xs font-semibold text-slate-700 mb-1.5">Cuenta <span className="text-slate-400 font-normal">(opcional)</span></label>
+            <select id="txe-cuenta" value={formData.cuenta_id} onChange={e => setFormData(p => ({...p, cuenta_id: e.target.value}))}
+              className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white">
+              <option value="">Sin cuenta</option>
+              {opcionesCuenta.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </div>
           <div>
@@ -146,6 +163,7 @@ function EditTransactionModal({ transaction, categories, onClose, onSaved }: {
 function CategorizedView({
   transactions,
   categories,
+  cuentas,
   loading,
   onDelete,
   onEdit,
@@ -153,6 +171,7 @@ function CategorizedView({
 }: {
   transactions: Transaction[]
   categories: Category[]
+  cuentas: Cuenta[]
   loading: boolean
   onDelete: (id: string) => void
   onEdit: (t: Transaction) => void
@@ -175,6 +194,12 @@ function CategorizedView({
   const categoriasDelTab = categories.filter(c => activeTab === 'todos' || c.tipo === activeTab)
   const netoFiltrado = filteredTxs.reduce((s, t) => s + (t.tipo === 'gasto' ? -t.monto : t.monto), 0)
   const limpiarFiltros = () => { setTexto(''); setCategoriaFiltro(''); setMedioFiltro('') }
+
+  // Cuenta de dinero de la transacción, discreta al final de la línea (CHG-019)
+  const cuentaTexto = (tx: Transaction) => {
+    const nombre = nombreDeCuenta(cuentas, tx.cuenta_id)
+    return nombre ? ` · ${nombre}` : ''
+  }
 
   // Group by category
   const groups = categories
@@ -307,7 +332,7 @@ function CategorizedView({
                             <p className="text-sm font-medium text-slate-700 truncate">
                               {tx.descripcion || cat.nombre}
                             </p>
-                            <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
+                            <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}{cuentaTexto(tx)}</p>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${isGasto ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -368,7 +393,7 @@ function CategorizedView({
                     <div key={tx.id} className="flex items-center gap-3 px-4 py-3 bg-slate-50/50 dark:bg-slate-700/30 group">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700 truncate">{tx.descripcion || '—'}</p>
-                        <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}</p>
+                        <p className="text-xs text-slate-500">{shortDate(tx.fecha)}{tx.medio_pago ? ` · ${medioPagoLabel(tx.medio_pago)}` : ''}{cuentaTexto(tx)}</p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${tx.tipo === 'gasto' ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -405,6 +430,7 @@ export default function TransactionsPage() {
   const fmt = useCurrencyStore(s => s.fmt)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [cuentas, setCuentas] = useState<Cuenta[]>([])
   const [loading, setLoading] = useState(true)
   // Período compartido por todas las vistas (CHG-009)
   const currentMonth = usePeriodStore(s => s.mes)
@@ -419,12 +445,15 @@ export default function TransactionsPage() {
   const fetchData = useCallback((isActive: () => boolean = () => true) => {
     return Promise.all([
       apiClient.get(`/api/v1/transacciones?mes=${currentMonth}`),
-      apiClient.get('/api/v1/categorias')
+      apiClient.get('/api/v1/categorias'),
+      // Las cuentas son un extra: si fallan, las transacciones se siguen viendo y registrando sin cuenta
+      apiClient.get('/api/v1/cuentas?incluir_archivadas=true').then(r => normalizarCuentas(r.data)).catch(() => [] as Cuenta[]),
     ])
-      .then(([transRes, catRes]) => {
+      .then(([transRes, catRes, cuentasRes]) => {
         if (!isActive()) return
         setTransactions(transRes.data)
         setCategories(catRes.data)
+        setCuentas(cuentasRes)
         setLoadError('')
       })
       .catch(err => {
@@ -468,6 +497,7 @@ export default function TransactionsPage() {
         <EditTransactionModal
           transaction={editingTransaction}
           categories={categories}
+          cuentas={cuentas}
           onClose={() => setEditingTransaction(null)}
           onSaved={fetchData}
         />
@@ -503,7 +533,7 @@ export default function TransactionsPage() {
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
-          <TransactionForm categories={categories} onSuccess={fetchData} />
+          <TransactionForm categories={categories} cuentas={cuentas} onSuccess={fetchData} />
         </div>
         <div className="lg:col-span-2">
           {loadError ? (
@@ -512,6 +542,7 @@ export default function TransactionsPage() {
           <CategorizedView
             transactions={transactions}
             categories={categories}
+            cuentas={cuentas}
             loading={loading || stale}
             onDelete={handleDelete}
             onEdit={setEditingTransaction}
