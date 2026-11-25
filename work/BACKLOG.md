@@ -21,7 +21,7 @@ Para empezar cualquiera: `/sdd-nuevo-cambio <título o descripción>`.
 | BL-014 | Códigos, límites y bloqueos de login persistentes en PostgreSQL (sobreviven reinicios) | seguridad | medio | En especificación: login y códigos de correo pasan a CHG-020 (BL-039); los limitadores del asistente, WhatsApp y Monitor quedan en BL-040 | Revisión PR #2, prioridad 2 |
 | BL-015 | Verificar en Supabase las llaves foráneas `ON DELETE CASCADE` y conciliar los 64 registros huérfanos y `presupuestos.mes_año` NULL (solo con decisión del dueño) | datos | alto | En revisión (CHG-005; SQL listo, lo ejecuta el dueño) | Revisión PR #2 |
 | BL-016 | Cerrar el PR #2 (sus partes útiles pasaron a CHG-002) | deuda-tecnica | bajo | Pendiente (requiere el visto bueno del dueño) | Revisión PR #2 |
-| BL-017 | Alinear el tope de montos (1e12) con `NUMERIC(12,2)` y limitar a 2 decimales | correccion-de-bug | medio | CHG-029 verificado en la rama; falta ejecutar la migración en Supabase y desplegar | Revisión CHG-004 |
+| BL-017 | Alinear el tope de montos (1e12) con `NUMERIC(12,2)` y limitar a 2 decimales | correccion-de-bug | medio | Desplegado (CHG-029, 2026-11-25) | Revisión CHG-004 |
 | BL-018 | Medio de pago en las transacciones (Débito, Crédito, Efectivo, Transferencia, Nequi / Daviplata) | nueva-funcionalidad | medio | En revisión (CHG-007; SQL antes del despliegue) | Pedido del dueño 2026-11-22 |
 | BL-019 | Decidir si se borra la columna sin uso `presupuestos."mes_año"` (2 filas NULL; el código usa `mes_ano`) | datos | bajo | Pendiente (decisión del dueño) | CHG-005 |
 | BL-020 | Diseño profesional y responsive en PC y iPhone (logo duplicado, mes en mayúsculas, zona segura, botones táctiles) | mejora | bajo | Hecho (CHG-008, PR #10) | Pedido del dueño 2026-11-22 |

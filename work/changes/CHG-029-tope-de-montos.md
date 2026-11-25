@@ -1,6 +1,6 @@
 # CHG-029 — Alinear el tope de montos con `NUMERIC(12,2)` (BL-017)
 
-- **Estado:** listo-para-aprobar
+- **Estado:** cerrado
 - **Fecha:** 2026-11-25 · **Solicitante:** dueño
 - **Riesgo:** alto · **Modo:** completo (dinero e invariante crítica)
 
@@ -68,4 +68,4 @@ Cambio de regla · riesgo alto · modo completo · confianza 80 % (clasificador)
 - Archivos modificados:
 - Pruebas ejecutadas y resultado:
 - Pendientes:
-- **Aprobación humana final:**
+- **Aprobación humana final:** dueño, 2026-11-25. Migración aplicada y verificada; `main` en 3c79c54; Railway y Vercel desplegados.
