@@ -18,7 +18,7 @@ from app.models.plataapp import (
     TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, RecurrenteDB, AbonoAtomicoNoDisponible,
 )
 from app.models.cuentas import CuentaDB
-from app.api.cuentas_errores import relanzar as relanzar_error_cuenta, MSG_NO_ENCONTRADA
+from app.api.cuentas_errores import relanzar_o_503 as relanzar_error_cuenta, MSG_NO_ENCONTRADA
 from app.utils.recurrencia import siguiente_fecha
 from datetime import date, datetime, timezone
 from app.api.sesion import usuario_de_sesion

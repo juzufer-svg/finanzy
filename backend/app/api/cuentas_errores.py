@@ -9,6 +9,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.models.auth_estado import EstadoNoDisponible
+
 MSG_SALDO = "Saldo insuficiente en la cuenta: esto la dejaría en negativo. Solo las tarjetas de crédito pueden quedar en negativo."
 MSG_ARCHIVADA = "La cuenta está archivada. Desarchívala para registrar movimientos."
 MSG_TOPE = "Llegaste al máximo de 20 cuentas de dinero."
@@ -49,3 +51,24 @@ def relanzar(error: Exception, al_eliminar_cuenta: bool = False):
     if http is None:
         raise error
     raise http from None
+
+
+def relanzar_o_503(error: Exception):
+    """Para escrituras de transacciones (BL-043): el error de la regla de cuentas se traduce (409/404/422); CUALQUIER otro fallo
+    de la BD (red, plazo, error inesperado) es 503 genérico, sin detalles (INV-039, INV-048), nunca un 500."""
+    http = traducir(error)
+    if http is not None:
+        raise http from None
+    print(f"[transacciones] Falló la BD ({type(error).__name__})")
+    raise EstadoNoDisponible("falló la escritura de transacciones") from None
+
+
+MSG_WA_SALDO = ("dejaría la cuenta de dinero con saldo negativo (ya se usó ese dinero). "
+                "No cambié nada; revísalo en la app.")
+MSG_WA_ARCHIVADA = "la cuenta de dinero está archivada. No cambié nada; desarchívala en la app."
+MSG_WA_MONTO = "el monto no cumple lo permitido para la cuenta de dinero. No cambié nada."
+
+
+def motivo_whatsapp(error: Exception) -> Optional[str]:
+    """Frase (sin datos de la BD) que explica por qué la regla de cuentas rechazó un cambio hecho por WhatsApp, o None."""
+    return {"FZ001": MSG_WA_SALDO, "FZ002": MSG_WA_ARCHIVADA, "23514": MSG_WA_MONTO}.get(codigo_de(error) or "")
