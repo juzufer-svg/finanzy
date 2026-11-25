@@ -692,11 +692,14 @@ def test_h2_dos_en_curso_la_tercera_recibe_503_y_health_responde(client, monkeyp
 
     async def escenario():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://prueba") as c:
-            tareas = [asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=A)) for _ in range(2)]
+            # una exportación en curso por usuario: las dos primeras son de usuarios distintos
+            tareas = [asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=h)) for h in (A, B)]
+            limite = time.monotonic() + 5     # tiempo acotado: la prueba nunca debe colgarse
             for _ in range(2):
                 while not llegaron.acquire(blocking=False):
+                    assert time.monotonic() < limite
                     await asyncio.sleep(0.01)
-            tercera = await c.get(URL, params={"desde": "2026-11"}, headers=A)
+            tercera = await c.get(URL, params={"desde": "2026-11"}, headers=auth_header("user-c"))
             salud = await c.get("/health")
             soltar.set()
             return tercera, salud, await asyncio.gather(*tareas)
@@ -756,14 +759,17 @@ def test_c3_una_sola_exportacion_en_curso_por_usuario_y_otro_usuario_no_se_ve_af
 
     async def escenario():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://prueba") as c:
+            limite = time.monotonic() + 5     # tiempo acotado: la prueba nunca debe colgarse
             primera = asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=A))
             while not llegaron.acquire(blocking=False):
+                assert time.monotonic() < limite
                 await asyncio.sleep(0.01)
             t0 = time.monotonic()
             segunda = await c.get(URL, params={"desde": "2026-11"}, headers=A)
             rapido = time.monotonic() - t0 < 0.5
             de_otro = asyncio.create_task(c.get(URL, params={"desde": "2026-11"}, headers=B))
             while not llegaron.acquire(blocking=False):
+                assert time.monotonic() < limite
                 await asyncio.sleep(0.01)
             soltar.set()
             return segunda, rapido, await primera, await de_otro
@@ -944,7 +950,7 @@ def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_
     ("pan, leche, huevos", "pan, leche, huevos"), ("ida-vuelta, 3-4", "ida-vuelta, 3-4"), ("a=b, c+d", "a=b, c+d"),
     ("normal", "normal"), ("", ""), ("a,", "a,"), ("a, ", "a, "),
     # ciclo 3 (I-1): comillas y saltos de línea entre el separador y el carácter peligroso
-    ('x,"=2+3', 'x,\'"=2+3'), ('x,"=HYPERLINK(""http://e"";""a"")', 'x,\'"=HYPERLINK(""http://e"";\'""a"")'),
+    ('x,"=2+3', 'x,\'"=2+3'), ('x,"=HYPERLINK(""http://e"";""a"")', 'x,\'"=HYPERLINK(""http://e"";""a"")'),
     ('x\n"=1', 'x\n\'"=1'), ('x,"-1', 'x,\'"-1'), ("a\n=1+1", "a\n'=1+1"), ("a\r\n=1+1", "a\r\n'=1+1"),
     ("a\r\n-1", "a\r\n'-1"), ('x,"=1', 'x,\'"=1'), ("a\n\n\n=1", "a\n\n\n'=1"), ('a,",",=1', 'a,",",\'=1'),
     ('a,"" "=1', 'a,\'"" "=1'), ('a,"",""=1', 'a,"",\'""=1'), ("a\n=1;-2,\n@3", "a\n'=1;'-2,\n'@3"),

@@ -278,7 +278,7 @@ def test_inv013_en_produccion_sin_supabase_no_se_guarda_en_memoria(monkeypatch):
 # ---------- Purga y lectura ----------
 
 def test_inv036_purga_a_90_dias_una_vez_al_dia():
-    hoy = datetime.now(timezone.utc).date()
+    hoy = contadores.hoy_colombia()
     F = contadores._Memoria.filas
     F[(hoy - timedelta(days=91), "claude_llamadas", "whatsapp")] = 5
     F[(hoy - timedelta(days=200), "purga", "general")] = 0
@@ -324,7 +324,7 @@ def test_inv036_con_supabase_usa_rpc_atomico_y_purga_oportunista(monkeypatch):
     cliente = _Cliente()
     _con_supabase(monkeypatch, cliente)
     assert contadores.incrementar("claude_tokens_entrada", "whatsapp", 42) is True
-    hoy = datetime.now(timezone.utc).date().isoformat()
+    hoy = contadores.hoy_colombia().isoformat()
     assert cliente.llamadas == [
         ("incrementar_contador", {"p_fecha": hoy, "p_metrica": "claude_tokens_entrada", "p_origen": "whatsapp", "p_cantidad": 42}),
         ("purgar_contadores", {"p_hoy": hoy}),
@@ -393,7 +393,7 @@ def test_inv036_fallo_del_rpc_devuelve_false_sin_lanzar(monkeypatch):
 
 
 def test_leer_ventana_30_dias_sin_marca_de_purga():
-    hoy = datetime.now(timezone.utc).date()
+    hoy = contadores.hoy_colombia()
     F = contadores._Memoria.filas
     F[(hoy - timedelta(days=30), "whatsapp_enviados", "general")] = 9    # fuera de la ventana
     F[(hoy - timedelta(days=29), "whatsapp_enviados", "general")] = 2    # dentro (30 días incluido hoy)

@@ -108,16 +108,19 @@ Característica: Exportar transacciones a CSV o Excel
     Dado descripciones "x,=1+1", "x;=1+1", "a, =cmd", "a,@SUM(1)", "a,-1" y "pan, leche, huevos"
     Cuando se exporta en CSV
     Entonces salen "x,'=1+1", "x;'=1+1", "a,' =cmd", "a,'@SUM(1)", "a,'-1" y "pan, leche, huevos" (el CSV altera mínimamente esos textos; el monto y el xlsx no se tocan)
-    Y al leer con delimitador «,» o «;» ninguna celda empieza por = + - @ tabulación o retorno de carro
+    Y al leer con delimitador «,» o «;» ninguna celda empieza por = + - @ tabulación o retorno de carro (también con `x,"=2+3`, `x\n"=1`, `a\r\n=1+1`; prueba de propiedad: `::test_inv043_propiedad_ninguna_celda_empieza_por_caracter_peligroso_con_ambos_delimitadores`)
 
   @BDD-EXPORTAR @invariante @INV-042 @INV-044
-  # Prueba: tests/test_exportar.py::test_h1_supabase_* (cliente de Supabase falso), ::test_h2_*, ::test_h3_*, ::test_h5_*
+  # Prueba: tests/test_exportar.py::test_h1_supabase_* (cliente de Supabase falso), ::test_h2_*, ::test_h3_*, ::test_h5_*, ::test_c3_*
   Escenario: Lectura de Supabase, tope de simultaneidad, temporales y año acotado
     Dado la consulta a Supabase filtra por el usuario de la sesión, ordena por fecha, created_at e id y pagina de 1000 en 1000 sin saltar ni duplicar
     Y ya hay 2 exportaciones en curso
     Cuando llega una tercera
     Entonces responde 503 al instante sin encolar y /health sigue respondiendo
     Y un xlsx cortado por plazo no deja archivos temporales
+    Y un usuario con una exportación en curso recibe 429 «Ya tienes una exportación en curso» en la segunda y otro usuario no se ve afectado
+    Y si el cliente se desconecta el hilo se detiene y se liberan la ranura y el usuario
+    Y un fallo al borrar tras guardar el libro no convierte el archivo generado en 503
     Y un mes con año fuera de 2000 a 2100 responde 422 sin consumir el límite de 10 por minuto
 
   @BDD-EXPORTAR @invariante @INV-043
