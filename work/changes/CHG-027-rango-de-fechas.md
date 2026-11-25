@@ -23,7 +23,7 @@ Con reloj controlado (monkeypatch de `hoy_colombia`): bordes inferior y superior
 ## 5. Plan de tareas
 | Tarea | Alcance | Estado | Ciclos |
 |---|---|---|---|
-| T1 | Backend: esquemas, WhatsApp si aplica, pruebas | en curso | 0 |
+| T1 | Backend: esquemas, WhatsApp si aplica, pruebas | hecha (pendiente validación T3) | 0 |
 | T2 | Frontend: `min`/`max` en los campos fecha de transacción y transferencia + prueba de lógica | pendiente (tras T1) | 0 |
 | T3 | Validador (ejecuta y mide), trazabilidad y cierre de BL-046 | pendiente | 0 |
 
@@ -31,6 +31,7 @@ Con reloj controlado (monkeypatch de `hoy_colombia`): bordes inferior y superior
 | Fecha | Agente | Acción | Resultado |
 |---|---|---|---|
 | 2026-11-25 | dueño | Decide rango y alcance | Ficha creada; T1 en curso |
+| 2026-11-25 | generador | T1 backend: `utils/rango_fechas.py`, esquemas, PUT, confirmar recurrente, WhatsApp, `tests/test_rango_fechas.py` (INV-063) | Hecha; ver informe |
 
 ## 7. Cierre
 Pendiente. Despliegue: push a `main` con aprobación; sin SQL ni variables nuevas.

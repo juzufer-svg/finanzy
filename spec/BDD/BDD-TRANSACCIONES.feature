@@ -54,3 +54,51 @@ Característica: Transacciones y resumen
     Entonces conserva "efectivo"; si envío null queda sin especificar; y un valor como "bitcoin" se rechaza con 422
     # Prueba: backend/tests/test_medio_pago.py
 
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Fecha anterior al 1 de enero de 2026
+    Dado que hoy en Colombia es el 25/11/2026
+    Cuando registro una transacción con fecha 2025-12-31
+    Entonces responde 422 «La fecha debe estar entre el 1 de enero de 2026 y el 25/11/2027» y no se guarda nada
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_crear_transaccion_2025_12_31_se_rechaza_con_mensaje
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Fecha mínima permitida
+    Dado que hoy en Colombia es el 25/11/2026
+    Cuando registro una transacción con fecha 2026-01-01
+    Entonces se guarda
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_crear_transaccion_2026_01_01_se_acepta
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Fecha máxima permitida (hoy más 365 días)
+    Dado que hoy en Colombia es el 25/11/2026
+    Cuando registro una transacción con fecha 2027-11-25
+    Entonces se guarda
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_crear_transaccion_hoy_mas_365_se_acepta
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Fecha posterior a hoy más 365 días
+    Dado que hoy en Colombia es el 25/11/2026
+    Cuando registro una transacción con fecha 2027-11-26
+    Entonces responde 422 «La fecha debe estar entre el 1 de enero de 2026 y el 25/11/2027» y no se guarda nada
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_crear_transaccion_hoy_mas_366_se_rechaza
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Año absurdo
+    Cuando registro una transacción con fecha 9999-12-31 o 0001-01-01
+    Entonces responde 422 «La fecha debe estar entre el 1 de enero de 2026 y el 25/11/2027» y no se guarda nada
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_crear_transaccion_fechas_absurdas_se_rechazan
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: El día de Colombia decide el borde, no el día UTC
+    Dado que son las 22:30 del 25/11/2026 en Colombia (ya es 26/11 en UTC)
+    Cuando registro una transacción con fecha 2027-11-26
+    Entonces se rechaza con 422, y con fecha 2027-11-25 se guarda
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_el_borde_depende_del_dia_de_colombia_y_no_del_dia_utc
+
+  @BDD-TRANSACCIONES @CHG-027 @invariante @INV-063
+  Escenario: Editar sin cambiar la fecha no se rechaza por el rango
+    Dado una transacción guardada con fecha 2025-06-01
+    Cuando la edito cambiando solo el monto
+    Entonces se guarda; pero si cambio su fecha a una fuera de rango, responde 422
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_editar_sin_cambiar_la_fecha_no_se_rechaza_aunque_este_fuera_de_rango

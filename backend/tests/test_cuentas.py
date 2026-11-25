@@ -7,12 +7,13 @@ Las pruebas con `_ClienteFalso` comprueban la rama de Supabase (columnas reales,
 import asyncio
 import threading
 import time
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 
 from app.core.config import settings
-from app.models import auth_estado, plataapp as modelos
+from app.models import auth_estado, contadores, plataapp as modelos
 from app.models.auth_estado import EstadoNoDisponible, MENSAJE_503
 from app.models.cuentas import CuentaDB
 from app.models.demo_db import DemoTransaccionDB
@@ -94,7 +95,9 @@ def test_inv047_saldo_siempre_en_cop_sin_conversion(client, users):
 
 def test_inv047_transacciones_de_fecha_futura_cuentan_en_el_saldo(client):
     c = _cuenta(client, saldo=50000)
-    assert _tx(client, c["id"], 10000, fecha="2099-12-15").status_code == 200
+    # CHG-027 (INV-063): 2099 ya no es una fecha admisible; se usa una futura DENTRO del rango (hoy + 200 días), misma intención
+    futura = (contadores.hoy_colombia() + timedelta(days=200)).isoformat()
+    assert _tx(client, c["id"], 10000, fecha=futura).status_code == 200
     assert _saldo(client, c) == 40000
 
 

@@ -456,3 +456,10 @@ Característica: Cuentas de dinero con saldo y transferencias
   Escenario: La exportación gana la columna Cuenta
     Cuando exporto transacciones con y sin cuenta de dinero
     Entonces la columna 8 «Cuenta» trae el nombre o queda vacía, las columnas 1 a 7 no cambian y no hay transferencias
+
+  @BDD-CUENTAS @CHG-027 @invariante @INV-063
+  Escenario: Fecha de una transferencia fuera del rango permitido
+    Dado que hoy en Colombia es el 25/11/2026 y dos cuentas de dinero mías
+    Cuando transfiero con fecha 2025-12-31 o 2027-11-26
+    Entonces responde 422 «La fecha debe estar entre el 1 de enero de 2026 y el 25/11/2027» y los saldos no cambian; con 2026-01-01 o 2027-11-25 se registra
+    # Prueba: backend/tests/test_rango_fechas.py::test_inv063_transferencia_bordes_inferior_y_superior

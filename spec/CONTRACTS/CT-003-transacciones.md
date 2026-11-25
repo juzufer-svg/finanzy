@@ -11,7 +11,7 @@ Errores comunes: 401 "Token inválido" · 404 "Transacción no encontrada" (no e
   "categoria_id": "texto ≤ 64 — opcional ('' = sin categoría) — debe ser del usuario (INV-002)",
   "monto": "número > 0 y ≤ 1e12 (INV-003)",
   "descripcion": "texto ≤ 255 — opcional",
-  "fecha": "YYYY-MM-DD (INV-005)",
+  "fecha": "YYYY-MM-DD (INV-005), entre 2026-01-01 y hoy + 365 días (día de Colombia) (INV-063)",
   "tipo": "ingreso | gasto (INV-004)",
   "medio_pago": "debito | credito | efectivo | transferencia | nequi_daviplata | null — opcional (INV-022)",
   "cuenta_id": "uuid ≤ 64 — opcional (CHG-019, fase a): null/ausente = sin cuenta; debe ser una cuenta de dinero del usuario (INV-046) y no estar archivada; monto ≤ 9 999 999 999,99 y ≤ 2 decimales con cuenta de dinero (INV-051)"
@@ -32,9 +32,9 @@ existe, INV-046); **409** «Saldo insuficiente…» si la transacción dejaría 
 
 | Endpoint | Respuesta | Errores propios |
 |---|---|---|
-| `POST /transacciones` | 200 transacción creada | 404 "Categoría no encontrada" si la categoría no es del usuario |
+| `POST /transacciones` | 200 transacción creada | 404 "Categoría no encontrada" si la categoría no es del usuario; 422 «La fecha debe estar entre el 1 de enero de 2026 y el dd/mm/aaaa» si la fecha está fuera de rango (INV-063, CHG-027) |
 | `GET /transacciones?mes=YYYY-MM` | 200 lista (más recientes primero); sin `mes` = todas | 422 "Formato de mes inválido (YYYY-MM)" |
 | `GET /transacciones/resumen/{mes}` | 200 `{ "ingresos", "gastos", "balance", "total_transacciones" }` | 422 mes inválido |
 | `GET /transacciones/{id}` | 200 transacción | 404 |
-| `PUT /transacciones/{id}` | 200 transacción actualizada | 404 (transacción o categoría ajena) |
+| `PUT /transacciones/{id}` | 200 transacción actualizada | 404 (transacción o categoría ajena); 422 igual que en `POST` **solo si la fecha cambia** respecto a la guardada (una edición que no la cambia no se rechaza por el rango) (INV-063) |
 | `DELETE /transacciones/{id}` | 200 `{ "message": "Transacción eliminada" }` | 404 |

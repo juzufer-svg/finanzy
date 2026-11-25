@@ -36,7 +36,7 @@ Salida: `{ "id", "usuario_id", "cuenta_origen_id", "cuenta_destino_id", "monto",
 
 | Endpoint | Entrada | Respuesta | Errores propios |
 |---|---|---|---|
-| `POST /transferencias` | `{ "cuenta_origen_id", "cuenta_destino_id", "monto": "> 0 y ≤ 9 999 999 999,99, ≤ 2 decimales", "fecha": "YYYY-MM-DD", "descripcion": "≤ 255 (opcional)" }` | 200 transferencia creada; los dos saldos se mueven juntos (INV-049) | 404 «Cuenta no encontrada» (cualquiera de las dos no es suya, sin decir cuál); 422 «Elige dos cuentas distintas»; 409 «La cuenta … está archivada»; 409 saldo insuficiente en el origen (INV-048); 422 montos |
+| `POST /transferencias` | `{ "cuenta_origen_id", "cuenta_destino_id", "monto": "> 0 y ≤ 9 999 999 999,99, ≤ 2 decimales", "fecha": "YYYY-MM-DD, entre 2026-01-01 y hoy + 365 días (día de Colombia) (INV-063)", "descripcion": "≤ 255 (opcional)" }` | 200 transferencia creada; los dos saldos se mueven juntos (INV-049) | 404 «Cuenta no encontrada» (cualquiera de las dos no es suya, sin decir cuál); 422 «Elige dos cuentas distintas»; 409 «La cuenta … está archivada»; 409 saldo insuficiente en el origen (INV-048); 422 montos; 422 «La fecha debe estar entre el 1 de enero de 2026 y el dd/mm/aaaa» (INV-063, CHG-027) |
 | `GET /transferencias?mes=YYYY-MM` | `mes` opcional (año 0001 a 9998). Sin `mes`, las 1000 más recientes (tope); la interfaz siempre envía `mes` | 200 lista (más recientes primero) | 422 «Formato de mes inválido (YYYY-MM)» (también si el año está fuera de 0001-9998) |
 | `DELETE /transferencias/{id}` | — | 200 `{ "message": "Transferencia eliminada" }` | 404 «Transferencia no encontrada»; 409 si dejaría la cuenta de dinero destino (que no es tarjeta) en negativo; 409 si una de las dos cuentas de dinero está archivada |
 
