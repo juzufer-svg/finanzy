@@ -3,6 +3,7 @@ import apiClient from '@/lib/api-client'
 import { MEDIOS_PAGO, MEDIO_POR_DEFECTO } from '@/lib/payment-methods'
 import { useCurrencyStore } from '@/store/currency'
 import MoneyPrefix from '@/components/MoneyPrefix'
+import { rangoFechas, validarRangoFecha } from '@/lib/rango-fechas'
 import { opcionesSelector, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
 
 interface TransactionFormProps {
@@ -52,6 +53,8 @@ export default function TransactionForm({ categories, cuentas = [], onSuccess }:
     e.preventDefault()
     setLoading(true)
     setError('')
+    const fueraDeRango = validarRangoFecha(formData.fecha)
+    if (fueraDeRango) { setError(fueraDeRango); setLoading(false); return }
     try {
       await apiClient.post('/api/v1/transacciones', {
         ...formData,
@@ -182,7 +185,7 @@ export default function TransactionForm({ categories, cuentas = [], onSuccess }:
         {/* Fecha */}
         <div>
           <label htmlFor="txf-fecha" className="label">Fecha</label>
-          <input id="txf-fecha" type="date" name="fecha" value={formData.fecha} onChange={handleChange} className="input-field" />
+          <input id="txf-fecha" type="date" name="fecha" min={rangoFechas().min} max={rangoFechas().max} value={formData.fecha} onChange={handleChange} className="input-field" />
         </div>
 
         {/* Descripción */}

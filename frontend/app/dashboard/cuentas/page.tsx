@@ -14,6 +14,7 @@ import PageHeader from '@/components/PageHeader'
 import EmptyState from '@/components/EmptyState'
 import MoneyPrefix from '@/components/MoneyPrefix'
 import { useCurrencyStore } from '@/store/currency'
+import { rangoFechas, validarRangoFecha } from '@/lib/rango-fechas'
 import {
   TIPOS_CUENTA, NOMBRE_CUENTA_MAX, normalizarCuentas, separarCuentas, tipoLabel, estadoLabel, esTarjeta,
   textoSaldo, notaDeuda, validarCuenta, cambiosCuenta, mensajeErrorCuenta, type Cuenta, type TipoCuenta,
@@ -115,6 +116,8 @@ export default function CuentasPage() {
     if (!formT) return
     const datos = { origen: formT.origen, destino: formT.destino, monto: toBase(formT.monto), fecha: formT.fecha, descripcion: formT.descripcion }
     const problema = validarTransferencia(datos)
+    const fueraDeRango = validarRangoFecha(datos.fecha)
+    if (fueraDeRango) { setFormTError(fueraDeRango); return }
     if (problema) { setFormTError(problema); return }
     setSavingT(true)
     setFormTError('')
@@ -322,7 +325,7 @@ export default function CuentasPage() {
             </div>
             <div>
               <label htmlFor="trf-fecha" className="label">Fecha</label>
-              <input id="trf-fecha" type="date" value={formT.fecha} onChange={e => setFormT(p => p && ({ ...p, fecha: e.target.value }))} required className="input-field" />
+              <input id="trf-fecha" type="date" min={rangoFechas().min} max={rangoFechas().max} value={formT.fecha} onChange={e => setFormT(p => p && ({ ...p, fecha: e.target.value }))} required className="input-field" />
             </div>
           </div>
           <div>

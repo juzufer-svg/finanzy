@@ -14,6 +14,7 @@ import { usePeriodStore } from '@/store/period'
 import { MEDIOS_PAGO, medioPagoLabel } from '@/lib/payment-methods'
 import MoneyPrefix from '@/components/MoneyPrefix'
 import ExportarDescarga from '@/components/ExportarDescarga'
+import { rangoFechas, validarRangoFecha } from '@/lib/rango-fechas'
 import { normalizarCuentas, opcionesSelector, nombreDeCuenta, cuentaIdParaPut, mensajeErrorCuenta, type Cuenta } from '@/lib/cuentas'
 
 interface Transaction {
@@ -65,6 +66,8 @@ function EditTransactionModal({ transaction, categories, cuentas, onClose, onSav
     e.preventDefault()
     setLoading(true)
     setError('')
+    const fueraDeRango = validarRangoFecha(formData.fecha)
+    if (fueraDeRango) { setError(fueraDeRango); setLoading(false); return }
     try {
       const { cuenta_id, ...resto } = formData
       await apiClient.put(`/api/v1/transacciones/${transaction.id}`, {
@@ -142,7 +145,7 @@ function EditTransactionModal({ transaction, categories, cuentas, onClose, onSav
           </div>
           <div>
             <label htmlFor="txe-fecha" className="block text-xs font-semibold text-slate-700 mb-1.5">Fecha</label>
-            <input id="txe-fecha" type="date" value={formData.fecha} onChange={e => setFormData(p => ({...p, fecha: e.target.value}))}
+            <input id="txe-fecha" type="date" min={rangoFechas().min} max={rangoFechas().max} value={formData.fecha} onChange={e => setFormData(p => ({...p, fecha: e.target.value}))}
               required className="w-full px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-slate-50 focus:bg-white" />
           </div>
           <div>

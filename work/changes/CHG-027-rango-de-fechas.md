@@ -24,7 +24,7 @@ Con reloj controlado (monkeypatch de `hoy_colombia`): bordes inferior y superior
 | Tarea | Alcance | Estado | Ciclos |
 |---|---|---|---|
 | T1 | Backend: esquemas, WhatsApp si aplica, pruebas | hecha (pendiente validación T3) | 0 |
-| T2 | Frontend: `min`/`max` en los campos fecha de transacción y transferencia + prueba de lógica | pendiente (tras T1) | 0 |
+| T2 | Frontend: `min`/`max` en los campos fecha de transacción y transferencia + prueba de lógica | hecha (pendiente validación T3) | 0 |
 | T3 | Validador (ejecuta y mide), trazabilidad y cierre de BL-046 | pendiente | 0 |
 
 ## 6. Registro de ejecución
@@ -32,6 +32,7 @@ Con reloj controlado (monkeypatch de `hoy_colombia`): bordes inferior y superior
 |---|---|---|---|
 | 2026-11-25 | dueño | Decide rango y alcance | Ficha creada; T1 en curso |
 | 2026-11-25 | generador | T1 backend: `utils/rango_fechas.py`, esquemas, PUT, confirmar recurrente, WhatsApp, `tests/test_rango_fechas.py` (INV-063) | Hecha; ver informe |
+| 2026-11-25 | generador | T2 frontend: `fe/lib/rango-fechas.ts`, `min`/`max` y validación previa en `TransactionForm`, edición de transacciones y transferencia (Cuentas), `fe/lib/api-error.ts` (422 de fecha en lista Pydantic), `fe/tests/rango-fechas.test.mjs` | Hecha; eslint 0, tsc, 111 pruebas, build ok |
 
 ## 7. Cierre
 Pendiente. Despliegue: push a `main` con aprobación; sin SQL ni variables nuevas.
