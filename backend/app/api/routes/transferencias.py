@@ -62,7 +62,7 @@ async def crear_transferencia(datos: TransferenciaCreate, authorization: str = H
 @router.get("/transferencias", response_model=list[TransferenciaResponse])
 async def listar_transferencias(mes: Optional[str] = None, authorization: str = Header(...)):
     usuario_id = await _sesion(authorization)
-    if mes is not None and not MES_PATTERN.match(mes):
+    if mes is not None and (not MES_PATTERN.match(mes) or not 1 <= int(mes[:4]) <= 9998):
         raise HTTPException(status_code=422, detail="Formato de mes inválido (YYYY-MM)")
     return await TransferenciaDB.listar(usuario_id, mes)
 

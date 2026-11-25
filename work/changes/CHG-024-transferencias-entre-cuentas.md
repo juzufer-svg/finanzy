@@ -20,7 +20,7 @@ REQ-F-020 CA-5 · INV-049 (y INV-046/047/048/050/051) · CT-012 §Transferencias
 | A5 | `POST /transferencias` limitado a 30 por minuto por usuario (429), como las altas de cuentas | Hoy el CT-012 no lo dice |
 | A6 | Eliminar una cuenta con transferencias → 409 «Archívala» (ya cubierto por las llaves compuestas `NO ACTION`; se añade prueba) | INV-050 |
 | A7 | Fase (b) deja sin tocar WhatsApp, asistente, recurrentes, metas y exportación (no ven transferencias por construcción) | Es la fase (c) |
-| A8 | Interfaz: botón «Transferir» y sección «Transferencias» (últimas, con eliminar) dentro de «Cuentas»; mensajes de error con `apiErrorMessage` | CT-012 solo dice «lista de movimientos» |
+| A8 | Interfaz: botón «Transferir» y sección «Transferencias» (últimas, con eliminar) dentro de «Cuentas»; mensajes de error con `mensajeErrorCuenta` (delega en `apiErrorMessage`) | CT-012 solo dice «lista de movimientos» |
 
 ## 4. Preguntas abiertas
 | # | Pregunta | Recomendación |
@@ -35,8 +35,8 @@ REQ-F-020 CA-5 · INV-049 (y INV-046/047/048/050/051) · CT-012 §Transferencias
 |---|---|---|---|---|
 | T5 | Migración A1-A3 + `09_comprobar_transferencias.sql` + concurrencia (20 transferencias; 20 A→B y 20 B→A sin interbloqueos) + `PLATAAPP_SCHEMA.sql` | — | hecha, pendiente de validar (2026-11-25) | 1 |
 | T6 | Backend `/transferencias` (A4-A6, `DemoDB`) + `test_transferencias.py` | T5 | hecho (2026-11-25: `routes/transferencias.py`, `models/transferencias.py`, `schemas/transferencias.py`, `DemoTransferenciaDB`; 29 pruebas nuevas, suite 980 OK, pyflakes OK) | 0 |
-| T7 | Frontend (A8) + `PLATAAPP_SCHEMA.sql` + trazabilidad | T6 | frontend hecho (2026-11-25: `cuentas/page.tsx`, `lib/transferencias.ts`, `tests/transferencias.test.mjs`; eslint, tsc, 99 pruebas y build OK); falta `PLATAAPP_SCHEMA.sql` | 0 |
-| T8 | Validador y revisor en paralelo (máx. 2 ciclos) | T5-T7 | pendiente | 0 |
+| T7 | Frontend (A8) + `PLATAAPP_SCHEMA.sql` + trazabilidad | T6 | hecho (2026-11-25: `cuentas/page.tsx`, `lib/transferencias.ts`, `tests/transferencias.test.mjs`, `PLATAAPP_SCHEMA.sql`; eslint, tsc, 99 pruebas y build OK) | 0 |
+| T8 | Validador y revisor en paralelo (máx. 2 ciclos) | T5-T7 | ciclo 1 hecho; correcciones menores aplicadas (mes fuera de rango 422, mes vigente al recargar, documentación) | 0 |
 
 ## 6. Registro de ejecución
 | Fecha | Agente | Acción | Resultado |
@@ -45,4 +45,6 @@ REQ-F-020 CA-5 · INV-049 (y INV-046/047/048/050/051) · CT-012 §Transferencias
 | 2026-11-25 | dueño | Aprueba la ficha y las 4 recomendaciones (Q1-Q4) | T5, T6 y T7 en paralelo (archivos distintos) |
 
 ## 7. Cierre
-Pendiente.
+- Cambio del BDD: el escenario «Origen y destino distintos» (`spec/BDD/BDD-CUENTAS.feature`) exige 422 «Elige dos cuentas distintas»; la prueba es `test_inv049_origen_y_destino_deben_ser_distintos_422`.
+- Correcciones del ciclo 1 (menores): `?mes` con año fuera de 0001-9998 responde 422 (`test_inv049_mes_fuera_de_rango_422`); CT-012 documenta el tope de 1000 sin `mes`; la interfaz recarga el mes vigente tras guardar o eliminar; ADR-009 registra el interbloqueo raro y el tope como riesgos aceptados. Rango de fechas permitido: BL-046 (decide el dueño).
+- **Despliegue**: 1) ejecutar `backend/sql/2026-11-25_transferencias.sql` en Supabase ANTES del backend (el `drop index if exists` + `create index` solo es seguro porque la tabla `transferencias` es nueva); 2) sin variables de entorno nuevas; 3) desplegar = push a `main`, solo con aprobación explícita del dueño.

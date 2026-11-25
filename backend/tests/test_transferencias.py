@@ -342,3 +342,12 @@ def test_las_transferencias_usan_el_ejecutor_propio_de_cuentas(client, monkeypat
     _con_supabase_falso(monkeypatch, fuente)
     assert client.get(URL, headers=A).status_code == 200
     assert hilos and all(h.startswith("cuentas") and "auth-estado" not in h for h in hilos)
+
+
+def test_inv049_mes_fuera_de_rango_422(client):
+    """`9999-12` y `0000-01` pasan el patrón pero no se puede calcular el mes siguiente: 422, no 503."""
+    for malo in ("9999-12", "0000-01", "9999-01"):
+        r = client.get(URL, params={"mes": malo}, headers=A)
+        assert r.status_code == 422 and r.json() == {"detail": "Formato de mes inválido (YYYY-MM)"}
+    assert client.get(URL, params={"mes": "9998-12"}, headers=A).status_code == 200
+    assert client.get(URL, params={"mes": "0001-01"}, headers=A).status_code == 200

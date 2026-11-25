@@ -5,7 +5,7 @@
  * inicial, archivar / restaurar y eliminar (solo si no tiene movimientos). El saldo lo calcula el servidor en COP;
  * aquí se muestra en la moneda elegida. Las reglas (saldo no negativo, tope de 20, nombre único) viven en el backend.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import apiClient, { hasStoredSession } from '@/lib/api-client'
 import { useDialog } from '@/components/DialogProvider'
@@ -75,10 +75,12 @@ export default function CuentasPage() {
     return () => { active = false }
   }, [fetchCuentas, router])
 
+  // Mes vigente: tras guardar/eliminar se recarga ESE mes aunque el usuario lo haya cambiado mientras tanto
+  const mesRef = useRef(mes)
   const fetchTransferencias = useCallback((mesConsulta: string, isActive: () => boolean = () => true) => {
     return apiClient.get(`/api/v1/transferencias?mes=${mesConsulta}`)
       .then(res => {
-        if (!isActive()) return
+        if (!isActive() || mesConsulta !== mesRef.current) return
         setTransferencias(normalizarTransferencias(res.data))
         setTransfError('')
       })
@@ -92,6 +94,7 @@ export default function CuentasPage() {
 
   useEffect(() => {
     if (!hasStoredSession()) return
+    mesRef.current = mes
     let active = true
     fetchTransferencias(mes, () => active)
     return () => { active = false }
@@ -117,7 +120,7 @@ export default function CuentasPage() {
     setFormTError('')
     try {
       await apiClient.post('/api/v1/transferencias', cuerpoTransferencia(datos))
-      await Promise.all([fetchCuentas(), fetchTransferencias(mes)])
+      await Promise.all([fetchCuentas(), fetchTransferencias(mesRef.current)])
       notify('Transferencia registrada', 'success')
       closeTransfer()
     } catch (err) {
@@ -138,7 +141,7 @@ export default function CuentasPage() {
     setTrabajando(t.id)
     try {
       await apiClient.delete(`/api/v1/transferencias/${t.id}`)
-      await Promise.all([fetchCuentas(), fetchTransferencias(mes)])
+      await Promise.all([fetchCuentas(), fetchTransferencias(mesRef.current)])
       notify('Transferencia eliminada', 'success')
     } catch (err) {
       notify(mensajeErrorCuenta(err, 'No se pudo eliminar la transferencia.'), 'error')

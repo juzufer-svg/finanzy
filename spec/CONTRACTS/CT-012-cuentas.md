@@ -37,7 +37,7 @@ Salida: `{ "id", "usuario_id", "cuenta_origen_id", "cuenta_destino_id", "monto",
 | Endpoint | Entrada | Respuesta | Errores propios |
 |---|---|---|---|
 | `POST /transferencias` | `{ "cuenta_origen_id", "cuenta_destino_id", "monto": "> 0 y ≤ 9 999 999 999,99, ≤ 2 decimales", "fecha": "YYYY-MM-DD", "descripcion": "≤ 255 (opcional)" }` | 200 transferencia creada; los dos saldos se mueven juntos (INV-049) | 404 «Cuenta no encontrada» (cualquiera de las dos no es suya, sin decir cuál); 422 «Elige dos cuentas distintas»; 409 «La cuenta … está archivada»; 409 saldo insuficiente en el origen (INV-048); 422 montos |
-| `GET /transferencias?mes=YYYY-MM` | `mes` opcional (sin él, todas) | 200 lista (más recientes primero) | 422 «Formato de mes inválido (YYYY-MM)» |
+| `GET /transferencias?mes=YYYY-MM` | `mes` opcional (año 0001 a 9998). Sin `mes`, las 1000 más recientes (tope); la interfaz siempre envía `mes` | 200 lista (más recientes primero) | 422 «Formato de mes inválido (YYYY-MM)» (también si el año está fuera de 0001-9998) |
 | `DELETE /transferencias/{id}` | — | 200 `{ "message": "Transferencia eliminada" }` | 404 «Transferencia no encontrada»; 409 si dejaría la cuenta de dinero destino (que no es tarjeta) en negativo; 409 si una de las dos cuentas de dinero está archivada |
 
 No hay `PUT`: se elimina y se crea otra. Sin comisión. Una transferencia **no** es ingreso ni gasto (INV-049): no aparece en `GET /transacciones`, ni en `resumen/{mes}`, presupuestos, reportes, asistente ni exportación; la interfaz la muestra en la lista de movimientos con los datos de `GET /transferencias`.
