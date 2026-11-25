@@ -6,8 +6,10 @@ import uuid
 from datetime import date as date_type
 from app.core.supabase import SupabaseDB
 from app.core.config import settings
-from app.models import whatsapp as whatsapp_db
+from app.models import auth_estado, whatsapp as whatsapp_db
+from app.models.cuentas import _llamar, _modo, rpc_negocio
 from app.models.demo_db import (
+    ErrorBD,
     DemoTransaccionDB,
     DemoCategoriaDB,
     DemoPresupuestoDB,
@@ -109,7 +111,7 @@ class TransaccionDB:
     @staticmethod
     def pagina_para_exportar(usuario_id: str, desde_mes: str, hasta_mes: str, inicio: int, cantidad: int) -> list:
         """Una página de transacciones DEL USUARIO entre dos meses (YYYY-MM, ambos incluidos), ordenadas por fecha,
-        creación e id. Cada fila: fecha, tipo, categoria_id, descripcion, medio_pago, monto, whatsapp (bool).
+        creación e id. Cada fila: fecha, tipo, categoria_id, descripcion, medio_pago, monto, cuenta_id (CHG-025), whatsapp (bool).
         PostgREST corta en 1000 filas: quien llama pagina con `inicio` y `cantidad` ≤ 1000 (INV-044)."""
         primero, _ = _mes_rango(desde_mes)
         _, siguiente = _mes_rango(hasta_mes)
@@ -124,18 +126,19 @@ class TransaccionDB:
             return [{
                 "fecha": t["fecha"], "tipo": t["tipo"], "categoria_id": t.get("categoria_id"),
                 "descripcion": t.get("descripcion"), "medio_pago": t.get("medio_pago"), "monto": t["monto"],
-                "whatsapp": t["id"] in ids_whatsapp,
+                "cuenta_id": t.get("cuenta_id"), "whatsapp": t["id"] in ids_whatsapp,
             } for t in propias[inicio:inicio + cantidad]]
         try:
             client = SupabaseDB.get_client()
             filas = (client.table("transacciones")
-                     .select("fecha,tipo,categoria_id,descripcion,medio_pago,monto,whatsapp_registros(transaccion_id)")
+                     .select("fecha,tipo,categoria_id,descripcion,medio_pago,monto,cuenta_id,whatsapp_registros(transaccion_id)")
                      .eq("usuario_id", usuario_id).gte("fecha", primero).lt("fecha", siguiente)
                      .order("fecha").order("id")
                      .range(inicio, inicio + cantidad - 1).execute().data)
             return [{
                 "fecha": f["fecha"], "tipo": f["tipo"], "categoria_id": f.get("categoria_id"),
                 "descripcion": f.get("descripcion"), "medio_pago": f.get("medio_pago"), "monto": f["monto"],
+                "cuenta_id": f.get("cuenta_id"),
                 # WhatsApp = existe fila en whatsapp_registros (objeto o lista según la relación; vacío = App)
                 "whatsapp": bool(f.get("whatsapp_registros")),
             } for f in filas]
@@ -454,14 +457,21 @@ class MetaDB:
     _RPC_NO_DISPONIBLE = {"PGRST202", "42883", "42703", "42P01"}
 
     @staticmethod
-    async def abonar(meta_id: str, usuario_id: str, monto: float, fecha: str, descripcion: str) -> Optional[dict]:
+    async def abonar(meta_id: str, usuario_id: str, monto: float, fecha: str, descripcion: str,
+                     cuenta_id: Optional[str] = None) -> Optional[dict]:
         """Abono atómico con la función SQL `abonar_meta` (CHG-004, INV-008).
 
         Suma a la meta y registra el gasto en una sola transacción de PostgreSQL, con la
         meta bloqueada mientras tanto (dos abonos simultáneos no se pisan).
         Devuelve la meta actualizada, o None si no existe o es de otro usuario.
-        Lanza AbonoAtomicoNoDisponible si no hay Supabase o la función no está instalada.
+        Lanza AbonoAtomicoNoDisponible si no hay Supabase o la función no está instalada (solo SIN cuenta).
+
+        Con `cuenta_id` (CHG-025, INV-052) el gasto descuenta esa cuenta de dinero dentro de la MISMA transacción SQL: si no hay
+        saldo o está archivada (FZ001/FZ002 → `ErrorBD`) no cambia nada. Con cuenta NUNCA hay método alternativo: sin la función
+        SQL actualizada, o ante cualquier fallo de la BD, `EstadoNoDisponible` (503). Corre en el ejecutor propio de cuentas.
         """
+        if cuenta_id is not None:
+            return await MetaDB._abonar_con_cuenta(meta_id, usuario_id, monto, fecha, descripcion, cuenta_id)
         if not _supabase_ok():
             raise AbonoAtomicoNoDisponible("modo demo")
         client = SupabaseDB.get_client()
@@ -489,6 +499,29 @@ class MetaDB:
             return datos[0] if datos else None
         return datos or None
 
+    @staticmethod
+    async def _abonar_con_cuenta(meta_id: str, usuario_id: str, monto: float, fecha: str, descripcion: str,
+                                 cuenta_id: str) -> Optional[dict]:
+        if _modo() == "memoria":
+            return await DemoMetaDB.abonar_con_cuenta(meta_id, usuario_id, monto, fecha, descripcion, cuenta_id)
+        params = {"p_meta_id": meta_id, "p_usuario_id": usuario_id, "p_monto": monto, "p_fecha": fecha,
+                  "p_descripcion": descripcion, "p_cuenta_id": cuenta_id}
+        try:
+            datos = await _llamar("metas_abonar", lambda: rpc_negocio("abonar_meta", params))
+        except ErrorBD as e:
+            if e.code == "P0002":   # la meta no existe o es de otro usuario
+                return None
+            raise
+        if isinstance(datos, dict):
+            datos = [datos]
+        if not isinstance(datos, list) or len(datos) > 1:
+            raise auth_estado.EstadoNoDisponible("respuesta inesperada")
+        if not datos:
+            return None
+        if str(datos[0].get("usuario_id")) != str(usuario_id):   # defensa en profundidad (INV-001)
+            raise auth_estado.EstadoNoDisponible("meta ajena en la respuesta")
+        return datos[0]
+
 
 class AbonoAtomicoNoDisponible(Exception):
     """La función SQL `abonar_meta` no se puede usar (modo demo o migración sin aplicar)."""
@@ -498,7 +531,8 @@ class AbonoAtomicoNoDisponible(Exception):
 class RecurrenteDB:
     """Transacciones recurrentes (CHG-012). Toda consulta filtra por usuario_id (INV-001)."""
 
-    _COLUMNAS = {"categoria_id", "tipo", "monto", "descripcion", "medio_pago",
+    # `cuenta_id` (CHG-025) solo viaja cuando la ruta lo envía: sin cuenta, funciona aunque falte la migración
+    _COLUMNAS = {"categoria_id", "tipo", "monto", "descripcion", "medio_pago", "cuenta_id",
                  "frecuencia", "dia_ancla", "proxima_fecha", "activa"}
 
     @staticmethod
@@ -594,6 +628,37 @@ class RecurrenteDB:
         except Exception as e:
             print(f"[Supabase] recurrentes.avanzar error: {e}")
             raise
+
+    @staticmethod
+    async def confirmar(usuario_id: str, recurrente_id: str, ocurrencia: str, siguiente: str, monto: Optional[float],
+                        fecha: Optional[str], cuenta_id: Optional[str], cuenta_indicada: bool) -> Optional[dict]:
+        """Confirma UNA ocurrencia con la función SQL atómica `confirmar_recurrente` (CHG-025, INV-052, ADR-009 punto 13).
+
+        En una sola transacción de PostgreSQL: bloquea la recurrente del usuario, comprueba que esté activa y que su próxima fecha
+        sea `ocurrencia` (compare-and-set), crea la transacción y avanza la fecha a `siguiente` (calculada en Python con
+        `recurrencia.py`, INV-026). Si algo falla, la fecha NO avanza.
+        `monto` None = el de la plantilla; `fecha` None = la ocurrencia; `cuenta_indicada` True usa `cuenta_id` (None = sin cuenta)
+        y False usa la cuenta de la plantilla. Devuelve la transacción creada, o None si la recurrente no existe o es de otro
+        usuario. Errores de negocio como `ErrorBD`: FZ001/FZ002 (saldo, archivada), 23503 (cuenta ajena), 23514 (monto), 22003 y
+        «OCURRENCIA_CAMBIADA» (pausada o fecha ya movida). Sin la función SQL (o con cualquier fallo de la BD):
+        `EstadoNoDisponible` (503); NUNCA el flujo anterior de avanzar, crear y revertir. Corre en el ejecutor propio de cuentas."""
+        if _modo() == "memoria":
+            return await DemoRecurrenteDB.confirmar(usuario_id, recurrente_id, ocurrencia, siguiente, monto, fecha,
+                                                    cuenta_id, cuenta_indicada)
+        params = {"p_usuario_id": usuario_id, "p_recurrente_id": recurrente_id, "p_ocurrencia": ocurrencia,
+                  "p_siguiente": siguiente, "p_monto": monto, "p_fecha": fecha, "p_cuenta_id": cuenta_id,
+                  "p_cuenta_indicada": bool(cuenta_indicada)}
+        try:
+            datos = await _llamar("recurrentes_confirmar", lambda: rpc_negocio("confirmar_recurrente", params))
+        except ErrorBD as e:
+            if e.code == "P0002":   # la recurrente no existe o es de otro usuario
+                return None
+            raise
+        if not isinstance(datos, list) or len(datos) != 1 or not isinstance(datos[0], dict):
+            raise auth_estado.EstadoNoDisponible("respuesta inesperada")
+        if str(datos[0].get("usuario_id")) != str(usuario_id):   # defensa en profundidad (INV-001)
+            raise auth_estado.EstadoNoDisponible("transacción ajena en la respuesta")
+        return datos[0]
 
     @staticmethod
     async def eliminar(recurrente_id: str, usuario_id: str) -> bool:

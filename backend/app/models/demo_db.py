@@ -463,6 +463,32 @@ class DemoMetaDB:
             return True
         return False
 
+    @staticmethod
+    async def abonar_con_cuenta(meta_id: str, usuario_id: str, monto: float, fecha: str, descripcion: str,
+                                cuenta_id: str) -> Optional[dict]:
+        """Equivale a `abonar_meta(..., p_cuenta_id)` (CHG-025, INV-052): las reglas de las cuentas de dinero (FZ001, FZ002,
+        23503) se evalúan ANTES de escribir nada, así que si fallan no cambian ni la meta, ni la categoría «Ahorro»
+        ni el saldo. None si la meta no existe o es de otro usuario."""
+        await DemoCategoriaDB.obtener_por_usuario(usuario_id)   # siembra las categorías por defecto como el flujo normal
+        with DemoCuentaDB._lock:
+            meta = DemoMetaDB._metas.get(meta_id)
+            if not meta or meta["usuario_id"] != usuario_id:
+                return None
+            DemoCuentaDB.validar_transaccion(usuario_id, None, {"cuenta_id": cuenta_id, "tipo": "gasto", "monto": monto})
+            ahorro = next((c for c in DemoCategoriaDB._categorias.values()
+                           if c["usuario_id"] == usuario_id and c["nombre"] == "Ahorro"), None)
+            if ahorro is None:
+                ahorro = {"id": str(uuid.uuid4()), "usuario_id": usuario_id, "nombre": "Ahorro", "icono": "🐷", "tipo": "gasto"}
+                DemoCategoriaDB._categorias[ahorro["id"]] = ahorro
+            trans_id = str(uuid.uuid4())
+            DemoTransaccionDB._transacciones[trans_id] = {
+                "id": trans_id, "usuario_id": usuario_id, "categoria_id": ahorro["id"], "monto": monto,
+                "descripcion": descripcion or "Abono a meta de ahorro", "fecha": fecha, "tipo": "gasto",
+                "medio_pago": None, "cuenta_id": cuenta_id,
+            }
+            meta["monto_actual"] = float(meta.get("monto_actual") or 0) + monto
+            return meta
+
 
 class DemoRecurrenteDB:
     """Transacciones recurrentes en memoria (CHG-012)"""
@@ -508,3 +534,29 @@ class DemoRecurrenteDB:
     @staticmethod
     async def eliminar(recurrente_id: str) -> bool:
         return DemoRecurrenteDB._recurrentes.pop(recurrente_id, None) is not None
+
+    @staticmethod
+    async def confirmar(usuario_id: str, recurrente_id: str, ocurrencia: str, siguiente: str, monto: Optional[float],
+                        fecha: Optional[str], cuenta_id: Optional[str], cuenta_indicada: bool) -> Optional[dict]:
+        """Equivale a la función SQL `confirmar_recurrente` (CHG-025, INV-052, ADR-009 punto 13): todo o nada y bajo el mismo
+        bloqueo que las demás reglas de cuentas. Comprueba que esté activa y que la fecha sea la que vio la persona
+        (`ErrorBD("OCURRENCIA_CAMBIADA")`), evalúa las reglas de las cuentas de dinero ANTES de escribir (FZ001, FZ002, 23503)
+        y solo entonces crea la transacción y avanza la fecha. None si la recurrente no existe o es de otro usuario."""
+        with DemoCuentaDB._lock:
+            r = DemoRecurrenteDB._recurrentes.get(recurrente_id)
+            if not r or r["usuario_id"] != usuario_id:
+                return None
+            if not r.get("activa") or r["proxima_fecha"] != ocurrencia:
+                raise ErrorBD("OCURRENCIA_CAMBIADA")
+            cuenta = cuenta_id if cuenta_indicada else r.get("cuenta_id")
+            valor = monto if monto is not None else r["monto"]
+            DemoCuentaDB.validar_transaccion(usuario_id, None, {"cuenta_id": cuenta, "tipo": r["tipo"], "monto": valor})
+            trans_id = str(uuid.uuid4())
+            transaccion = {
+                "id": trans_id, "usuario_id": usuario_id, "categoria_id": r.get("categoria_id") or None, "monto": valor,
+                "descripcion": r.get("descripcion") or "", "fecha": fecha or ocurrencia, "tipo": r["tipo"],
+                "medio_pago": r.get("medio_pago"), "cuenta_id": cuenta,
+            }
+            DemoTransaccionDB._transacciones[trans_id] = transaccion
+            r["proxima_fecha"] = siguiente
+            return dict(transaccion)

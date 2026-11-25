@@ -18,7 +18,10 @@ from app.models.plataapp import (
     TransaccionDB, CategoriaDB, PresupuestoDB, MetaDB, RecurrenteDB, AbonoAtomicoNoDisponible,
 )
 from app.models.cuentas import CuentaDB
-from app.api.cuentas_errores import relanzar_o_503 as relanzar_error_cuenta, MSG_NO_ENCONTRADA
+from app.api.cuentas_errores import (
+    relanzar_o_503 as relanzar_error_cuenta, traducir as traducir_error_cuenta, codigo_de, MSG_NO_ENCONTRADA, MSG_ARCHIVADA,
+)
+from app.models.auth_estado import EstadoNoDisponible
 from app.utils.recurrencia import siguiente_fecha
 from datetime import date, datetime, timezone
 from app.api.sesion import usuario_de_sesion
@@ -366,15 +369,30 @@ async def eliminar_meta(meta_id: str, authorization: str = Header(...)):
 
 @router.post("/metas/{meta_id}/abonar", response_model=MetaResponse)
 async def abonar_meta(meta_id: str, datos: AbonarMeta, authorization: str = Header(...)):
-    """Registra un aporte a una meta: crea transacción de gasto y aumenta monto_actual."""
+    """Registra un aporte a una meta: crea transacción de gasto y aumenta monto_actual.
+
+    Con `cuenta_id` (CHG-025, INV-052) el gasto descuenta esa cuenta de dinero en la MISMA transacción SQL que suma a la meta:
+    404 si la cuenta no es suya, 409 por saldo o cuenta archivada (no cambia nada), 503 sin la función SQL actualizada
+    (nunca el método anterior, que no es atómico)."""
     usuario_id = await get_user_id(authorization)
+    if datos.cuenta_id:
+        _ensure_monto_con_cuenta(datos.monto)                            # INV-051
+        await _ensure_cuenta_propia(datos.cuenta_id, usuario_id)         # INV-046
 
     # 1) Camino atómico: una sola transacción en PostgreSQL (CHG-004)
     try:
-        meta_actualizada = await MetaDB.abonar(meta_id, usuario_id, datos.monto, datos.fecha, datos.descripcion)
+        if datos.cuenta_id:
+            meta_actualizada = await MetaDB.abonar(meta_id, usuario_id, datos.monto, datos.fecha, datos.descripcion,
+                                                   cuenta_id=datos.cuenta_id)
+        else:
+            meta_actualizada = await MetaDB.abonar(meta_id, usuario_id, datos.monto, datos.fecha, datos.descripcion)
     except AbonoAtomicoNoDisponible:
-        return await _abonar_sin_transaccion(meta_id, usuario_id, datos)
-    except Exception:
+        return await _abonar_sin_transaccion(meta_id, usuario_id, datos)   # solo sin cuenta: con cuenta nunca se lanza
+    except (HTTPException, EstadoNoDisponible):
+        raise
+    except Exception as e:
+        if datos.cuenta_id:
+            relanzar_error_cuenta(e, "metas")   # FZ001/FZ002 → 409, 23503 → 404, lo demás → 503 genérico
         # La función revierte todo si falla: no quedó nada a medias
         raise HTTPException(status_code=500, detail="No se pudo registrar el abono")
     meta_actualizada = _ensure_owner(meta_actualizada, usuario_id, "Meta no encontrada")
@@ -427,6 +445,15 @@ def _fecha(valor: str) -> date:
         raise HTTPException(status_code=422, detail="Fecha inválida (YYYY-MM-DD)")
 
 
+async def _ensure_cuenta_de_recurrente(cuenta_id: Optional[str], usuario_id: str) -> None:
+    """Al crear o editar una recurrente con cuenta de dinero: 404 si no es del usuario (INV-046) y 409 si está archivada."""
+    if not cuenta_id:
+        return
+    cuenta = _ensure_owner(await CuentaDB.obtener_por_id(cuenta_id, usuario_id), usuario_id, MSG_NO_ENCONTRADA)
+    if cuenta.get("archivada"):
+        raise HTTPException(status_code=409, detail=MSG_ARCHIVADA)
+
+
 _OCURRENCIA_CAMBIADA = "Esta fecha ya se registró u omitió. Actualiza la lista de pendientes."
 _FECHA_CAMBIADA = "La próxima fecha cambió mientras editabas (se registró u omitió una). Recarga e intenta de nuevo."
 
@@ -451,8 +478,12 @@ async def obtener_pendientes(authorization: str = Header(...), hasta: Optional[s
 async def crear_recurrente(datos: RecurrenteCreate, authorization: str = Header(...)):
     usuario_id = await get_user_id(authorization)
     await _ensure_categoria_propia(datos.categoria_id, usuario_id)  # INV-002
+    await _ensure_cuenta_de_recurrente(datos.cuenta_id, usuario_id)  # INV-046 (404 si es ajena, 409 si está archivada)
     primera = _fecha(datos.proxima_fecha)
-    return await RecurrenteDB.crear(usuario_id, {**datos.model_dump(), "dia_ancla": primera.day})
+    fila = {**datos.model_dump(), "dia_ancla": primera.day}
+    if fila.get("cuenta_id") is None:
+        fila.pop("cuenta_id", None)   # sin cuenta no se envía la columna (funciona aunque falte la migración)
+    return await RecurrenteDB.crear(usuario_id, fila)
 
 
 @router.put("/recurrentes/{recurrente_id}", response_model=RecurrenteResponse)
@@ -462,6 +493,11 @@ async def actualizar_recurrente(recurrente_id: str, datos: RecurrenteUpdate, aut
                            "Recurrente no encontrada")
     await _ensure_categoria_propia(datos.categoria_id, usuario_id)
     cambios = datos.model_dump(exclude={"proxima_fecha", "proxima_fecha_vista"})
+    # cuenta_id igual que en las transacciones (CT-003 v1.2): no enviar = conservar, null = quitar, valor = reemplazar
+    if "cuenta_id" not in datos.model_fields_set:
+        cambios.pop("cuenta_id")
+    elif datos.cuenta_id != actual.get("cuenta_id"):   # re-enviar la misma cuenta (aunque esté archivada) no bloquea editar
+        await _ensure_cuenta_de_recurrente(datos.cuenta_id, usuario_id)
     esperada = None
     if datos.proxima_fecha is not None and datos.proxima_fecha != actual["proxima_fecha"]:
         nueva = _fecha(datos.proxima_fecha)
@@ -506,39 +542,44 @@ async def _avanzar(recurrente: dict, usuario_id: str, ocurrencia: str) -> tuple[
 
 @router.post("/recurrentes/{recurrente_id}/confirmar", response_model=ConfirmacionResponse)
 async def confirmar_recurrente(recurrente_id: str, datos: ConfirmarRecurrente, authorization: str = Header(...)):
-    """Registra la ocurrencia pendiente como transacción (con monto y fecha ajustables) y avanza la serie."""
+    """Registra la ocurrencia pendiente como transacción (con monto, fecha y cuenta ajustables) y avanza la serie.
+
+    Es UNA función SQL atómica (CHG-025, INV-052, ADR-009 punto 13): bloquea la recurrente, compara la fecha, crea la transacción
+    y avanza `proxima_fecha` en la misma transacción. Si falla (saldo, cuenta archivada, error de la BD) la fecha NO avanza.
+    Sin la función SQL → 503: nunca el flujo anterior de avanzar, crear y revertir."""
     usuario_id = await get_user_id(authorization)
     recurrente = _ensure_owner(await RecurrenteDB.obtener_por_id(recurrente_id, usuario_id), usuario_id,
                                "Recurrente no encontrada")
     if datos.fecha is not None:
         _fecha(datos.fecha)
-    avanzada, siguiente = await _avanzar(recurrente, usuario_id, datos.ocurrencia)
+    # Lectura previa solo para dar el mensaje correcto; la comprobación que manda es la de la función SQL (bajo bloqueo)
+    if not recurrente.get("activa"):
+        raise HTTPException(status_code=409, detail="La recurrente está pausada")
+    if datos.ocurrencia != recurrente["proxima_fecha"]:
+        raise HTTPException(status_code=409, detail=_OCURRENCIA_CAMBIADA)
+    # `cuenta_id` enviado (también null = sin cuenta) reemplaza la de la plantilla; no enviado = la de la plantilla
+    cuenta_indicada = "cuenta_id" in datos.model_fields_set
+    cuenta_id = datos.cuenta_id if cuenta_indicada else None
+    await _ensure_cuenta_propia(cuenta_id, usuario_id)   # INV-046: 404 y la fecha no avanza
+    if (cuenta_id if cuenta_indicada else recurrente.get("cuenta_id")):
+        _ensure_monto_con_cuenta(datos.monto if datos.monto is not None else recurrente["monto"])   # INV-051
+    siguiente = siguiente_fecha(_fecha(datos.ocurrencia), recurrente["frecuencia"], int(recurrente["dia_ancla"])).isoformat()
     try:
-        transaccion = await TransaccionDB.crear(
-            usuario_id=usuario_id,
-            categoria_id=recurrente.get("categoria_id") or "",
-            monto=datos.monto if datos.monto is not None else float(recurrente["monto"]),
-            descripcion=recurrente.get("descripcion") or "",
-            fecha=datos.fecha or datos.ocurrencia,
-            tipo=recurrente["tipo"],
-            medio_pago=recurrente.get("medio_pago"),
-        )
-    except Exception:
-        # Sin transacción la ocurrencia vuelve a quedar pendiente (no se pierde)
-        try:
-            revertida = await RecurrenteDB.avanzar(recurrente_id, usuario_id, siguiente, datos.ocurrencia)
-        except Exception as e:
-            revertida = None
-            print(f"[recurrentes.confirmar] no se pudo revertir ({type(e).__name__})")
-        if not revertida:
-            print(f"[recurrentes.confirmar] la ocurrencia {datos.ocurrencia} de {recurrente_id} quedó saltada sin transacción")
-            raise HTTPException(
-                status_code=500,
-                detail=f"No se pudo registrar la transacción y la fecha {datos.ocurrencia} quedó omitida. "
-                       "Regístrala a mano en Transacciones.",
-            )
-        raise HTTPException(status_code=500, detail="No se pudo registrar la transacción")
-    return {"transaccion": transaccion, "recurrente": avanzada}
+        transaccion = await RecurrenteDB.confirmar(usuario_id, recurrente_id, datos.ocurrencia, siguiente, datos.monto,
+                                                   datos.fecha, cuenta_id, cuenta_indicada)
+    except (HTTPException, EstadoNoDisponible):
+        raise
+    except Exception as e:
+        if codigo_de(e) == "OCURRENCIA_CAMBIADA":   # otra petición (doble toque, otra pestaña) la movió o la pausó
+            raise HTTPException(status_code=409, detail=_OCURRENCIA_CAMBIADA) from None
+        http = traducir_error_cuenta(e)   # FZ001/FZ002 → 409, 23503 → 404, 22003/23514 → 422
+        if http is not None:
+            raise http from None
+        print(f"[recurrentes.confirmar] No se pudo registrar ({type(e).__name__})")   # sin el texto de la BD
+        raise HTTPException(status_code=500, detail="No se pudo registrar la transacción") from None
+    if transaccion is None:
+        raise HTTPException(status_code=404, detail="Recurrente no encontrada")
+    return {"transaccion": transaccion, "recurrente": {**recurrente, "proxima_fecha": siguiente}}
 
 
 @router.post("/recurrentes/{recurrente_id}/omitir", response_model=RecurrenteResponse)

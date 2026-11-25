@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.api.sesion import usuario_de_sesion
 from app.core.rate_limit import SlidingWindow
+from app.models.cuentas import CuentaDB
 from app.models.plataapp import TransaccionDB
 from app.schemas.exportar import ParametrosInvalidos, validar_consulta
 from app.utils import exportar as generador
@@ -72,6 +73,11 @@ async def exportar_transacciones(
         return _error(422, str(e))
     if not _por_minuto.hit(usuario_id):
         return _error(429, _MSG_429)
+    try:   # nombres de las cuentas de dinero del usuario (columna 8, CHG-025): ejecutor propio de cuentas, fail-closed
+        cuentas = {c["id"]: c["nombre"] for c in await CuentaDB.listar(usuario_id, incluir_archivadas=True)}
+    except Exception as e:   # sin archivo parcial ni detalles de la BD (INV-013)
+        print(f"[exportar] No se pudieron leer las cuentas ({type(e).__name__})")
+        return _error(503, _MSG_503)
 
     with _candado_en_curso:
         if usuario_id in _en_curso:
@@ -91,7 +97,7 @@ async def exportar_transacciones(
     def trabajo() -> bytes:
         categorias = TransaccionDB.nombres_de_categorias_propias(usuario_id)
         leer = functools.partial(TransaccionDB.pagina_para_exportar, usuario_id, consulta.desde, consulta.hasta)
-        return generador.generar_archivo(consulta.formato, leer, categorias, detener, generador.PLAZO_SEGUNDOS)
+        return generador.generar_archivo(consulta.formato, leer, categorias, detener, generador.PLAZO_SEGUNDOS, cuentas)
 
     try:
         futuro = _ejecutor.submit(trabajo)

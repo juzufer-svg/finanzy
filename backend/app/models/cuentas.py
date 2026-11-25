@@ -26,7 +26,8 @@ from app.models.demo_db import DemoCuentaDB, ErrorBD
 
 # Únicas columnas reales de `cuentas` (backend/sql/2026-11-25_cuentas.sql)
 COLUMNAS = "id,usuario_id,nombre,tipo,saldo_inicial,archivada,created_at"
-CODIGOS_NEGOCIO = ("FZ001", "FZ002", "FZ003", "FZ004", "22003", "23505", "23503", "23514")
+CODIGOS_NEGOCIO = ("FZ001", "FZ002", "FZ003", "FZ004", "22003", "23505", "23503", "23514",
+                   "P0002", "OCURRENCIA_CAMBIADA")   # los dos últimos los fija `rpc_negocio` (CHG-025: abonar_meta y confirmar_recurrente)
 
 # Ejecutor PROPIO y acotado de cuentas (I-1): ni comparte los 8 hilos de `auth-estado` ni se encola.
 MAX_HILOS_CUENTAS = 4
@@ -75,6 +76,28 @@ async def _llamar(operacion: str, fn):
     if estado == "bd":
         raise ErrorBD(valor)
     return valor
+
+
+def rpc_negocio(nombre: str, params: dict) -> Any:
+    """Llamada RPC bloqueante (se ejecuta DENTRO de `_llamar`, en un hilo del ejecutor de cuentas) a una función SQL de las
+    integraciones de la fase (c): `abonar_meta` y `confirmar_recurrente` (CHG-025).
+
+    Traduce los errores de esas funciones a `ErrorBD` (`_llamar` los devuelve como errores de negocio): P0002 (o un id que no es
+    UUID, 22P02) → «P0002» = no existe o es de otro usuario; P0001 con el mensaje exacto `ocurrencia_cambiada` →
+    «OCURRENCIA_CAMBIADA»; 22023 (monto o fecha inválidos) → 23514. Cualquier otro (incluida la función que no existe,
+    PGRST202/42883) se propaga y `_llamar` lo convierte en 503, nunca en un método alternativo."""
+    try:
+        return auth_estado.cliente_estado().rpc(nombre, params).execute().data
+    except Exception as e:
+        codigo = str(getattr(e, "code", "") or "")
+        mensaje = str(getattr(e, "message", "") or "")
+        if codigo in ("P0002", "22P02"):
+            raise ErrorBD("P0002") from None
+        if codigo == "P0001" and "ocurrencia_cambiada" in mensaje:
+            raise ErrorBD("OCURRENCIA_CAMBIADA") from None
+        if codigo == "22023":
+            raise ErrorBD("23514") from None
+        raise
 
 
 def _numero(valor: Any) -> float:

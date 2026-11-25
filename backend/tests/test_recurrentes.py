@@ -194,15 +194,20 @@ def test_inv026_doble_confirmacion_registra_una_sola_vez(client):
 
 
 def test_inv026_carrera_compare_and_set(client, monkeypatch):
-    """Si otra petición movió la fecha entre la lectura y la escritura, no se registra nada."""
+    """Si otra petición movió la fecha entre la lectura y la escritura, no se registra nada.
+    CHG-025: la comprobación vive dentro de la función atómica (en demo, `DemoRecurrenteDB.confirmar`); aquí otra petición
+    mueve la fecha justo antes de que corra la confirmación."""
     rec = _crear(client).json()
+    original = modelos.RecurrenteDB.confirmar
 
-    async def ya_movida(*args, **kwargs):
-        return None
+    async def otra_peticion_la_mueve_antes(*args, **kwargs):
+        modelos.DemoRecurrenteDB._recurrentes[rec["id"]]["proxima_fecha"] = "2026-12-05"
+        return await original(*args, **kwargs)
 
-    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(ya_movida))
+    monkeypatch.setattr(modelos.RecurrenteDB, "confirmar", staticmethod(otra_peticion_la_mueve_antes))
     r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
     assert r.status_code == 409 and _transacciones(client) == []
+    assert client.get("/api/v1/recurrentes", headers=A).json()[0]["proxima_fecha"] == "2026-12-05"
 
 
 def test_varias_ocurrencias_atrasadas_se_confirman_una_por_una(client):
@@ -233,14 +238,19 @@ def test_pausada_no_se_puede_confirmar(client):
 
 
 def test_si_falla_la_transaccion_la_ocurrencia_sigue_pendiente(client, monkeypatch):
+    """CHG-025: confirmar es UNA función atómica. Si falla, la fecha ni siquiera se movió: no hay nada que revertir."""
     rec = _crear(client).json()
 
     async def falla(*args, **kwargs):
         raise RuntimeError("Supabase caído")
 
-    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(falla))
+    async def no_debe_usarse(*args, **kwargs):
+        raise AssertionError("confirmar ya no avanza la fecha por separado (flujo anterior)")
+
+    monkeypatch.setattr(modelos.RecurrenteDB, "confirmar", staticmethod(falla))
+    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(no_debe_usarse))
     r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
-    assert r.status_code == 500
+    assert r.status_code == 500 and r.json()["detail"] == "No se pudo registrar la transacción"
     assert [p["proxima_fecha"] for p in _pendientes(client).json()] == ["2026-11-05"]
 
 
@@ -279,27 +289,3 @@ def test_cambiar_la_fecha_exige_haber_visto_la_actual(client):
     assert sin_vista.status_code == 409
     ok = client.put(f"/api/v1/recurrentes/{rec['id']}", json={**base, "proxima_fecha": "2026-11-10", "proxima_fecha_vista": "2026-11-05"}, headers=A)
     assert ok.status_code == 200 and ok.json()["proxima_fecha"] == "2026-11-10" and ok.json()["dia_ancla"] == 10
-
-
-def test_si_tambien_falla_la_reversion_se_avisa_sin_error_no_controlado(client, monkeypatch):
-    rec = _crear(client).json()
-    original = modelos.RecurrenteDB.avanzar
-    llamadas = []
-
-    async def falla_tx(*args, **kwargs):
-        raise RuntimeError("Supabase caído")
-
-    async def avanzar_y_luego_falla(*args, **kwargs):
-        llamadas.append(args)
-        if len(llamadas) > 1:
-            raise RuntimeError("Supabase caído")
-        return await original(*args, **kwargs)
-
-    monkeypatch.setattr(modelos.TransaccionDB, "crear", staticmethod(falla_tx))
-    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(avanzar_y_luego_falla))
-    r = client.post(f"/api/v1/recurrentes/{rec['id']}/confirmar", json={"ocurrencia": "2026-11-05"}, headers=A)
-    assert r.status_code == 500 and "Regístrala a mano" in r.json()["detail"]
-    # Estado coherente con el mensaje: sin transacción y con la fecha ya avanzada
-    monkeypatch.setattr(modelos.RecurrenteDB, "avanzar", staticmethod(original))
-    assert _transacciones(client) == []
-    assert client.get("/api/v1/recurrentes", headers=A).json()[0]["proxima_fecha"] == "2026-12-05"

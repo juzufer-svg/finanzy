@@ -32,6 +32,8 @@ import httpx
 
 from app.core.config import settings
 from app.models import contadores
+from app.models.auth_estado import EstadoNoDisponible
+from app.models.cuentas import CuentaDB
 from app.models.plataapp import CategoriaDB, MetaDB, PresupuestoDB, TransaccionDB
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -40,6 +42,7 @@ MAX_TOKENS = 1024
 MAX_RONDAS = 5          # llamadas a Claude por pregunta (la última se fuerza a responder sin herramientas)
 TIMEOUT_SEGUNDOS = 45
 MAX_MOVIMIENTOS = 20    # tope de filas que una herramienta devuelve a Claude
+MAX_CUENTAS = 20        # tope de cuentas de dinero por usuario (INV-050)
 
 # Colombia no tiene horario de verano: UTC-5 fijo (sin depender de tzdata en la imagen Docker)
 ZONA_COLOMBIA = timezone(timedelta(hours=-5))
@@ -127,6 +130,14 @@ HERRAMIENTAS: list[dict] = [
     {
         "name": "metas_ahorro",
         "description": "Las metas de ahorro del usuario con monto objetivo, ahorrado, porcentaje y fecha objetivo.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cuentas_y_saldos",
+        "description": (
+            "Las cuentas de dinero del usuario (efectivo, bancos, billeteras, tarjetas) con su tipo, su saldo actual y si están "
+            "archivadas. Los traspasos entre cuentas no son ingresos ni gastos."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
 ]
@@ -268,6 +279,16 @@ async def _metas_ahorro(usuario_id: str, _entrada: dict) -> dict:
     return {"metas": metas}
 
 
+async def _cuentas_y_saldos(usuario_id: str, _entrada: dict) -> dict:
+    """SOLO LECTURA (INV-023, INV-052): las cuentas de dinero del usuario del token, con saldo. A Claude no se envían ids
+    ni el id del usuario; el resultado está acotado (a lo sumo 20 cuentas por usuario, INV-050)."""
+    cuentas = (await CuentaDB.listar(usuario_id, incluir_archivadas=True))[:MAX_CUENTAS]
+    return {"cuentas": [
+        {"nombre": c["nombre"], "tipo": c["tipo"], "saldo": _num(c["saldo"]), "archivada": bool(c["archivada"])}
+        for c in cuentas
+    ]}
+
+
 _EJECUTORES = {
     "resumen_mes": _resumen_mes,
     "movimientos_principales": _movimientos_principales,
@@ -275,6 +296,7 @@ _EJECUTORES = {
     "totales_por_medio_pago": _totales_por_medio_pago,
     "buscar_movimientos": _buscar_movimientos,
     "metas_ahorro": _metas_ahorro,
+    "cuentas_y_saldos": _cuentas_y_saldos,
 }
 
 
@@ -287,6 +309,8 @@ async def ejecutar_herramienta(usuario_id: str, nombre: str, entrada: Any) -> tu
         resultado = await ejecutor(usuario_id, entrada if isinstance(entrada, dict) else {})
     except ValueError as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False), True
+    except EstadoNoDisponible:   # las cuentas no respondieron a tiempo: Claude lo explica, sin detalles de la BD
+        return json.dumps({"error": "No se pudo consultar esa información en este momento"}, ensure_ascii=False), True
     return json.dumps(resultado, ensure_ascii=False, default=str), False
 
 
@@ -306,6 +330,7 @@ def _prompt_sistema(ahora: datetime) -> str:
         "- Los montos están en pesos colombianos (COP). Escríbelos así: $1.250.000 (punto de miles, sin decimales "
         "salvo que importen).\n"
         "- Formato: texto plano con viñetas '- ' si hay varios elementos. No uses tablas, títulos con # ni negritas.\n"
+        "- Para las cuentas de dinero y sus saldos usa cuentas_y_saldos; las transferencias entre cuentas no son ingresos ni gastos.\n"
         "- Solo puedes CONSULTAR. Si te piden registrar, editar o borrar algo, explica que eso se hace en la app.\n"
         "- Si la pregunta no tiene que ver con las finanzas del usuario, indícalo en una frase y ofrece ayuda con "
         "sus finanzas. No des asesoría de inversión personalizada."

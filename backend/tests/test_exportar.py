@@ -24,7 +24,7 @@ from conftest import auth_header
 A = auth_header("user-a")
 B = auth_header("user-b")
 URL = "/api/v1/exportaciones/transacciones"
-ENCABEZADOS = ["Fecha", "Tipo", "Categoría", "Descripción", "Medio de pago", "Monto (COP)", "Origen"]
+ENCABEZADOS = ["Fecha", "Tipo", "Categoría", "Descripción", "Medio de pago", "Monto (COP)", "Origen", "Cuenta"]   # CT-011 v1.1: la columna 8 es nueva
 PELIGROSAS = ['=HYPERLINK("http://x")', "+1+1", "-2+3", "@SUM(A1)", "\t=1", "\r=1"]
 DEMASIADO_GRANDE = "exportacion_demasiado_grande"
 
@@ -352,11 +352,11 @@ def test_inv045_csv_utf8_con_bom_separador_punto_y_coma_y_columnas(client):
     assert r.content.startswith(b"\xef\xbb\xbf") and b"\r\n" in r.content
     # texto SIEMPRE entre comillas (H4); el monto, sin comillas y con coma decimal
     assert r.content.decode("utf-8-sig").split("\r\n")[0] == ";".join(f'"{e}"' for e in ENCABEZADOS)
-    assert '"tercera";"Débito";1234,50;"App"\r\n' in r.content.decode("utf-8-sig")
+    assert '"tercera";"Débito";1234,50;"App";""\r\n' in r.content.decode("utf-8-sig")
     filas = filas_csv(r)
     assert filas[0] == ENCABEZADOS
     assert [f[3] for f in filas[1:]] == ["primera; con punto y coma", 'con "comillas"', "tercera"]  # fecha ascendente
-    assert filas[3] == ["2026-11-20", "Gasto", "Mercado", "tercera", "Débito", "1234,50", "App"]
+    assert filas[3] == ["2026-11-20", "Gasto", "Mercado", "tercera", "Débito", "1234,50", "App", ""]
     assert filas[1][1] == "Ingreso" and filas[1][5] == "10,00"
 
 
@@ -402,8 +402,8 @@ def test_inv045_origen_whatsapp_y_app_y_medio_de_pago_en_espanol(client):
         whatsapp_db._Memoria.registros.append({"transaccion_id": tid, "usuario_id": usuario, "lote": "w1",
                                                "creado_en": datetime.now(timezone.utc)})
     filas = filas_csv(pedir(client, desde="2026-11"))
-    assert filas[1][3:] == ["por whatsapp", "Débito", "10,00", "WhatsApp"]
-    assert filas[2][3:] == ["por la app", "", "10,00", "App"]
+    assert filas[1][3:] == ["por whatsapp", "Débito", "10,00", "WhatsApp", ""]
+    assert filas[2][3:] == ["por la app", "", "10,00", "App", ""]
     medios = {"debito": "Débito", "credito": "Crédito", "efectivo": "Efectivo", "transferencia": "Transferencia",
               "nequi_daviplata": "Nequi / Daviplata"}
     for i, codigo in enumerate(medios):
@@ -921,8 +921,8 @@ def test_h4_csv_todo_el_texto_va_entre_comillas_y_el_monto_no(client):
     for i, d in enumerate(DESCRIPCIONES_CSV):
         sembrar(descripcion=d, monto=1234.5, fecha=f"2026-11-{i + 1:02d}", medio_pago="debito")
     texto = pedir(client, desde="2026-11").content.decode("utf-8-sig")
-    assert texto.startswith('"Fecha";"Tipo";"Categoría";"Descripción";"Medio de pago";"Monto (COP)";"Origen"\r\n')
-    assert '"2026-11-01";"Gasto";"Sin categoría";"x,\'=1+1";"Débito";1234,50;"App"\r\n' in texto
+    assert texto.startswith('"Fecha";"Tipo";"Categoría";"Descripción";"Medio de pago";"Monto (COP)";"Origen";"Cuenta"\r\n')
+    assert '"2026-11-01";"Gasto";"Sin categoría";"x,\'=1+1";"Débito";1234,50;"App";""\r\n' in texto
     assert '"dijo ""hola"",\' =1+1"' in texto
     assert '"línea 1\nlínea 2,\'=2+2"' in texto
     assert ';"\'=1+1,\'=2+2";' in texto          # inicio y fragmento tras «,» neutralizados, ya entre comillas
@@ -937,7 +937,7 @@ def test_h4_csv_al_releer_con_punto_y_coma_los_valores_coinciden_y_las_comillas_
                              "a\r\nb;c", ",'=1", "normal"]
     # con «;» (el separador del archivo) la lectura es exacta
     filas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=";"))[1:]
-    assert [f[3] for f in filas] == esperadas and all(len(f) == 7 and f[5] == "1234,50" for f in filas)
+    assert [f[3] for f in filas] == esperadas and all(len(f) == 8 and f[5] == "1234,50" for f in filas)
     for d in esperadas:
         assert '"' + d.replace('"', '""') + '"' in texto
     # Con CUALQUIER delimitador («;» o «,») ninguna celda resultante empieza por un carácter de fórmula
@@ -972,7 +972,7 @@ def test_inv043_propiedad_ninguna_celda_empieza_por_caracter_peligroso_con_ambos
     alfabeto = list("=+-@\t\r\n,;\"") + list("ab ") * 2
     textos = [texto_aleatorio(rng, rng.randint(1, 14), alfabeto) for _ in range(3000)]
     for i in range(0, len(textos), 100):
-        filas = [("2026-11-01", "Gasto", "Sin categoría", t, "Débito", generador._monto(1234.5), "App")
+        filas = [("2026-11-01", "Gasto", "Sin categoría", t, "Débito", generador._monto(1234.5), "App", "")   # la columna 8 «Cuenta» se prueba aparte (test_cuentas_integracion.py)
                  for t in textos[i:i + 100]]
         csv_bytes = generador._generar_csv(iter([filas]))
         texto = csv_bytes.decode("utf-8-sig")

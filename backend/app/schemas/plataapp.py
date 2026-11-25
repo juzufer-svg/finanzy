@@ -57,6 +57,16 @@ def es_uuid(valor) -> bool:
     return _uuid_o_none(valor) is not None
 
 
+def _cuenta_uuid_o_error(v: Optional[str]) -> Optional[str]:
+    """Validador común de `cuenta_id` opcional (CHG-019/CHG-025): None se conserva; si viene, debe ser un UUID."""
+    if v is None:
+        return v
+    canonico = _uuid_o_none(v)
+    if canonico is None:
+        raise ValueError("cuenta_id debe ser un UUID")
+    return canonico
+
+
 class CuentaCreate(BaseModel):
     """Crear cuenta de dinero"""
     nombre: str = Field(..., min_length=1, max_length=100)
@@ -247,6 +257,13 @@ class AbonarMeta(BaseModel):
     monto: float = Field(..., gt=0, le=MONTO_MAX)
     descripcion: str = Field("Abono a meta de ahorro", max_length=255)
     fecha: str = Field(..., pattern=FECHA_REGEX)
+    # Opcional (CHG-025, CT-006 v1.1): cuenta de dinero de origen; null/ausente = sin cuenta (como antes)
+    cuenta_id: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("cuenta_id")
+    @classmethod
+    def _cuenta_uuid(cls, v: Optional[str]) -> Optional[str]:
+        return _cuenta_uuid_o_error(v)
 
 
 # Presupuestos: copiar los de un mes a otro (CHG-012, A3)
@@ -275,10 +292,17 @@ class RecurrenteCreate(BaseModel):
     monto: float = Field(..., gt=0, le=MONTO_MAX)
     descripcion: str = Field("", max_length=255)
     medio_pago: Optional[MedioPago] = None
+    # Opcional (CHG-025, CT-008 v1.1): cuenta de dinero del usuario. Al editar: no enviar = conservar, null = quitar
+    cuenta_id: Optional[str] = Field(None, max_length=64)
     frecuencia: Frecuencia
     # Primera fecha (al crear) o próxima fecha (al editar); define el día ancla
     proxima_fecha: str = Field(..., pattern=FECHA_EXACTA)
     activa: bool = True
+
+    @field_validator("cuenta_id")
+    @classmethod
+    def _cuenta_uuid(cls, v: Optional[str]) -> Optional[str]:
+        return _cuenta_uuid_o_error(v)
 
 
 class RecurrenteUpdate(RecurrenteCreate):
@@ -298,6 +322,7 @@ class RecurrenteResponse(BaseModel):
     monto: float
     descripcion: Optional[str] = ""
     medio_pago: Optional[str] = None
+    cuenta_id: Optional[str] = None
     frecuencia: str
     dia_ancla: int
     proxima_fecha: str
@@ -314,6 +339,13 @@ class ConfirmarRecurrente(OcurrenciaRecurrente):
     """Confirmar la ocurrencia pendiente: crea la transacción (monto y fecha ajustables)"""
     monto: Optional[float] = Field(None, gt=0, le=MONTO_MAX)
     fecha: Optional[str] = Field(None, pattern=FECHA_EXACTA)
+    # Opcional (CHG-025, CT-008 v1.1): reemplaza la cuenta de la plantilla. No enviar = usar la de la plantilla; null = sin cuenta
+    cuenta_id: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("cuenta_id")
+    @classmethod
+    def _cuenta_uuid(cls, v: Optional[str]) -> Optional[str]:
+        return _cuenta_uuid_o_error(v)
 
 
 class ConfirmacionResponse(BaseModel):

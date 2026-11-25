@@ -68,7 +68,7 @@ Preguntas que **requieren** respuesta del dueño: ninguna. La 9 (transacciones d
 | T6 | Backend `/transferencias` + `backend/tests/test_transferencias.py` (incluye «no cuenta como ingreso ni gasto») | T5 | pendiente | 0 |
 | T7 | Frontend: formulario de transferencia y su aparición en la lista de movimientos; validación + revisión + despliegue | T6 | pendiente | 0 |
 | **Fase (c)** | | | | |
-| T8 | Migración `2026-11-24_cuentas_integracion.sql` (`recurrentes.cuenta_id`, `abonar_meta` con `p_cuenta_id`, **función `confirmar_recurrente`**) + `10_comprobar_cuentas_integracion.sql` + `probar.sh` (2 confirmaciones simultáneas → 1 transacción) | fase (b) hecha | pendiente | 0 |
+| T8 | Migración `2026-11-25_cuentas_integracion.sql` (`recurrentes.cuenta_id`, `abonar_meta` con `p_cuenta_id`, **función `confirmar_recurrente`**) + `10_comprobar_cuentas_integracion.sql` + `probar.sh` (2 confirmaciones simultáneas → 1 transacción) | fase (b) hecha | pendiente | 0 |
 | T9 | Backend: abono con cuenta de dinero, recurrentes (confirmar con una sola función SQL en lugar de avanzar y revertir; `DemoRecurrenteDB.confirmar` atómico), WhatsApp (resolución por nombre, INV-029), herramienta del asistente (INV-023), columna Cuenta en CT-011 v1.1 + `backend/tests/test_cuentas_integracion.py` (incluye cuenta ajena al crear, editar y confirmar recurrentes) | T8, CHG-018 | pendiente | 0 |
 | T10 | Frontend de metas, recurrentes y exportación; validación + revisión independiente final + trazabilidad | T9 | pendiente | 0 |
 

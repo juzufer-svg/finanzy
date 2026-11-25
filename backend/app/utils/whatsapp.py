@@ -10,9 +10,11 @@ Seguridad (INV-029):
 - La IA solo PROPONE datos; el backend los valida con las mismas reglas de la app (monto > 0 y
   ≤ 1e12, fecha válida, categoría propia, medio de pago permitido) antes de guardar.
 - Sus herramientas solo crean transacciones y deshacen o corrigen las que creó el propio WhatsApp.
-  No tocan presupuestos, metas, categorías ni el perfil. Este agente es distinto del Asistente de
-  la app, que sigue siendo de solo lectura (INV-023).
-- A Claude no se envían el teléfono, el correo ni el id del usuario.
+  No tocan presupuestos, metas, categorías ni el perfil, y NO crean transferencias entre cuentas. Este agente es distinto
+  del Asistente de la app, que sigue siendo de solo lectura (INV-023).
+- A Claude no se envían el teléfono, el correo ni el id del usuario. Cuentas de dinero (CHG-025, INV-052): solo los NOMBRES de
+  las no archivadas (sin ids ni saldos); la IA devuelve `cuenta` solo si la persona la nombró y el backend lo comprueba
+  (el nombre debe aparecer en el mensaje) y la busca entre las cuentas del usuario del número, sin distinguir mayúsculas ni tildes.
 
 Costo (INV-030): una sola llamada a Claude por mensaje (la respuesta la arma el backend), respuesta
 corta y topes diarios por usuario y en total (en la ruta).
@@ -32,6 +34,8 @@ import httpx
 from app.api.cuentas_errores import codigo_de, motivo_whatsapp
 from app.core.config import settings
 from app.models import contadores
+from app.models.auth_estado import EstadoNoDisponible
+from app.models.cuentas import CuentaDB
 from app.models.plataapp import CategoriaDB, TransaccionDB
 from app.models.whatsapp import WhatsappDB
 from app.schemas.plataapp import MEDIOS_PAGO, MONTO_MAX
@@ -47,6 +51,16 @@ CODIGO = re.compile(r"^\s*FZ-?(\d{6})\s*$", re.IGNORECASE)
 NOMBRES_MEDIO = {"debito": "Débito", "credito": "Crédito", "efectivo": "Efectivo",
                  "transferencia": "Transferencia", "nequi_daviplata": "Nequi / Daviplata"}
 _MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+MAX_CUENTAS_EN_PROMPT = 20    # tope real de cuentas de dinero por usuario (INV-050)
+MAX_NOMBRE_CUENTA = 100        # igual que el máximo del nombre de una cuenta (CuentaCreate)
+# Mensajes fijos (sin datos de la BD) cuando la regla de cuentas rechaza un registro de WhatsApp (INV-048, INV-052)
+MSG_CUENTA_NO_ENCONTRADA = "No encontré la cuenta «{nombre}»; escribe el nombre exacto o registra sin cuenta"
+MSG_CUENTA_SIN_SALDO = ("No registré nada: la cuenta «{nombre}» no tiene saldo suficiente para ese movimiento. "
+                        "Revisa tus cuentas en la app o registra sin cuenta.")
+MSG_CUENTA_ARCHIVADA = ("No registré nada: la cuenta «{nombre}» está archivada. Desarchívala en la app o registra sin cuenta.")
+MSG_CUENTAS_NO_DISPONIBLES = ("No pude consultar tus cuentas ahora, así que no registré nada. "
+                              "Intenta de nuevo en un momento o registra sin nombrar la cuenta.")
 
 AYUDA = ("Escríbeme tus movimientos como hablas, por ejemplo:\n"
          "• «hoy almorcé por 18 mil con débito»\n"
@@ -213,6 +227,12 @@ _PROP_MOV = {
     "medio_pago": {"type": "string", "enum": list(MEDIOS_PAGO) + [""], "description": "\"\" si no lo dice"},
     "descripcion": {"type": "string", "description": "Nota breve (p. ej. «Almuerzo», «Sueldo noviembre»)"},
 }
+# Solo al registrar (no al corregir): la cuenta de dinero que la persona NOMBRÓ (CHG-025, INV-052)
+_PROP_CUENTA = {
+    "type": "string",
+    "description": ("Nombre de la cuenta de dinero SOLO si la persona la nombró (p. ej. «desde Ahorros»), tal como lo dijo. "
+                    "Si no nombró ninguna, omítelo o déjalo vacío. No lo deduzcas del medio de pago."),
+}
 
 HERRAMIENTAS = [
     {
@@ -221,7 +241,7 @@ HERRAMIENTAS = [
         "input_schema": {
             "type": "object",
             "properties": {"movimientos": {"type": "array", "minItems": 1, "maxItems": MAX_MOVIMIENTOS,
-                                           "items": {"type": "object", "properties": _PROP_MOV,
+                                           "items": {"type": "object", "properties": {**_PROP_MOV, "cuenta": _PROP_CUENTA},
                                                      "required": ["tipo", "monto", "fecha"]}}},
             "required": ["movimientos"],
         },
@@ -252,10 +272,12 @@ HERRAMIENTAS = [
 ]
 
 
-def _prompt_sistema(hoy: date, categorias: list[dict]) -> str:
+def _prompt_sistema(hoy: date, categorias: list[dict], cuentas: Optional[list[str]] = None) -> str:
     def lista(tipo: str) -> str:
         nombres = [c["nombre"] for c in categorias if c.get("tipo") == tipo]
         return ", ".join(nombres) if nombres else "(ninguna)"
+    # Solo NOMBRES (sin ids ni saldos): INV-029, INV-052
+    cuentas_txt = ", ".join(cuentas) if cuentas else "(ninguna)"
     return (
         "Eres el registro por WhatsApp de Finanzy, una app de finanzas personales en Colombia. "
         "La persona te cuenta sus ingresos y gastos en lenguaje libre y tú los registras con las herramientas.\n"
@@ -265,6 +287,10 @@ def _prompt_sistema(hoy: date, categorias: list[dict]) -> str:
         f"- Categorías de INGRESO: {lista('ingreso')}.\n"
         "- Elige la categoría más adecuada de la lista del mismo tipo; si ninguna encaja, deja categoria vacía. No inventes categorías.\n"
         "- Medios de pago: debito, credito, efectivo, transferencia, nequi_daviplata («tarjeta de crédito» = credito, «Nequi» o «Daviplata» = nequi_daviplata). Si no lo dice, vacío.\n"
+        f"- Cuentas de dinero de la persona (solo sus nombres): {cuentas_txt}. Rellena `cuenta` SOLO si la persona la nombra en el "
+        "mensaje (p. ej. «desde Ahorros», «con mi Bancolombia»); cópiala como la dijo. Si no nombra ninguna, déjala vacía: nunca la "
+        "deduzcas del medio de pago ni de otro mensaje. No puedes mover dinero entre cuentas: si piden una transferencia, explica "
+        "que eso se hace en la app.\n"
         "- Registra de inmediato, sin pedir confirmación. Si en un mensaje hay varios movimientos, regístralos todos juntos.\n"
         "- Si falta el monto o no se entiende si es ingreso o gasto, NO registres: pregunta en una frase corta.\n"
         "- «Deshacer» o «borra eso» → deshacer_ultimo. Correcciones de lo último («no, eran 80 mil») → corregir_ultimo.\n"
@@ -306,22 +332,63 @@ def _validar_movimiento(m: Any, categorias: list[dict], hoy: date) -> dict:
         medio = None
     categoria = _buscar_categoria(m.get("categoria"), tipo, categorias)
     descripcion = str(m.get("descripcion") or "").strip()[:255]
+    cuenta = m.get("cuenta")
+    cuenta_pedida = " ".join(cuenta.split())[:MAX_NOMBRE_CUENTA] if isinstance(cuenta, str) else ""
     return {"tipo": tipo, "monto": monto, "fecha": fecha.isoformat(), "medio_pago": medio,
             "categoria_id": str(categoria["id"]) if categoria else "", "categoria": categoria["nombre"] if categoria else None,
-            "descripcion": descripcion}
+            "descripcion": descripcion, "cuenta_pedida": cuenta_pedida}
+
+
+def _resolver_cuentas(validos: list[dict], texto: str, cuentas: Optional[list[dict]]) -> Optional[str]:
+    """Asigna `cuenta_id` y `cuenta` (nombre) a cada movimiento cuya cuenta propuso la IA (INV-029, INV-052).
+
+    - La cuenta solo cuenta si la persona la nombró: el nombre propuesto debe aparecer en SU mensaje (sin distinguir
+      mayúsculas ni tildes). Si la IA propone una que no dijo, se ignora y el movimiento queda sin cuenta.
+    - Se busca solo entre las cuentas NO archivadas del usuario del número (`cuentas`, ya filtradas), sin distinguir mayúsculas
+      ni tildes. Si no existe devuelve el mensaje para responder; si no se pudieron consultar las cuentas (`None`), otro mensaje.
+    Devuelve None si todo quedó resuelto."""
+    mensaje = _sin_tildes(texto)
+    for v in validos:
+        v["cuenta_id"], v["cuenta"] = None, None
+        pedida = v.pop("cuenta_pedida", "")
+        clave = _sin_tildes(pedida)
+        if not clave or clave not in mensaje:
+            continue   # no la nombró: sin cuenta
+        if cuentas is None:
+            return MSG_CUENTAS_NO_DISPONIBLES
+        encontrada = next((c for c in cuentas if _sin_tildes(c["nombre"]) == clave), None)
+        if encontrada is None:
+            return MSG_CUENTA_NO_ENCONTRADA.format(nombre=pedida)
+        v["cuenta_id"], v["cuenta"] = str(encontrada["id"]), encontrada["nombre"]
+    return None
+
+
+def _motivo_registro(error: Exception, nombre: Optional[str]) -> Optional[str]:
+    """Mensaje fijo si la regla de cuentas rechazó el registro de un movimiento CON cuenta (FZ001 saldo, FZ002 archivada)."""
+    codigo = codigo_de(error)
+    if not nombre:
+        return None
+    if codigo == "FZ001":
+        return MSG_CUENTA_SIN_SALDO.format(nombre=nombre)
+    if codigo == "FZ002":
+        return MSG_CUENTA_ARCHIVADA.format(nombre=nombre)
+    return None
 
 
 def _linea(t: dict, hoy: date) -> str:
     partes = [pesos(t["monto"]), t.get("categoria") or "Sin categoría"]
     if t.get("medio_pago"):
         partes.append(NOMBRES_MEDIO.get(t["medio_pago"], t["medio_pago"]))
+    if t.get("cuenta"):
+        partes.append(f"cuenta {t['cuenta']}")
     partes.append(fecha_corta(t["fecha"], hoy))
     if t.get("descripcion"):
         partes.append(t["descripcion"])
     return " · ".join(partes)
 
 
-async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list[dict], hoy: date) -> str:
+async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list[dict], hoy: date,
+                     texto: str = "", cuentas: Optional[list[dict]] = None) -> str:
     movimientos = entrada.get("movimientos") if isinstance(entrada, dict) else None
     if not isinstance(movimientos, list) or not movimientos:
         return "No entendí el movimiento. ¿Me lo repites con el monto?"
@@ -331,20 +398,25 @@ async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list
             validos.append(_validar_movimiento(m, categorias, hoy))
         except ValueError:
             return "No pude entender bien el monto. ¿Me lo repites? Ej.: «gasté 25 mil en mercado»."
+    rechazo = _resolver_cuentas(validos, texto, cuentas)   # antes de guardar nada: si una cuenta no existe, no se registra ninguno
+    if rechazo:
+        return rechazo
     creados, ids = [], []
+    actual: Optional[dict] = None
     try:
         for v in validos:
+            actual = v
             t = await TransaccionDB.crear(usuario_id=usuario_id, categoria_id=v["categoria_id"], monto=v["monto"],
                                           descripcion=v["descripcion"], fecha=v["fecha"], tipo=v["tipo"],
-                                          medio_pago=v["medio_pago"])
+                                          medio_pago=v["medio_pago"], cuenta_id=v["cuenta_id"])
             ids.append(str(t["id"]))
             await WhatsappDB.guardar_registro(str(t["id"]), usuario_id, lote)
             creados.append(v)
     except Exception as e:
         # Todo o nada (revisión CHG-014, H3): se borra lo que alcanzó a crearse de este mensaje
-        print(f"[whatsapp] Falló el registro, se revierte el lote ({type(e).__name__})")
+        print(f"[whatsapp] Falló el registro, se revierte el lote ({type(e).__name__} {codigo_de(e) or ''})")
         sin_revertir = 0
-        for tid in ids:
+        for tid in reversed(ids):   # al revés: un gasto posterior en la misma cuenta se borra antes que el ingreso que lo cubría
             try:
                 await TransaccionDB.eliminar(tid, usuario_id)
                 await WhatsappDB.quitar_registro(tid, usuario_id)
@@ -354,6 +426,9 @@ async def _registrar(usuario_id: str, entrada: dict, lote: str, categorias: list
         if sin_revertir:   # no afirmar «no se registró nada» si algo quedó guardado (revisión CHG-014)
             return ("⚠️ Hubo un error del servidor y puede que parte de lo que enviaste haya quedado registrado. "
                     "Revísalo en la app antes de volver a enviarlo.")
+        motivo = _motivo_registro(e, actual["cuenta"] if actual else None)   # saldo o cuenta archivada: se explica (INV-052)
+        if motivo:
+            return motivo
         return "⚠️ No pude guardar el registro por un error del servidor. No se registró nada; intenta de nuevo."
     if len(creados) == 1:
         v = creados[0]
@@ -444,6 +519,25 @@ async def _corregir(usuario_id: str, entrada: dict, categorias: list[dict], hoy:
     return f"✏️ Corregido. {titulo}: {_linea(v, hoy)}"
 
 
+# ==================== Cuentas de dinero (CHG-025, INV-052) ====================
+
+async def _cuentas_no_archivadas(usuario_id: str) -> Optional[list[dict]]:
+    """Las cuentas de dinero NO archivadas del usuario del número (el backend las usa para resolver el nombre que la persona dijo).
+    None si no se pudieron consultar: los mensajes sin cuenta nombrada se registran igual, los que nombran una no se registran."""
+    try:
+        return (await CuentaDB.listar(usuario_id, incluir_archivadas=False))[:MAX_CUENTAS_EN_PROMPT]
+    except EstadoNoDisponible:
+        return None
+    except Exception as e:
+        print(f"[whatsapp] No se pudieron leer las cuentas ({type(e).__name__})")
+        return None
+
+
+def _nombre_para_prompt(nombre: str) -> str:
+    """El nombre de una cuenta tal como se le envía a Claude: una línea y acotado (nunca ids ni saldos)."""
+    return " ".join(str(nombre).split())[:MAX_NOMBRE_CUENTA]
+
+
 # ==================== Procesar un mensaje ====================
 
 def es_ayuda(texto: str) -> bool:
@@ -457,10 +551,11 @@ async def responder(usuario_id: str, texto: str, lote: str, ahora: Optional[date
     if es_ayuda(texto):
         return AYUDA
     categorias = await CategoriaDB.obtener_por_usuario(usuario_id)
+    cuentas = await _cuentas_no_archivadas(usuario_id)
     payload = {
         "model": settings.ANTHROPIC_MODEL,
         "max_tokens": MAX_TOKENS,
-        "system": _prompt_sistema(hoy, categorias),
+        "system": _prompt_sistema(hoy, categorias, [_nombre_para_prompt(c["nombre"]) for c in cuentas or []]),
         "tools": HERRAMIENTAS,
         "messages": _historial(usuario_id) + [{"role": "user", "content": texto}],
     }
@@ -475,7 +570,7 @@ async def responder(usuario_id: str, texto: str, lote: str, ahora: Optional[date
     if herramienta:
         nombre, entrada = herramienta.get("name"), herramienta.get("input") or {}
         if nombre == "registrar_movimientos":
-            salida = await _registrar(usuario_id, entrada, lote, categorias, hoy)
+            salida = await _registrar(usuario_id, entrada, lote, categorias, hoy, texto, cuentas)
         elif nombre == "deshacer_ultimo":
             salida = await _deshacer(usuario_id, hoy, categorias)
         elif nombre == "corregir_ultimo":

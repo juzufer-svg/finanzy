@@ -28,7 +28,7 @@ Ninguna que bloquee: todo está especificado y aprobado en CHG-019. Si el genera
 | Tarea | Alcance | Depende de | Estado | Ciclos |
 |---|---|---|---|---|
 | T8 | Migración + `10_comprobar_cuentas_integracion.sql` + `probar.sh` + `PLATAAPP_SCHEMA.sql` | fase (b) hecha | hecha (pendiente de validar con T11) | 1 |
-| T9 | Backend: abono, recurrentes (`confirmar_recurrente` atómica), WhatsApp, asistente, exportación + `test_cuentas_integracion.py` | T8 | pendiente | 0 |
+| T9 | Backend: abono, recurrentes (`confirmar_recurrente` atómica), WhatsApp, asistente, exportación + `test_cuentas_integracion.py` | T8 | hecha (pendiente de validar con T11) | 1 |
 | T10 | Frontend: metas, recurrentes, exportación (columna) y trazabilidad | contrato CT-012 (en paralelo con T9) | hecha (pendiente de validar con T11); la exportación no necesita cambio de UI (no lista columnas) | 1 |
 | T11 | Validador y revisor en paralelo (máx. 2 ciclos) | T8-T10 | pendiente | 0 |
 
@@ -36,6 +36,7 @@ Ninguna que bloquee: todo está especificado y aprobado en CHG-019. Si el genera
 | Fecha | Agente | Acción | Resultado |
 |---|---|---|---|
 | 2026-11-25 | dueño | Pide implementar la fase (c) completa | Ficha creada; T8 en curso |
+| 2026-11-25 | generador | T9 backend: abono con cuenta, recurrentes con cuenta y confirmar por función SQL atómica, WhatsApp, asistente, exportación | `test_cuentas_integracion.py` (19 pruebas) y suite completa 999 pasan; sin commit |
 
 ## 7. Cierre
 Pendiente. Despliegue (cuando llegue): SQL en Supabase ANTES del backend; sin variables nuevas; push a `main` solo con aprobación del dueño.

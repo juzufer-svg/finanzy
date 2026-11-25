@@ -7,6 +7,7 @@ bloquear el bucle de eventos.
 - CSV: UTF-8 con BOM, «;», `\\r\\n`, monto SIN comillas y con coma decimal. TODA celda de texto va entre comillas y,
   si empieza por = + - @ tab o CR, lleva un apóstrofo delante, y lo mismo el fragmento que siga a un «,» «;» o salto de línea interno
   (INV-043; única defensa posible en un CSV, que por eso altera mínimamente esos textos; la defensa fuerte es el xlsx).
+  La columna 8 «Cuenta» (CHG-025) es texto del usuario como las demás: mismas defensas y cuenta para el tope de bytes.
 - xlsx (openpyxl, solo escritura): números y fechas reales; todo texto es una cadena explícita y, si podría leerse
   como fórmula, lleva el estilo `quotePrefix` SIN apóstrofo visible (INV-043).
 - Topes (INV-044): 10 000 filas y 4 000 000 bytes; nunca se entrega un archivo truncado. Se lee de 1000 en 1000
@@ -31,7 +32,7 @@ TAMANO_PAGINA = 1000
 PLAZO_SEGUNDOS = 8.0
 FILAS_ENTRE_COMPROBACIONES = 500   # el bucle de escritura del xlsx también respeta `detener` y el plazo
 
-ENCABEZADOS = ("Fecha", "Tipo", "Categoría", "Descripción", "Medio de pago", "Monto (COP)", "Origen")
+ENCABEZADOS = ("Fecha", "Tipo", "Categoría", "Descripción", "Medio de pago", "Monto (COP)", "Origen", "Cuenta")
 NOMBRE_HOJA = "Transacciones"
 SIN_CATEGORIA = "Sin categoría"
 
@@ -81,11 +82,14 @@ def _monto(valor) -> Decimal:
     return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _normalizar(fila: dict, categorias: dict) -> tuple:
-    """(fecha, tipo, categoría, descripción, medio de pago, monto, origen) en el formato del archivo.
-    Una categoría que no sea del usuario sale como «Sin categoría» (INV-042); nunca se exportan ids."""
+def _normalizar(fila: dict, categorias: dict, cuentas: Optional[dict] = None) -> tuple:
+    """(fecha, tipo, categoría, descripción, medio de pago, monto, origen, cuenta) en el formato del archivo.
+    Una categoría que no sea del usuario sale como «Sin categoría» (INV-042); nunca se exportan ids. La cuenta de dinero
+    (columna 8, CHG-025) sale por su nombre y queda vacía si no tiene cuenta o no es del usuario."""
     categoria_id = fila.get("categoria_id")
     categoria = categorias.get(str(categoria_id)) if categoria_id else None
+    cuenta_id = fila.get("cuenta_id")
+    cuenta = (cuentas or {}).get(str(cuenta_id)) if cuenta_id else None
     return (
         str(fila["fecha"])[:10],
         TIPOS.get(fila.get("tipo"), ""),
@@ -94,6 +98,7 @@ def _normalizar(fila: dict, categorias: dict) -> tuple:
         MEDIOS_PAGO.get(fila.get("medio_pago"), ""),
         _monto(fila["monto"]),
         "WhatsApp" if fila.get("whatsapp") else "App",
+        cuenta or "",
     )
 
 
@@ -103,7 +108,7 @@ def _revisar_plazo(limite: float, detener: Optional[threading.Event]) -> None:
 
 
 def _paginas(leer_pagina: Callable[[int, int], list], categorias: dict, limite: float,
-              detener: Optional[threading.Event]) -> Iterator[list]:
+              detener: Optional[threading.Event], cuentas: Optional[dict] = None) -> Iterator[list]:
     """Páginas de filas normalizadas. Pide de 1000 en 1000 hasta agotar y falla si hay más de 10 000 (sin truncar).
     Cualquier error de la BD se propaga (INV-013): nunca se entrega un archivo parcial."""
     leidas = 0
@@ -115,7 +120,7 @@ def _paginas(leer_pagina: Callable[[int, int], list], categorias: dict, limite: 
         if leidas > MAX_FILAS:
             raise ExportacionDemasiadasFilas()
         if pagina:
-            yield [_normalizar(f, categorias) for f in pagina]
+            yield [_normalizar(f, categorias, cuentas) for f in pagina]
         if len(pagina) < TAMANO_PAGINA:
             return
 
@@ -134,7 +139,7 @@ def _generar_csv(paginas: Iterator[list]) -> bytes:
         # Texto entre comillas (QUOTE_NONNUMERIC); el monto va SIN comillas y con coma decimal
         return "".join(
             ";".join([_texto_csv(f[0]), *(_texto_csv(x) for x in f[1:5]), str(f[5]).replace(".", ","),
-                      _texto_csv(f[6])]) + "\r\n"
+                      _texto_csv(f[6]), _texto_csv(f[7])]) + "\r\n"
             for f in filas).encode("utf-8")
 
     trozos.append((";".join(_texto_csv(e) for e in ENCABEZADOS) + "\r\n").encode("utf-8"))
@@ -208,7 +213,7 @@ def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[thre
         hoja.append(list(ENCABEZADOS))
         escritas = 0
         for filas in paginas:
-            for fecha, tipo, categoria, descripcion, medio, monto, origen in filas:
+            for fecha, tipo, categoria, descripcion, medio, monto, origen, cuenta in filas:
                 if escritas % FILAS_ENTRE_COMPROBACIONES == 0:
                     _revisar_plazo(limite, detener)
                 escritas += 1
@@ -218,7 +223,7 @@ def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[thre
                 c_monto.number_format = "#,##0.00"
                 hoja.append([c_fecha, _texto_xlsx(hoja, tipo), _texto_xlsx(hoja, categoria),
                              _texto_xlsx(hoja, descripcion), _texto_xlsx(hoja, medio), c_monto,
-                             _texto_xlsx(hoja, origen)])
+                             _texto_xlsx(hoja, origen), _texto_xlsx(hoja, cuenta)])
         _revisar_plazo(limite, detener)
         descriptor, ruta = tempfile.mkstemp(suffix=".xlsx")
         os.close(descriptor)
@@ -238,14 +243,15 @@ def _generar_xlsx(paginas: Iterator[list], limite: float, detener: Optional[thre
 
 
 def generar_archivo(formato: str, leer_pagina: Callable[[int, int], list], categorias: dict,
-                    detener: Optional[threading.Event] = None, plazo: Optional[float] = None) -> bytes:
+                    detener: Optional[threading.Event] = None, plazo: Optional[float] = None,
+                    cuentas: Optional[dict] = None) -> bytes:
     """Lee las transacciones paginando y devuelve el archivo (bytes). Síncrona: ejecutar en un hilo.
 
     `leer_pagina(inicio, cantidad)` devuelve filas con fecha, tipo, categoria_id, descripcion, medio_pago,
-    monto y whatsapp; `categorias` es {id: nombre} SOLO del usuario. Lanza `ExportacionDemasiadasFilas`,
+    monto, cuenta_id y whatsapp; `categorias` y `cuentas` son {id: nombre} SOLO del usuario. Lanza `ExportacionDemasiadasFilas`,
     `ExportacionDemasiadoGrande` o `ExportacionLenta`; los errores de la BD se propagan."""
     limite = time.monotonic() + (PLAZO_SEGUNDOS if plazo is None else plazo)
-    paginas = _paginas(leer_pagina, categorias, limite, detener)
+    paginas = _paginas(leer_pagina, categorias, limite, detener, cuentas)
     if formato == "xlsx":
         return _generar_xlsx(paginas, limite, detener)
     return _generar_csv(paginas)
