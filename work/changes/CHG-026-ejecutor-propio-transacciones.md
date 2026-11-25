@@ -18,13 +18,14 @@ Ejecutor propio (hilos nombrados, no `auth-estado`, no `cuentas`), 503 sin encol
 ## 4. Plan de tareas
 | Tarea | Alcance | Estado | Ciclos |
 |---|---|---|---|
-| T1 | `models/plataapp.py::TransaccionDB` (+ lo que dependa) y pruebas | en curso | 0 |
+| T1 | `models/plataapp.py::TransaccionDB` (+ lo que dependa) y pruebas | implementada, pendiente de validar | 0 |
 | T2 | Validador (ejecuta y mide); trazabilidad y cierre de BL-043 | pendiente | 0 |
 
 ## 5. Registro de ejecución
 | Fecha | Agente | Acción | Resultado |
 |---|---|---|---|
 | 2026-11-25 | dueño | Aprueba hacerlo si no es demorado | T1 en curso |
+| 2026-11-25 | generador | T1: `models/transacciones_ejecutor.py`, `TransaccionDB` y `get_user_id` (presupuesto); `test_transacciones_ejecutor.py` (14) y 4 archivos adaptados; suite 1014 passed, pyflakes limpio | pendiente de validar |
 
 ## 6. Cierre
 Pendiente. Despliegue: push a `main` con aprobación del dueño; sin SQL ni variables nuevas.

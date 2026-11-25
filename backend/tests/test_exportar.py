@@ -539,7 +539,7 @@ def _con_supabase_falso(monkeypatch, fuente):
     from app.models import plataapp
     cliente = _ClienteFalso(fuente)
     monkeypatch.setattr(plataapp, "_supabase_ok", lambda: True)
-    monkeypatch.setattr(plataapp.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    monkeypatch.setattr(plataapp.auth_estado, "cliente_estado", lambda: cliente)   # CHG-026: cliente con plazo
     return cliente
 
 

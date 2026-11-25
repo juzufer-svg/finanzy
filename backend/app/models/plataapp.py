@@ -8,6 +8,8 @@ from app.core.supabase import SupabaseDB
 from app.core.config import settings
 from app.models import auth_estado, whatsapp as whatsapp_db
 from app.models.cuentas import _llamar, _modo, rpc_negocio
+from app.models.auth_estado import EstadoNoDisponible
+from app.models.transacciones_ejecutor import llamar as _llamar_tx
 from app.models.demo_db import (
     ErrorBD,
     DemoTransaccionDB,
@@ -48,43 +50,39 @@ class TransaccionDB:
         if not _supabase_ok():
             return await DemoTransaccionDB.crear(usuario_id, categoria_id, monto, descripcion, fecha, tipo, medio_pago,
                                                  cuenta_id)
-        try:
-            client = SupabaseDB.get_client()
-            row = {
-                "id": str(uuid.uuid4()),
-                "usuario_id": usuario_id,
-                "categoria_id": categoria_id if categoria_id else None,
-                "monto": monto,
-                "descripcion": descripcion,
-                "fecha": fecha,
-                "tipo": tipo,
-            }
-            if medio_pago is not None:  # columna de CHG-007; sin dato se deja NULL
-                row["medio_pago"] = medio_pago
-            if cuenta_id is not None:  # columna de CHG-019; sin cuenta no se envía (funciona aunque falte la migración)
-                row["cuenta_id"] = cuenta_id
-            result = client.table("transacciones").insert(row).execute()
-            return result.data[0]
-        except Exception as e:
-            # Sin el texto de la BD (puede traer ids de cuentas); los errores FZ001/FZ002 los traduce la ruta (409)
-            print(f"[Supabase] transacciones.crear error: {type(e).__name__} {getattr(e, 'code', '')}")
-            raise
+        row = {
+            "id": str(uuid.uuid4()),
+            "usuario_id": usuario_id,
+            "categoria_id": categoria_id if categoria_id else None,
+            "monto": monto,
+            "descripcion": descripcion,
+            "fecha": fecha,
+            "tipo": tipo,
+        }
+        if medio_pago is not None:  # columna de CHG-007; sin dato se deja NULL
+            row["medio_pago"] = medio_pago
+        if cuenta_id is not None:  # columna de CHG-019; sin cuenta no se envía (funciona aunque falte la migración)
+            row["cuenta_id"] = cuenta_id
+        # Ejecutor propio y cliente con plazo (CHG-026). Sin el texto de la BD (puede traer ids de cuentas);
+        # FZ001/FZ002 los traduce la ruta (409), 22003 → 422
+        return await _llamar_tx("transacciones_crear", lambda: auth_estado.cliente_estado()
+                                .table("transacciones").insert(row).execute().data[0])
 
     @staticmethod
     async def obtener_por_usuario(usuario_id: str, mes: Optional[str] = None) -> list:
         if not _supabase_ok():
             return await DemoTransaccionDB.obtener_por_usuario(usuario_id, mes)
-        try:
-            client = SupabaseDB.get_client()
-            q = client.table("transacciones").select("*").eq("usuario_id", usuario_id).order("fecha", desc=True)
+        def consulta():
+            q = (auth_estado.cliente_estado().table("transacciones").select("*").eq("usuario_id", usuario_id)
+                 .order("fecha", desc=True))
             if mes:
                 first, nxt = _mes_rango(mes)
                 q = q.gte("fecha", first).lt("fecha", nxt)
-            result = q.execute()
-            return result.data
-        except Exception as e:
-            print(f"[Supabase] transacciones.obtener error: {e}")
-            raise
+            return q.execute().data
+        datos = await _llamar_tx("transacciones_listar", consulta)
+        if not isinstance(datos, list):
+            raise EstadoNoDisponible("lista inesperada")
+        return datos
 
     # ---- Lectura para exportar (CHG-018, INV-042/INV-044): síncrona, para correr en un hilo ----
 
@@ -95,7 +93,7 @@ class TransaccionDB:
             return {c["id"]: c.get("nombre", "") for c in DemoCategoriaDB._categorias.values()
                     if str(c.get("usuario_id")) == str(usuario_id)}
         try:
-            client = SupabaseDB.get_client()
+            client = auth_estado.cliente_estado()   # plazo de 4 s (CHG-026); corre en el ejecutor propio de exportaciones
             nombres, desde = {}, 0
             while True:
                 filas = (client.table("categorias").select("id,nombre").eq("usuario_id", usuario_id)
@@ -129,7 +127,7 @@ class TransaccionDB:
                 "cuenta_id": t.get("cuenta_id"), "whatsapp": t["id"] in ids_whatsapp,
             } for t in propias[inicio:inicio + cantidad]]
         try:
-            client = SupabaseDB.get_client()
+            client = auth_estado.cliente_estado()   # plazo de 4 s (CHG-026); corre en el ejecutor propio de exportaciones
             filas = (client.table("transacciones")
                      .select("fecha,tipo,categoria_id,descripcion,medio_pago,monto,cuenta_id,whatsapp_registros(transaccion_id)")
                      .eq("usuario_id", usuario_id).gte("fecha", primero).lt("fecha", siguiente)
@@ -150,13 +148,11 @@ class TransaccionDB:
     async def obtener_por_id(transaccion_id: str, usuario_id: str) -> Optional[dict]:
         if not _supabase_ok():
             return _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id)
-        try:
-            client = SupabaseDB.get_client()
-            result = client.table("transacciones").select("*").eq("id", transaccion_id).eq("usuario_id", usuario_id).limit(1).execute()
-            return result.data[0] if result.data else None
-        except Exception as e:
-            print(f"[Supabase] transacciones.obtener_por_id error: {e}")
-            raise
+        datos = await _llamar_tx("transacciones_obtener", lambda: auth_estado.cliente_estado().table("transacciones")
+                                 .select("*").eq("id", transaccion_id).eq("usuario_id", usuario_id).limit(1).execute().data)
+        if not isinstance(datos, list):
+            raise EstadoNoDisponible("lista inesperada")
+        return datos[0] if datos else None
 
     @staticmethod
     async def actualizar(transaccion_id: str, usuario_id: str, **kwargs) -> Optional[dict]:
@@ -164,21 +160,20 @@ class TransaccionDB:
             if not _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id):
                 return None
             return await DemoTransaccionDB.actualizar(transaccion_id, **kwargs)
-        try:
-            allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo'}
-            updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
-            if "medio_pago" in kwargs:  # None aquí significa "quitar el medio de pago"
-                updates["medio_pago"] = kwargs["medio_pago"]
-            if "cuenta_id" in kwargs:  # igual que medio_pago: None = quitar la cuenta de dinero (CHG-019)
-                updates["cuenta_id"] = kwargs["cuenta_id"]
-            if updates.get("categoria_id") == "":  # igual que en crear: "" = sin categoría (columna uuid)
-                updates["categoria_id"] = None
-            client = SupabaseDB.get_client()
-            result = client.table("transacciones").update(updates).eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
-            return result.data[0] if result.data else None
-        except Exception as e:
-            print(f"[Supabase] transacciones.actualizar error: {type(e).__name__} {getattr(e, 'code', '')}")
-            raise
+        allowed = {'categoria_id', 'monto', 'descripcion', 'fecha', 'tipo'}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        if "medio_pago" in kwargs:  # None aquí significa "quitar el medio de pago"
+            updates["medio_pago"] = kwargs["medio_pago"]
+        if "cuenta_id" in kwargs:  # igual que medio_pago: None = quitar la cuenta de dinero (CHG-019)
+            updates["cuenta_id"] = kwargs["cuenta_id"]
+        if updates.get("categoria_id") == "":  # igual que en crear: "" = sin categoría (columna uuid)
+            updates["categoria_id"] = None
+
+        def escribe():
+            datos = (auth_estado.cliente_estado().table("transacciones").update(updates)
+                     .eq("id", transaccion_id).eq("usuario_id", usuario_id).execute().data)
+            return datos[0] if datos else None
+        return await _llamar_tx("transacciones_actualizar", escribe)
 
     @staticmethod
     async def eliminar(transaccion_id: str, usuario_id: str) -> bool:
@@ -186,13 +181,9 @@ class TransaccionDB:
             if not _de_usuario(await DemoTransaccionDB.obtener_por_id(transaccion_id), usuario_id):
                 return False
             return await DemoTransaccionDB.eliminar(transaccion_id)
-        try:
-            client = SupabaseDB.get_client()
-            client.table("transacciones").delete().eq("id", transaccion_id).eq("usuario_id", usuario_id).execute()
-            return True
-        except Exception as e:
-            print(f"[Supabase] transacciones.eliminar error: {type(e).__name__} {getattr(e, 'code', '')}")
-            raise
+        await _llamar_tx("transacciones_eliminar", lambda: auth_estado.cliente_estado().table("transacciones").delete()
+                         .eq("id", transaccion_id).eq("usuario_id", usuario_id).execute())
+        return True
 
     @staticmethod
     async def obtener_resumen(usuario_id: str, mes: str) -> dict:

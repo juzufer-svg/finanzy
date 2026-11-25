@@ -35,7 +35,7 @@ def test_inv013_si_supabase_falla_se_propaga_el_error_y_no_se_guarda_en_memoria(
             raise RuntimeError("Supabase no disponible")
 
     monkeypatch.setattr(modelos, "_supabase_ok", lambda: True)
-    monkeypatch.setattr(modelos.SupabaseDB, "get_client", staticmethod(lambda: _ClienteRoto()))
-    with pytest.raises(RuntimeError):
+    monkeypatch.setattr(modelos.auth_estado, "cliente_estado", lambda: _ClienteRoto())   # CHG-026: cliente con plazo
+    with pytest.raises(modelos.EstadoNoDisponible):   # antes RuntimeError crudo; ahora 503 genérico (sin texto de la BD), igual sin memoria
         asyncio.run(modelos.TransaccionDB.crear("u", "", 10, "x", "2026-11-22", "gasto"))
     assert modelos.DemoTransaccionDB._transacciones == {}

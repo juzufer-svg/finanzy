@@ -448,7 +448,7 @@ def _con_supabase_falso(monkeypatch, fuente):
     cliente = _ClienteFalso(fuente)
     monkeypatch.setattr(auth_estado, "_modo", lambda: "bd")          # cuentas: cliente dedicado con plazo
     monkeypatch.setattr(auth_estado, "_cliente_estado", cliente)
-    monkeypatch.setattr(modelos, "_supabase_ok", lambda: True)       # transacciones: cliente general
+    monkeypatch.setattr(modelos, "_supabase_ok", lambda: True)       # transacciones: ahora también el cliente dedicado (CHG-026); get_client queda por las demás tablas
     monkeypatch.setattr(modelos.SupabaseDB, "get_client", staticmethod(lambda: cliente))
     return cliente
 

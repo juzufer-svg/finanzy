@@ -118,6 +118,7 @@ def test_toda_consulta_por_id_en_supabase_filtra_tambien_por_usuario(operacion, 
     cliente = _ClienteGrabado()
     monkeypatch.setattr(modelos, "_supabase_ok", lambda: True)
     monkeypatch.setattr(modelos.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    monkeypatch.setattr(modelos.auth_estado, "cliente_estado", lambda: cliente)   # transacciones: cliente con plazo (CHG-026)
     asyncio.run(operacion())
     assert ("usuario_id", "dueno") in cliente.filtros
 

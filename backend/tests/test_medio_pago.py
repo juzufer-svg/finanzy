@@ -93,7 +93,7 @@ class _Cliente:
 def supabase_falso(monkeypatch):
     cliente = _Cliente()
     monkeypatch.setattr(modelos, "_supabase_ok", lambda: True)
-    monkeypatch.setattr(modelos.SupabaseDB, "get_client", staticmethod(lambda: cliente))
+    monkeypatch.setattr(modelos.auth_estado, "cliente_estado", lambda: cliente)   # CHG-026: cliente con plazo
     return cliente.registro
 
 

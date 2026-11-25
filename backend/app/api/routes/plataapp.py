@@ -21,6 +21,7 @@ from app.models.cuentas import CuentaDB
 from app.api.cuentas_errores import (
     relanzar_o_503 as relanzar_error_cuenta, traducir as traducir_error_cuenta, codigo_de, MSG_NO_ENCONTRADA, MSG_ARCHIVADA,
 )
+from app.models import auth_estado
 from app.models.auth_estado import EstadoNoDisponible
 from app.utils.recurrencia import siguiente_fecha
 from datetime import date, datetime, timezone
@@ -32,6 +33,7 @@ router = APIRouter()
 
 async def get_user_id(authorization: str) -> str:
     """Extrae el usuario_id del token Bearer y verifica que la sesión siga vigente."""
+    auth_estado.iniciar_presupuesto()   # presupuesto de 5 s por petición para las llamadas a la BD (CHG-026)
     return await usuario_de_sesion(authorization)
 
 
