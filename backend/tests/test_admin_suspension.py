@@ -389,7 +389,7 @@ def test_inv061_registrar_acceso_tiene_plazo_propio_de_2s_y_no_afecta_la_respues
     inicio = time.monotonic()
     assert asyncio.run(UserDB.registrar_acceso(panel.id_victima)) is False
     assert time.monotonic() - inicio < 0.9   # no espera a la BD lenta
-    assert "auth-estado" in acceso.hilos[0]   # fuera del event loop, en el ejecutor propio
+    assert "auth-acceso" in acceso.hilos[0]   # fuera del event loop, en su ejecutor PROPIO (no el de 8 hilos de auth)
     acceso.espera, acceso.llamadas = 0.0, []
     r = _login(client)   # el login no depende del resultado
     assert r.status_code == 200 and r.json()["access_token"]
@@ -411,3 +411,77 @@ def test_inv061_el_aviso_de_fallo_no_lleva_datos(panel, acceso, capsys):
     assert asyncio.run(UserDB.registrar_acceso(panel.id_victima)) is False
     salida = capsys.readouterr()
     assert "ValueError" in salida.out and VICTIMA not in salida.out + salida.err and panel.id_victima not in salida.out
+
+
+# ---- INV-061: límite propio de escrituras de último acceso (semáforo; mejora menor de CHG-023) ----
+
+def _huecos_libres():
+    from app.models import user as user_mod
+    return user_mod._huecos_acceso._value
+
+
+def _esperar_huecos(n, plazo=3.0):
+    fin = time.monotonic() + plazo
+    while _huecos_libres() != n and time.monotonic() < fin:
+        time.sleep(0.01)
+    return _huecos_libres()
+
+
+def test_inv061_semaforo_lleno_omite_sin_llamar_a_la_bd_ni_fallar(client, panel, acceso, capsys):
+    from app.models import user as user_mod
+    tomados = 0
+    while user_mod._huecos_acceso.acquire(blocking=False):
+        tomados += 1
+    try:
+        inicio = time.monotonic()
+        assert asyncio.run(UserDB.registrar_acceso(panel.id_victima)) is False
+        assert time.monotonic() - inicio < 0.2 and acceso.llamadas == []
+        r = _login(client)   # el login responde igual
+        assert r.status_code == 200 and r.json()["access_token"]
+        assert acceso.llamadas == []
+        salida = capsys.readouterr().out
+        assert panel.id_victima not in salida and VICTIMA not in salida
+    finally:
+        for _ in range(tomados):
+            user_mod._huecos_acceso.release()
+
+
+def test_inv061_el_hueco_se_libera_tras_terminar_tras_excepcion_y_tras_cancelacion(panel, acceso):
+    base = _huecos_libres()
+    assert asyncio.run(UserDB.registrar_acceso(panel.id_victima)) is True
+    assert _esperar_huecos(base) == base                      # tras terminar
+    acceso.falla = RuntimeError("x")
+    assert asyncio.run(UserDB.registrar_acceso(panel.id_victima)) is False
+    assert _esperar_huecos(base) == base                      # tras excepción
+    acceso.falla, acceso.espera = None, 0.5
+
+    async def cancelar():
+        tarea = asyncio.create_task(UserDB.registrar_acceso(panel.id_victima))
+        await asyncio.sleep(0.1)
+        tarea.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tarea
+    asyncio.run(cancelar())
+    assert _esperar_huecos(base) == base                      # tras cancelación (al terminar el hilo)
+
+
+def test_inv061_con_bd_lenta_las_escrituras_de_acceso_no_dan_503_a_otros_logins(client, panel, acceso, monkeypatch):
+    """No interferencia: con la BD de «último acceso» lenta y muchas escrituras en vuelo, el ejecutor compartido de auth
+    sigue libre y el login de OTRA persona responde 200 (no 503)."""
+    from app.models import user as user_mod
+    monkeypatch.setattr(user_mod, "PLAZO_REGISTRAR_ACCESO_SEG", 0.1)
+    acceso.espera = 0.6
+    otro = "otra@ejemplo.com"
+    _alta(panel.store, otro, hashed=security.get_password_hash("OtraContrasena#1"))
+
+    async def tormenta():
+        return await asyncio.gather(*[UserDB.registrar_acceso(panel.id_victima) for _ in range(12)])
+    hilo = threading.Thread(target=lambda: asyncio.run(tormenta()))
+    hilo.start()
+    time.sleep(0.15)
+    r = _login(client, correo=otro, password="OtraContrasena#1")
+    hilo.join()
+    assert r.status_code == 200
+    assert len(acceso.llamadas) <= user_mod.MAX_ESCRITURAS_ACCESO + 1   # el resto se omitió
+    assert all("auth-estado" not in h for h in acceso.hilos)
+    _esperar_huecos(user_mod.MAX_ESCRITURAS_ACCESO)
